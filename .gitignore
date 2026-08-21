@@ -2,6 +2,9 @@
 
 # dependencies
 /node_modules
+# devcontainer 밖에서 pnpm 을 돌리면 store 가 여기에 생긴다(수 GB).
+# 컨테이너 안에서는 compose 의 pnpm_store 볼륨(/pnpm/store)이 쓰인다.
+/.pnpm-store
 /.pnp
 .pnp.*
 .yarn/*

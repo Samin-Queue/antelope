@@ -5,6 +5,11 @@ set -euo pipefail
 # confirmModulesPurge=false: 비대화형에서 "reinstall from scratch?" 프롬프트에 걸리지 않게.
 pnpm install --frozen-lockfile --config.confirmModulesPurge=false
 
+# Playwright 브라우저. 이미지에는 없고 ~/.cache/ms-playwright 에 깔린다.
+# npm 으로 돌리면 비대화형에서 멈추는 사례가 있어 pnpm exec 로 실행한다.
+# chromium 만 받는다 — Google Chrome 은 arm64 리눅스 빌드가 없어서 채널 설치가 실패한다.
+pnpm exec playwright install chromium --with-deps
+
 # git·gh·claude 는 feature 가 이미지에 넣는다. railway 는 공식 feature 가 없어서 여기서.
 npm install -g --no-fund --no-audit @railway/cli
 
