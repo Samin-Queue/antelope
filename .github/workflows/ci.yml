@@ -34,6 +34,11 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # better-auth 1.7.1 CLI 는 account.issuer 를 생성하지 않으면서 런타임에서는
+      # 그 컬럼으로 조회한다. 누락되면 OAuth 콜백만 죽어 로컬에서는 안 드러난다.
+      - name: better-auth 스키마 대조
+        run: pnpm check:auth-schema
+
       # next build 에 타입체크가 포함된다
       - name: Build
         run: pnpm build

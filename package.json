@@ -16,7 +16,8 @@
     "docker:db": "docker compose up -d db",
     "docker:prod": "docker build -t antelope . && docker run --rm -p 3000:3000 --env-file .env.local antelope",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check:auth-schema": "tsx scripts/check-auth-schema.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.33",

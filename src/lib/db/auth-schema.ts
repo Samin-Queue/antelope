@@ -42,6 +42,11 @@ export const account = pgTable(
     id: text("id").primaryKey(),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
+    // ⚠ better-auth 1.7.1 런타임은 findAccountOwnerByKey 에서 issuer 로 조회하는데
+    // 같은 버전 CLI 가 이 컬럼을 생성하지 않는다. 없으면 OAuth 콜백이
+    // `where ( = $1 ...)` 로 렌더돼 42601 구문 오류가 난다.
+    // 재생성 후에도 이 줄은 반드시 다시 넣는다 — scripts/check-auth-schema.ts 가 검사한다.
+    issuer: text("issuer"),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
