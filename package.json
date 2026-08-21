@@ -10,7 +10,11 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down",
+    "docker:db": "docker compose up -d db",
+    "docker:prod": "docker build -t samin-queue . && docker run --rm -p 3000:3000 --env-file .env.local samin-queue"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.33",

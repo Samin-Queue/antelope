@@ -8,7 +8,7 @@ export const site = {
   description:
     "JunctionX Korea 2026 · 포항 · 8월 21–23일. 트랙 발표 후 제품 설명으로 교체합니다.",
   team: "Samin Queue",
-  repo: "https://github.com/samin-queue",
+  repo: "https://github.com/Samin-Queue/samin-queue",
   cta: { label: "데모 열기", href: "/playground" },
 
   /** 히어로 */
