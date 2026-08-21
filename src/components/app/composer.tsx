@@ -5,6 +5,13 @@ import { ArrowUp, FileText, Link2, Paperclip, Sparkles, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export type ComposerSubmit =
   | { kind: "text"; text: string }
@@ -24,13 +31,19 @@ const SUGGESTIONS = [
  * 사용자가 고르게 하지 않는다 — 붙여넣은 것이 URL 이면 URL 로, 파일을 끌어다
  * 놓으면 파일로 알아서 처리한다.
  */
+export type ModelOption = { id: string; label: string; provider: string };
+
 export function Composer({
   greeting,
+  models,
   onSubmit,
 }: {
   greeting: string;
+  /** 실제로 붙어 있는 모델. 서버에서 내려온 값이라 표시가 곧 사실이다 */
+  models: ModelOption[];
   onSubmit: (input: ComposerSubmit) => void;
 }) {
+  const [model, setModel] = useState(models[0]?.id ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -122,15 +135,40 @@ export function Composer({
               링크로 인식됨
             </span>
           )}
-          <Button
-            size="icon"
-            className="ml-auto rounded-full"
-            aria-label="시작"
-            disabled={!ready}
-            onClick={submit}
-          >
-            <ArrowUp />
-          </Button>
+
+          <div className="ml-auto flex items-center gap-2">
+            {models.length > 0 && (
+              <Select value={model} onValueChange={(value) => setModel(value ?? "")}>
+                <SelectTrigger
+                  size="sm"
+                  className="border-0 bg-transparent text-xs text-muted-foreground shadow-none hover:bg-muted/60"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {models.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      <span className="flex items-center gap-2">
+                        {item.label}
+                        <span className="text-xs text-muted-foreground">
+                          {item.provider}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button
+              size="icon"
+              className="rounded-full"
+              aria-label="시작"
+              disabled={!ready}
+              onClick={submit}
+            >
+              <ArrowUp />
+            </Button>
+          </div>
         </div>
       </div>
 
