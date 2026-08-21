@@ -18,7 +18,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:auth-schema": "tsx scripts/check-auth-schema.ts",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "doctor": "tsx scripts/doctor.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.33",

@@ -6,6 +6,8 @@ JunctionX Korea 2026 (포항, 8/21–8/23) 출품작 · Team **Samin Queue**
 
 ## 시작하기
 
+처음이라면 [SETUP.md](./SETUP.md) 를 먼저 본다 — Node·pnpm·Docker·git 신원까지 한 번에 정리돼 있다.
+
 ```bash
 pnpm install
 cp .env.example .env.local     # UPSTAGE_API_KEY 를 채운다
@@ -15,6 +17,7 @@ pnpm dev                       # http://localhost:3000
 ```
 
 `/api/health` 가 200 이고 `llm.provider` 가 보이면 준비 완료.
+막히면 `pnpm doctor` 가 무엇이 빠졌는지 알려준다.
 
 Cursor/VS Code 에서 `Reopen in Container` 로 devcontainer 를 써도 된다 —
 결과는 같고, macOS 에서는 위쪽(네이티브)이 더 빠르다.
@@ -38,5 +41,6 @@ Vercel AI SDK v7 · Docker · Railway
 
 ## 문서
 
-작업 규칙, 트랙 스위칭 방법, **지우면 안 되는 설정 목록**은
-[AGENTS.md](./AGENTS.md) 에 있다. 처음 합류했다면 한 번 읽고 시작할 것.
+- [SETUP.md](./SETUP.md) — 데스크톱 세팅. 팀에서 받을 것은 `.env.local` 하나뿐이다.
+- [AGENTS.md](./AGENTS.md) — 작업 규칙, 트랙 스위칭, **지우면 안 되는 설정 목록**.
+  처음 합류했다면 한 번 읽고 시작할 것.
