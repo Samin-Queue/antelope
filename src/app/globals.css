@@ -139,3 +139,12 @@
     @apply font-sans;
   }
 }
+
+/* 랜딩 최상위 제목 전용 세리프 변형.
+   기본 제목은 Pretendard + font-semibold 를 그대로 쓰고, 이 변형만 예외다.
+   Diphylleia 는 weight 400 하나뿐이라 굵기를 올리면 가짜 볼드가 합성된다. */
+@utility heading-display {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  letter-spacing: -0.005em;
+}

@@ -4,7 +4,7 @@ export function Integrations() {
   return (
     <section id="integrations" className="mx-auto w-full max-w-7xl px-5 py-24">
       <div className="rounded-3xl border border-border bg-card/40 px-6 py-16 text-center">
-        <h2 className="font-serif text-2xl font-normal tracking-tight text-balance sm:text-3xl">
+        <h2 className="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
           {site.integrations.headline}
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">

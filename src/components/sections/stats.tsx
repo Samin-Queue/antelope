@@ -6,7 +6,7 @@ export function Stats() {
       <div className="mx-auto w-full max-w-7xl px-5 py-20">
         <div className="max-w-2xl">
           <p className="text-sm font-medium text-brand">{site.stats.eyebrow}</p>
-          <h2 className="mt-3 font-serif text-2xl font-normal tracking-tight text-balance sm:text-3xl">
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
             {site.stats.headline}
           </h2>
           <p className="mt-3 text-muted-foreground">{site.stats.sub}</p>

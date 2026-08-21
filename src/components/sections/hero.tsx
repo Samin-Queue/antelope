@@ -29,7 +29,7 @@ export function Hero() {
           <ArrowRight className="size-3.5 text-muted-foreground" />
         </Link>
 
-        <h1 className="mx-auto mt-10 max-w-4xl text-center font-serif text-4xl leading-[1.12] font-normal tracking-tight text-balance sm:text-6xl">
+        <h1 className="mx-auto mt-10 max-w-4xl text-center heading-display text-4xl leading-[1.12] text-balance sm:text-6xl">
           {site.hero.headline}
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-center text-lg text-pretty text-muted-foreground">
