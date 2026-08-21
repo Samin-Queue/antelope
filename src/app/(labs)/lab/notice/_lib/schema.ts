@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { CATEGORIES, isCategory, type Category } from "./categories";
+
 /**
  * 정규화된 「공고 객체」.
  *
@@ -13,6 +15,7 @@ import { z } from "zod";
 const optionalText = z.string().nullish();
 
 export const extractionSchema = z.object({
+  category: z.enum(CATEGORIES).nullish(),
   title: optionalText,
   organization: optionalText,
   target: optionalText,
@@ -55,6 +58,8 @@ export type SubmissionDocument = {
 export type ScoringItem = { criterion: string; points: number | null };
 
 export type Notice = {
+  /** Studio Classify 노드가 정한 분류. 뒤 단계가 이걸 참고한다 */
+  category: Category;
   title: string;
   organization: string | null;
   target: string | null;
@@ -82,6 +87,7 @@ export function normalize(raw: Extraction, fallbackTitle: string): Notice {
   if (!raw.documents?.length) unknowns.add("제출 서류");
 
   return {
+    category: isCategory(raw.category) ? raw.category : "OTHER",
     title: clean(raw.title) ?? fallbackTitle,
     organization: clean(raw.organization),
     target: clean(raw.target),

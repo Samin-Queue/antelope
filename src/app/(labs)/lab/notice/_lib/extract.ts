@@ -3,7 +3,11 @@ import { generateObject } from "ai";
 import { chatModel } from "@/lib/llm";
 import { parseDocument } from "@/lib/upstage";
 
+import { CATEGORIES, CATEGORY_LABEL } from "./categories";
 import { extractionSchema, normalize, type Notice } from "./schema";
+
+/** 프롬프트에 박을 분류 목록. Studio Classify 와 같은 값이어야 한다. */
+const CATEGORY_ENUM = CATEGORIES.map((value) => `"${value}"`).join(" | ");
 
 export type IngestSource =
   { kind: "file"; name: string } | { kind: "url"; url: string } | { kind: "text" };
@@ -80,6 +84,7 @@ export async function extractNotice(text: string, source: IngestSource): Promise
   // organizer·eligibility 처럼 제 마음대로 필드명을 지어내 검증이 통째로 실패한다.
   // 계약을 프롬프트에 직접 박는다.
   const FIELD_CONTRACT = `{
+  "category": ${CATEGORY_ENUM},
   "title": string,
   "organization": string | null,
   "target": string | null,
@@ -104,6 +109,8 @@ export async function extractNotice(text: string, source: IngestSource): Promise
       FIELD_CONTRACT,
       "",
       "규칙:",
+      "- category 는 아래 중 하나를 고른다. 애매하면 OTHER 로 둔다.",
+      ...CATEGORIES.map((value) => `    ${value} — ${CATEGORY_LABEL[value]}`),
       "- 원문에 없는 내용을 지어내지 않는다. 확인되지 않는 값은 null 로 둔다.",
       "- requirements 는 자격 요건을 한 문장씩 나눠 담는다. 제외 대상도 요건이다.",
       "- 각 요건의 source 에는 원문 문장을 그대로 옮긴다. 요약하지 않는다.",

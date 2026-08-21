@@ -168,6 +168,11 @@ POST /v2/responses             (model=<agentId>, input_file) → job_id
 GET  /v2/responses/{job_id}    폴링 → completed
 ```
 
+분류 클래스는 `_lib/categories.ts` 의 `CATEGORIES` 와 **글자 그대로 같아야 한다.**
+어느 한쪽만 바꾸면 분류 결과가 어느 분기에도 걸리지 않는다. 값을 영문 대문자로
+두는 이유는 그게 코드의 분기 키이기 때문이다 — 한글 라벨을 값으로 쓰면 표기가
+조금만 달라져도 매칭이 깨진다.
+
 **에이전트를 만들기만 하면 안 되고 노드 구성을 저장해야 한다.** 저장 전에는
 `404 No default config found for agent` 가 돌아온다. Studio 화면에서
 Parse → Classify → Extract → Instruct 를 구성하고 저장하면 Config ID 가 생긴다.
