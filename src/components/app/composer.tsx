@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { ArrowUp, FileText, Link2, Paperclip, Sparkles, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ProviderMark } from "@/components/app/provider-mark";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -44,6 +45,7 @@ export function Composer({
   onSubmit: (input: ComposerSubmit) => void;
 }) {
   const [model, setModel] = useState(models[0]?.id ?? "");
+  const selected = models.find((item) => item.id === model) ?? models[0];
   const inputRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -141,18 +143,17 @@ export function Composer({
               <Select value={model} onValueChange={(value) => setModel(value ?? "")}>
                 <SelectTrigger
                   size="sm"
-                  className="border-0 bg-transparent text-xs text-muted-foreground shadow-none hover:bg-muted/60"
+                  className="gap-1.5 rounded-full border-0 bg-transparent px-2.5 text-xs text-muted-foreground shadow-none transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-0"
                 >
+                  {selected && <ProviderMark provider={selected.provider} />}
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="end">
                   {models.map((item) => (
                     <SelectItem key={item.id} value={item.id}>
                       <span className="flex items-center gap-2">
+                        <ProviderMark provider={item.provider} />
                         {item.label}
-                        <span className="text-xs text-muted-foreground">
-                          {item.provider}
-                        </span>
                       </span>
                     </SelectItem>
                   ))}
