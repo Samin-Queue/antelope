@@ -17,6 +17,71 @@ function authHeader(): Record<string, string> {
 
 export type StudioFile = { id: string; bytes?: number; filename?: string };
 
+// ── Agent · Config ──────────────────────────────────────────────────────
+//
+// Config 를 코드로 만들 수 있다. Studio UI 를 거치지 않아도 되고, 워크플로가
+// 레포에 남아 리뷰·버전 관리가 된다.
+//
+// 규칙 (스펙에서 검증됨):
+//   - document-parse 가 반드시 첫 스텝이다
+//   - 순서는 DP → DC → IE. document-classify 가 IE 뒤에 올 수 없다
+//   - instruct 는 DP 뒤 어디든 들어간다
+//   - is_first 는 정확히 하나
+//   - Config 는 생성 후 불변이다. 고치려면 새로 만든다
+
+export type StepType =
+  "document-parse" | "document-classify" | "information-extract" | "instruct";
+
+export type NextStep = {
+  step_name: string;
+  /** 없으면 무조건 이 경로. classify 결과로 분기할 때만 쓴다 */
+  condition?: { field: string; operator: "==" | "!="; value: string };
+};
+
+export type Step = {
+  name: string;
+  type: StepType;
+  data: Record<string, unknown>;
+  is_first?: boolean;
+  next_steps: NextStep[];
+};
+
+export type StudioAgent = { id: string; name?: string };
+export type StudioConfig = { id: string; external_id?: string };
+
+export async function createAgent(name: string): Promise<StudioAgent> {
+  const response = await fetch(`${BASE}/agents`, {
+    method: "POST",
+    headers: { ...authHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    throw new Error(`[studio] agents ${response.status}: ${await response.text()}`);
+  }
+  return (await response.json()) as StudioAgent;
+}
+
+export async function createConfig(opts: {
+  agentId: string;
+  name?: string;
+  steps: Step[];
+  isDefault?: boolean;
+}): Promise<StudioConfig> {
+  const response = await fetch(`${BASE}/agents/${opts.agentId}/configs`, {
+    method: "POST",
+    headers: { ...authHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: opts.name,
+      is_default: opts.isDefault ?? true,
+      steps: opts.steps,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`[studio] configs ${response.status}: ${await response.text()}`);
+  }
+  return (await response.json()) as StudioConfig;
+}
+
 /** 1단계 — 파일을 올리고 file_id 를 받는다. */
 export async function uploadFile(
   file: File | Blob,

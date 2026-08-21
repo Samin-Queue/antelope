@@ -173,6 +173,33 @@ GET  /v2/responses/{job_id}    폴링 → completed
 두는 이유는 그게 코드의 분기 키이기 때문이다 — 한글 라벨을 값으로 쓰면 표기가
 조금만 달라져도 매칭이 깨진다.
 
+**Config 는 코드로 만든다.** `src/lib/studio-workflow.ts` 에 DAG 를 두고
+`pnpm studio:provision` 으로 반영한다. UI 로 클릭해 만들면 레포에 안 남고
+리뷰도 못 한다. Config 는 **불변**이라 고칠 때마다 새 Config 가 생긴다 —
+버전 관리와 감사 추적이 공짜로 따라온다.
+
+현재: Agent `agt_QxDUCbi6bCjGqzfrzeZqwE` · Config `cfg_B6KtEoEkYnRdEoybGZB6F3`
+
+```
+parse → classify(split) ─┬─ CONTRACT_TERMS        → extract-contract ─┐
+                         ├─ HOUSING_SUBSCRIPTION  → extract-housing  ─┤
+                         ├─ JOB_POSTING           → extract-job      ─┼─▶ gaps(instruct)
+                         └─ (그 외)                → extract-general  ─┘
+```
+
+요청마다 에이전트를 새로 만들 필요가 없다. classify 결과로 분기하는 것이
+Config 의 존재 이유다.
+
+**스펙 문서와 실제가 다른 곳 두 군데** (둘 다 400/실패로 실측했다):
+
+| 문서                                             | 실제                                                              |
+| ------------------------------------------------ | ----------------------------------------------------------------- |
+| classify 분기 `condition.field: "document_type"` | **`"text"`** — 아니면 400                                         |
+| instruct `data.prompt`                           | **`data.input`** 배열 — 아니면 `queries are required` 로 job 실패 |
+
+instruct 응답에는 `additional_values.citations` 로 **원문 좌표가 따라온다.**
+"모른다" 고 말하면서 어디를 봤는지 증명할 수 있다 — 근거 하이라이트의 재료다.
+
 **에이전트를 만들기만 하면 안 되고 노드 구성을 저장해야 한다.** 저장 전에는
 `404 No default config found for agent` 가 돌아온다. Studio 화면에서
 Parse → Classify → Extract → Instruct 를 구성하고 저장하면 Config ID 가 생긴다.
