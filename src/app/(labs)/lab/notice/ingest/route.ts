@@ -1,4 +1,5 @@
 import { extractNotice, toPlainText, type IngestSource } from "../_lib/extract";
+import { hasStudioAgent, runStudio } from "../_lib/studio";
 
 export const maxDuration = 180;
 
@@ -26,6 +27,19 @@ export async function POST(req: Request) {
       }
       source = { kind: "file", name: file.name };
       raw = file;
+
+      // 파일은 Studio 파이프라인이 처리한다 — 트랙 요건이 문서 처리의 핵심을
+      // Studio 가 맡는 것이다. 에이전트가 없을 때만 v1 직접 호출로 떨어진다.
+      if (hasStudioAgent()) {
+        const result = await runStudio(file, file.name);
+        return Response.json({
+          source,
+          via: `upstage/studio (${result.steps.join(" → ")})`,
+          chars: result.markdown?.length ?? 0,
+          notice: result.notice,
+          citations: result.citations,
+        });
+      }
     } else if (kind === "url") {
       const url = String(form.get("url") ?? "").trim();
       if (!/^https?:\/\//i.test(url)) {

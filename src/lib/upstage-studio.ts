@@ -116,8 +116,6 @@ export type StudioJob = {
 export async function createJob(opts: {
   agentId: string;
   fileId: string;
-  /** "last" 면 마지막 단계만, "all" 이면 단계별 전부 */
-  include?: "last" | "all";
 }): Promise<StudioJob> {
   const response = await fetch(`${BASE}/responses`, {
     method: "POST",
@@ -130,7 +128,6 @@ export async function createJob(opts: {
           content: [{ type: "input_file", file_id: opts.fileId }],
         },
       ],
-      include: [opts.include ?? "all"],
     }),
   });
   if (!response.ok) {
@@ -145,6 +142,7 @@ export async function waitForJob(
   opts: {
     timeoutMs?: number;
     intervalMs?: number;
+    include?: "last" | "all";
     onTick?: (status: JobStatus) => void;
   } = {},
 ): Promise<StudioJob> {
@@ -152,8 +150,14 @@ export async function waitForJob(
   const intervalMs = opts.intervalMs ?? 2_000;
   const deadline = Date.now() + timeoutMs;
 
+  // ⚠ include 는 GET 쿼리 파라미터다. createJob 본문에 넣으면 무시되고
+  // 마지막 스텝만 돌아온다.
+  const include = opts.include ?? "all";
+
   while (Date.now() < deadline) {
-    const response = await fetch(`${BASE}/responses/${jobId}`, { headers: authHeader() });
+    const response = await fetch(`${BASE}/responses/${jobId}?include=${include}`, {
+      headers: authHeader(),
+    });
     if (!response.ok) {
       throw new Error(
         `[studio] responses/${jobId} ${response.status}: ${await response.text()}`,
@@ -182,10 +186,52 @@ export async function runAgent(opts: {
   onStatus?: (status: JobStatus) => void;
 }): Promise<StudioJob> {
   const uploaded = await uploadFile(opts.file, opts.filename);
-  const job = await createJob({
-    agentId: opts.agentId,
-    fileId: uploaded.id,
-    include: opts.include,
+  const job = await createJob({ agentId: opts.agentId, fileId: uploaded.id });
+  return waitForJob(job.id, { include: opts.include, onTick: opts.onStatus });
+}
+
+/**
+ * 스텝별 출력.
+ *
+ * `output[].model` 이 Config 에서 지정한 스텝 이름이고, 실제 값은
+ * `content[0].text` 에 **문자열로** 들어온다. JSON 을 낸 스텝도 문자열이라
+ * 한 번 파싱해야 한다.
+ */
+export type StepOutput = {
+  step: string;
+  text: string;
+  /** JSON 스텝이면 파싱된 값. 아니면 null */
+  json: unknown;
+  /** 인용 근거 좌표 등 */
+  citations: unknown;
+};
+
+export function stepOutputs(job: StudioJob): StepOutput[] {
+  const items = (job.output ?? []) as Array<Record<string, unknown>>;
+  return items.map((item) => {
+    const content = (item.content as Array<Record<string, unknown>> | undefined)?.[0];
+    const raw = (content?.text as string) ?? "";
+    let json: unknown = null;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      json = null;
+    }
+    let citations: unknown = null;
+    try {
+      const extra = content?.additional_values;
+      citations =
+        typeof extra === "string"
+          ? (JSON.parse(extra) as { citations?: unknown }).citations
+          : null;
+    } catch {
+      citations = null;
+    }
+    return { step: String(item.model ?? ""), text: raw, json, citations };
   });
-  return waitForJob(job.id, { onTick: opts.onStatus });
+}
+
+/** 이름이 접두사로 시작하는 첫 스텝. extract-general·extract-job 등을 한 번에 잡는다. */
+export function findStep(outputs: StepOutput[], prefix: string): StepOutput | null {
+  return outputs.find((item) => item.step.startsWith(prefix)) ?? null;
 }

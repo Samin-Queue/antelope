@@ -201,6 +201,12 @@ Config 의 존재 이유다.
 | classify 분기 `condition.field: "document_type"` | **`"text"`** — 아니면 400                                         |
 | instruct `data.prompt`                           | **`data.input`** 배열 — 아니면 `queries are required` 로 job 실패 |
 
+**`include` 는 GET 쿼리 파라미터다.** `POST /v2/responses` 본문에 넣으면 무시되고
+마지막 스텝만 돌아온다. `GET /v2/responses/{id}?include=all` 이어야 4개 스텝이 다 온다.
+
+스텝 결과는 `output[].model` 이 스텝 이름이고 값은 `content[0].text` 에 **문자열로**
+들어온다. JSON 을 낸 스텝도 문자열이라 한 번 파싱해야 한다 (`stepOutputs()`).
+
 instruct 응답에는 `additional_values.citations` 로 **원문 좌표가 따라온다.**
 "모른다" 고 말하면서 어디를 봤는지 증명할 수 있다 — 근거 하이라이트의 재료다.
 
