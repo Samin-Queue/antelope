@@ -8,7 +8,10 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # main 의 CI 는 배포 게이트다. 연속 푸시로 직전 커밋의 런이 취소되면 그 커밋은
+  # 검사를 통째로 빠져나간다 — 빌드가 깨진 9bf30ea 가 실제로 그렇게 통과했다.
+  # PR 브랜치에서는 최신 커밋 결과만 의미가 있으므로 취소해도 잃는 게 없다.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # 팀원이 Railway 콘솔 없이도 자기 코드가 깨졌는지 여기서 확인한다.

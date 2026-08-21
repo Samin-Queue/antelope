@@ -1,0 +1,15 @@
+#!/bin/sh
+# 깨진 커밋이 main 에 올라가지 않게 로컬에서 먼저 막는다.
+# GitHub Actions 는 푸시 이후에 돌기 때문에 게이트가 되지 못하고, 무료 플랜
+# 프라이빗 레포는 branch protection 이 403 이라 required check 도 걸 수 없다.
+#
+# 전체 빌드 대신 format/lint/typecheck 만 돌린다 — 10초대에 끝나고, 실제로
+# main 을 깨뜨렸던 부류(삭제된 모듈 import)는 typecheck 가 잡는다.
+# 급할 때는 `git push --no-verify` 로 건너뛸 수 있다.
+
+set -e
+echo "pre-push: format · lint · typecheck"
+pnpm format:check
+pnpm lint
+pnpm typecheck
+echo "pre-push: 통과"

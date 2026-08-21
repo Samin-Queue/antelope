@@ -17,7 +17,8 @@
     "docker:prod": "docker build -t antelope . && docker run --rm -p 3000:3000 --env-file .env.local antelope",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check:auth-schema": "tsx scripts/check-auth-schema.ts"
+    "check:auth-schema": "tsx scripts/check-auth-schema.ts",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.33",
