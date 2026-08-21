@@ -60,6 +60,34 @@ export const documentChunks = pgTable(
   ],
 );
 
+export type ApplicationField = {
+  readonly key: string;
+  readonly label: string;
+  readonly inputType: string;
+  readonly required: boolean;
+  readonly stage: string;
+  readonly documentName: string;
+  readonly formName: string;
+  readonly instructions: string;
+  readonly source: string;
+};
+
+export const applicationForms = pgTable(
+  "application_forms",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    applicationType: text("application_type").notNull(),
+    title: text("title").notNull(),
+    fields: jsonb("fields").$type<readonly ApplicationField[]>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("application_forms_document_idx").on(table.documentId)],
+);
+
 /**
  * 기업 지식베이스 — 이 제품의 해자.
  *
