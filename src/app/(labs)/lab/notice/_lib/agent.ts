@@ -4,14 +4,7 @@ import { z } from "zod";
 import { chatModel } from "@/lib/llm";
 
 import { act, openSession, settle, snapshot, type Snapshot } from "./browser";
-
-export type TraceEntry = {
-  step: number;
-  tool: string;
-  input: unknown;
-  output: string;
-  url?: string;
-};
+import type { TraceEntry } from "./types";
 
 /**
  * 브라우저를 조작하는 서브에이전트.

@@ -1,4 +1,4 @@
-import { runBrowserAgent, type TraceEntry } from "./agent";
+import { runBrowserAgent } from "./agent";
 import {
   draftOutline,
   judgeEligibility,
@@ -9,6 +9,7 @@ import {
   type Profile,
 } from "./agents";
 import type { Notice } from "./schema";
+import type { AgentId, PipelineResult, RunEvent } from "./types";
 
 /**
  * 오케스트레이터.
@@ -18,38 +19,8 @@ import type { Notice } from "./schema";
  *
  * 진행 상황을 이벤트로 흘려보낸다 — 멀티에이전트는 눈에 보여야 값어치가 있다.
  */
-export type AgentId = "eligibility" | "documents" | "outline" | "browser";
-
-export const AGENT_LABEL: Record<AgentId, string> = {
-  eligibility: "자격 판정",
-  documents: "서류 준비 계획",
-  outline: "신청서 설계",
-  browser: "신청 폼 작성",
-};
-
-export type RunEvent =
-  | { type: "start"; agents: AgentId[] }
-  | { type: "agent:start"; agent: AgentId }
-  | { type: "agent:step"; agent: AgentId; tool: string; detail: string; url?: string }
-  | { type: "agent:done"; agent: AgentId; ms: number }
-  | { type: "agent:error"; agent: AgentId; error: string }
-  | { type: "result"; result: PipelineResult }
-  | { type: "end"; ms: number };
-
-export type BrowserRun = {
-  summary: string;
-  steps: number;
-  finalUrl: string;
-  trace: TraceEntry[];
-};
-
-export type PipelineResult = {
-  eligibility: Eligibility | null;
-  documents: DocumentPlan | null;
-  outline: Outline | null;
-  browser: BrowserRun | null;
-  errors: Partial<Record<AgentId, string>>;
-};
+export type { AgentId, BrowserRun, PipelineResult, RunEvent, TraceEntry } from "./types";
+export { AGENT_LABEL } from "./types";
 
 type Emit = (event: RunEvent) => void;
 

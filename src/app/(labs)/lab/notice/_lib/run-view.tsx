@@ -7,13 +7,8 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import {
-  AGENT_LABEL,
-  type AgentId,
-  type PipelineResult,
-  type RunEvent,
-} from "./orchestrator";
 import type { Notice } from "./schema";
+import { AGENT_LABEL, type AgentId, type PipelineResult, type RunEvent } from "./types";
 
 type AgentState = {
   status: "idle" | "running" | "done" | "error";

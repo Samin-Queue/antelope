@@ -120,6 +120,15 @@ LLM_PROVIDER=azure      # AZURE_BASE_URL + AZURE_API_KEY
 - **인증이 `api-key` 헤더다** (Bearer 아님). 어댑터가 두 헤더를 모두 보낸다.
 - `LLM_MODEL` 에는 모델 id 가 아니라 **배포(deployment) 이름**을 넣는다.
 
+### Playwright 는 번들링할 수 없다
+
+두 곳을 지켜야 한다. 어기면 `Module not found: async_hooks` 로 **빌드 전체가 깨진다**.
+
+1. `next.config.ts` 의 `serverExternalPackages: ["playwright", "playwright-core"]`
+2. **클라이언트 컴포넌트는 `_lib/types.ts` 에서만 타입을 가져온다.**
+   `orchestrator` 를 import 하면 `agent → browser → playwright` 로 이어져
+   브라우저 번들에 끌려 들어간다. 실제로 한 번 밟았다.
+
 ### 브라우저 자동화의 함정
 
 `page.evaluate` 에 **함수를 넘기지 않는다. 문자열로 넘긴다.**
