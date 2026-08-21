@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Brain,
   FileText,
   FlaskConical,
   LayoutDashboard,
@@ -32,6 +33,7 @@ const SECTIONS = [
       { href: "/app", label: "개요", icon: LayoutDashboard },
       { href: "/app/notices", label: "공고", icon: Sparkles },
       { href: "/app/documents", label: "문서", icon: FileText },
+      { href: "/app/knowledge", label: "지식", icon: Brain },
     ],
   },
   {

@@ -177,3 +177,104 @@ export async function recallNarratives(
 
   return rows;
 }
+
+/** 지식 목록. 그래프와 편집 화면이 함께 쓴다. */
+export async function listMemories(userId: string): Promise<Memory[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: schema.memories.id,
+      kind: schema.memories.kind,
+      label: schema.memories.label,
+      value: schema.memories.value,
+      sourceNotice: schema.memories.sourceNotice,
+    })
+    .from(schema.memories)
+    .where(eq(schema.memories.userId, userId))
+    .orderBy(desc(schema.memories.updatedAt));
+  return rows;
+}
+
+export type GraphEdge = { source: string; target: string; weight: number };
+
+/**
+ * 지식 사이의 연결.
+ *
+ * 꾸며낸 선이 아니라 저장된 벡터의 실제 코사인 유사도다. 항목명 벡터를 쓰면
+ * "현재 직원 수 ↔ 상시근로자 수" 같은 동의 관계가, 내용 벡터를 쓰면 주제
+ * 근접성이 잡힌다. 화면에서는 후자가 더 그물처럼 보인다.
+ */
+export async function graphEdges(userId: string, floor = 0.45): Promise<GraphEdge[]> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: schema.memories.id, embedding: schema.memories.embedding })
+    .from(schema.memories)
+    .where(eq(schema.memories.userId, userId));
+
+  const nodes = rows.filter((row) => row.embedding) as Array<{
+    id: string;
+    embedding: number[];
+  }>;
+
+  const cosine = (a: number[], b: number[]) => {
+    let dot = 0;
+    let na = 0;
+    let nb = 0;
+    for (let i = 0; i < a.length; i += 1) {
+      dot += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
+    }
+    return dot / (Math.sqrt(na) * Math.sqrt(nb) || 1);
+  };
+
+  const edges: GraphEdge[] = [];
+  for (let i = 0; i < nodes.length; i += 1) {
+    for (let j = i + 1; j < nodes.length; j += 1) {
+      const weight = cosine(nodes[i].embedding, nodes[j].embedding);
+      if (weight >= floor) {
+        edges.push({ source: nodes[i].id, target: nodes[j].id, weight });
+      }
+    }
+  }
+  return edges;
+}
+
+export async function updateMemory(
+  userId: string,
+  id: string,
+  patch: { label?: string; value?: string; kind?: MemoryKind },
+): Promise<void> {
+  const db = getDb();
+  const [current] = await db
+    .select()
+    .from(schema.memories)
+    .where(and(eq(schema.memories.userId, userId), eq(schema.memories.id, id)));
+  if (!current) return;
+
+  const label = patch.label?.trim() || current.label;
+  const value = patch.value?.trim() || current.value;
+  const [labelVector, contentVector] = await Promise.all([
+    embed([label], "passage"),
+    embed([`${label}: ${value}`], "passage"),
+  ]);
+
+  await db
+    .update(schema.memories)
+    .set({
+      label,
+      value,
+      kind: patch.kind ?? current.kind,
+      labelEmbedding: labelVector[0],
+      embedding: contentVector[0],
+      updatedAt: new Date(),
+    })
+    .where(and(eq(schema.memories.userId, userId), eq(schema.memories.id, id)));
+}
+
+export async function forgetMemory(userId: string, id: string): Promise<void> {
+  const db = getDb();
+  await db
+    .delete(schema.memories)
+    .where(and(eq(schema.memories.userId, userId), eq(schema.memories.id, id)));
+}

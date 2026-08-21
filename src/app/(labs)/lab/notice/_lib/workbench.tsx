@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileUp, Link2, Loader2, MessageSquare } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -14,6 +14,11 @@ import { ProfileForm } from "./profile-form";
 import { RunView } from "./run-view";
 import type { Notice } from "./schema";
 
+type ComposerInput =
+  | { kind: "text"; text: string }
+  | { kind: "url"; url: string }
+  | { kind: "file"; file: File };
+
 type Result = { via: string; chars: number; notice: Notice };
 
 const CONFIDENCE_LABEL = {
@@ -22,7 +27,15 @@ const CONFIDENCE_LABEL = {
   low: "설명 기반 — 확인 필요",
 } as const;
 
-export function NoticeWorkbench() {
+export function NoticeWorkbench({
+  /** 컴포저에서 넘어온 입력. 있으면 탭 UI 없이 바로 분석한다 */
+  initial,
+}: {
+  initial?:
+    | { kind: "text"; text: string }
+    | { kind: "url"; url: string }
+    | { kind: "file"; file: File };
+} = {}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("");
@@ -30,8 +43,20 @@ export function NoticeWorkbench() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
+  const startedRef = useRef(false);
 
-  async function ingest(kind: "file" | "url" | "text") {
+  const ingestRef = useRef<
+    ((kind: "file" | "url" | "text", override?: ComposerInput) => void) | null
+  >(null);
+
+  // 컴포저에서 넘어온 입력은 한 번만 자동 실행한다.
+  useEffect(() => {
+    if (!initial || startedRef.current) return;
+    startedRef.current = true;
+    ingestRef.current?.(initial.kind, initial);
+  }, [initial]);
+
+  async function ingest(kind: "file" | "url" | "text", override?: ComposerInput) {
     if (pending) return;
     setPending(true);
     setError(null);
@@ -39,9 +64,12 @@ export function NoticeWorkbench() {
     try {
       const body = new FormData();
       body.append("kind", kind);
-      if (kind === "file" && file) body.append("file", file);
-      if (kind === "url") body.append("url", url);
-      if (kind === "text") body.append("text", text);
+      if (kind === "file")
+        body.append("file", (override?.kind === "file" ? override.file : file)!);
+      if (kind === "url")
+        body.append("url", override?.kind === "url" ? override.url : url);
+      if (kind === "text")
+        body.append("text", override?.kind === "text" ? override.text : text);
 
       const response = await fetch("/lab/notice/ingest", { method: "POST", body });
       const json = await response.json();
@@ -54,79 +82,98 @@ export function NoticeWorkbench() {
     }
   }
 
+  // 컴포저에서 넘어온 입력은 한 번만 자동 실행한다.
+  // ref 에 함수를 얹어 렌더 중 접근하면 react-hooks 규칙에 걸린다.
+  useEffect(() => {
+    if (!initial || startedRef.current) return;
+    startedRef.current = true;
+    void ingest(initial.kind, initial);
+    // ingest 는 매 렌더 새로 만들어지므로 의존성에 넣지 않는다. initial 이 바뀔 때만 돈다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial]);
+
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="file">
-        <TabsList>
-          <TabsTrigger value="file">
-            <FileUp className="size-3.5" /> 공고문 파일
-          </TabsTrigger>
-          <TabsTrigger value="url">
-            <Link2 className="size-3.5" /> 링크
-          </TabsTrigger>
-          <TabsTrigger value="text">
-            <MessageSquare className="size-3.5" /> 말로 설명
-          </TabsTrigger>
-        </TabsList>
+      {!initial && (
+        <Tabs defaultValue="file">
+          <TabsList>
+            <TabsTrigger value="file">
+              <FileUp className="size-3.5" /> 공고문 파일
+            </TabsTrigger>
+            <TabsTrigger value="url">
+              <Link2 className="size-3.5" /> 링크
+            </TabsTrigger>
+            <TabsTrigger value="text">
+              <MessageSquare className="size-3.5" /> 말로 설명
+            </TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="file" className="space-y-3">
-          <div
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              setFile(event.dataTransfer.files[0] ?? null);
-            }}
-            className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center"
-          >
-            <p className="text-sm text-muted-foreground">
-              {file ? file.name : "HWP · PDF · 이미지 를 끌어다 놓거나 선택하세요"}
-            </p>
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".hwp,.hwpx,.pdf,.png,.jpg,.jpeg,.docx"
-              className="hidden"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
+          <TabsContent value="file" className="space-y-3">
+            <div
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                setFile(event.dataTransfer.files[0] ?? null);
+              }}
+              className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center"
+            >
+              <p className="text-sm text-muted-foreground">
+                {file ? file.name : "HWP · PDF · 이미지 를 끌어다 놓거나 선택하세요"}
+              </p>
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".hwp,.hwpx,.pdf,.png,.jpg,.jpeg,.docx"
+                className="hidden"
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              />
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => inputRef.current?.click()}>
+                  파일 선택
+                </Button>
+                <Button onClick={() => ingest("file")} disabled={!file || pending}>
+                  {pending && <Loader2 className="animate-spin" />}분석
+                </Button>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="url" className="space-y-3">
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => inputRef.current?.click()}>
-                파일 선택
-              </Button>
-              <Button onClick={() => ingest("file")} disabled={!file || pending}>
+              <Input
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder="https://www.k-startup.go.kr/..."
+              />
+              <Button onClick={() => ingest("url")} disabled={!url.trim() || pending}>
                 {pending && <Loader2 className="animate-spin" />}분석
               </Button>
             </div>
-          </div>
-        </TabsContent>
+          </TabsContent>
 
-        <TabsContent value="url" className="space-y-3">
-          <div className="flex gap-2">
-            <Input
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://www.k-startup.go.kr/..."
+          <TabsContent value="text" className="space-y-3">
+            <Textarea
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              rows={5}
+              placeholder="어떤 사업인지 아는 대로 적으세요. 정확하지 않아도 됩니다."
             />
-            <Button onClick={() => ingest("url")} disabled={!url.trim() || pending}>
+            <Button
+              onClick={() => ingest("text")}
+              disabled={text.trim().length < 20 || pending}
+            >
               {pending && <Loader2 className="animate-spin" />}분석
             </Button>
-          </div>
-        </TabsContent>
+          </TabsContent>
+        </Tabs>
+      )}
 
-        <TabsContent value="text" className="space-y-3">
-          <Textarea
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            rows={5}
-            placeholder="어떤 사업인지 아는 대로 적으세요. 정확하지 않아도 됩니다."
-          />
-          <Button
-            onClick={() => ingest("text")}
-            disabled={text.trim().length < 20 || pending}
-          >
-            {pending && <Loader2 className="animate-spin" />}분석
-          </Button>
-        </TabsContent>
-      </Tabs>
+      {pending && initial && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin text-brand" />
+          공고를 읽는 중
+        </p>
+      )}
 
       {error && (
         <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words text-destructive">
