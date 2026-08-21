@@ -178,7 +178,11 @@ GET  /v2/responses/{job_id}    폴링 → completed
 리뷰도 못 한다. Config 는 **불변**이라 고칠 때마다 새 Config 가 생긴다 —
 버전 관리와 감사 추적이 공짜로 따라온다.
 
-현재: Agent `agt_QxDUCbi6bCjGqzfrzeZqwE` · Config `cfg_B6KtEoEkYnRdEoybGZB6F3`
+현재: Agent `agt_a9gUAjuJGwpDtckvKyLvGH` · Config `cfg_gxMvNZnQg2MyLxqmum23CQ`
+
+Agent·Config 는 **API 키 소유 계정에 묶인다.** 키를 바꾸면 이전 에이전트가 안 보이므로
+`pnpm studio:provision` 을 다시 돌려 새 계정에 Config 를 만들고 `UPSTAGE_AGENT_ID` 를
+갱신한다. 로컬과 Railway 양쪽 다 바꿔야 한다.
 
 ```
 parse → classify(split) ─┬─ CONTRACT_TERMS        → extract-contract ─┐
