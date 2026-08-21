@@ -28,6 +28,20 @@ LLM_PROVIDER=backendai  # BACKENDAI_BASE_URL + BACKENDAI_API_KEY
 - DB 접근은 `getDb()` 로. `DATABASE_URL` 없이도 앱이 떠야 한다 (랜딩·데모는 DB 무관).
 - 커밋 전 `pnpm build` — 타입체크가 빌드에 포함되어 있다.
 
+## Railway 계정 없이 협업하기
+
+Railway 는 Hobby 플랜이라 워크스페이스 멤버 초대가 안 된다. 그래도 세 명이
+막히지 않는 이유:
+
+- **배포** — `main` 에 푸시하면 Railway 가 자동 빌드한다. Railway 계정 불필요.
+- **검증** — `.github/workflows/ci.yml` 이 push·PR 마다 lint / build / docker build 를
+  돌린다. 내 코드가 깨졌는지는 GitHub Actions 탭에서 직접 본다.
+- **로컬 DB** — `pnpm docker:up` 으로 각자 Postgres 를 띄운다. 프로덕션 DB 공유 안 함.
+- **키** — `.env.local` 로 전달받는다. 레포에 커밋하지 않는다.
+
+Railway 콘솔이 있어야만 되는 일은 셋뿐이다 — 프로덕션 로그 열람, 환경변수 변경,
+롤백. 이건 계정 소유자를 거친다.
+
 ## Railway — 배포와 환경변수
 
 워크스페이스 `Samin Queue` · 프로젝트 `samin-queue` · 서비스 `web`(GitHub 연동) + `Postgres`.
