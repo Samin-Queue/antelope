@@ -1,7 +1,14 @@
 import { isCategory } from "@/lib/categories";
 import { env } from "@/lib/env";
-import { findStep, runAgent, stepOutputs, type JobStatus } from "@/lib/upstage-studio";
+import {
+  findStep,
+  parsedElements,
+  runAgent,
+  stepOutputs,
+  type JobStatus,
+} from "@/lib/upstage-studio";
 
+import { citedEvidence, toCitations, toEvidence, type Evidence } from "./evidence";
 import { normalize, type Notice } from "./schema";
 
 /**
@@ -16,8 +23,13 @@ export type StudioResult = {
   notice: Notice;
   /** 어느 분기를 탔는지. 화면에 그대로 보여준다 */
   steps: string[];
-  /** 원문 인용 좌표. 근거 하이라이트의 재료 */
-  citations: unknown;
+  /**
+   * 원문 요소와 좌표. 근거 하이라이트가 이걸 그린다.
+   * parse 원본에는 단어별 좌표까지 들어 있지만 응답이 비대해져 요소 단위로 줄인다.
+   */
+  evidence: Evidence[];
+  /** gaps 단계가 실제로 들여다본 위치. 「모른다」는 말의 근거다 */
+  cited: Evidence[];
   /** parse 단계의 마크다운. 이후 단계가 쓸 수 있다 */
   markdown: string | null;
 };
@@ -77,11 +89,13 @@ export async function runStudio(
   );
 
   const parsed = parse?.json as { content?: { markdown?: string } } | null;
+  const evidence = toEvidence(parsedElements(parse));
 
   return {
     notice,
     steps: outputs.map((item) => item.step),
-    citations: gaps?.citations ?? null,
+    evidence,
+    cited: citedEvidence(evidence, toCitations(gaps?.citations)),
     markdown: parsed?.content?.markdown ?? null,
   };
 }

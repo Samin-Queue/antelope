@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
+import type { Evidence } from "./evidence";
+import { Cite, EvidencePanel, EvidenceProvider } from "./evidence-view";
 import { ProfileForm } from "./profile-form";
 import { RunView } from "./run-view";
 import type { Notice } from "./schema";
@@ -19,7 +21,14 @@ type ComposerInput =
   | { kind: "url"; url: string }
   | { kind: "file"; file: File };
 
-type Result = { via: string; chars: number; notice: Notice };
+type Result = {
+  via: string;
+  chars: number;
+  notice: Notice;
+  /** Studio 경로에서만 온다. 링크·자연어 입력은 좌표가 없다 */
+  evidence?: Evidence[];
+  cited?: Evidence[];
+};
 
 const CONFIDENCE_LABEL = {
   high: "정식 공고문",
@@ -194,6 +203,7 @@ export function NoticeWorkbench({
 /** 공고를 읽었으면 그다음은 「나는 되는가」다. 프로필을 받아 파이프라인으로 넘긴다. */
 function NextStep({ notice }: { notice: Notice }) {
   const [profile, setProfile] = useState<Record<string, string> | null>(null);
+  const [goalId, setGoalId] = useState<string | null>(null);
 
   if (!profile) {
     return (
@@ -207,6 +217,16 @@ function NextStep({ notice }: { notice: Notice }) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ profile: next, sourceNotice: notice.title }),
           }).catch(() => {});
+
+          // 읽기만 한 공고는 목표가 아니다. 정보를 채워 넣은 순간부터 목표다.
+          void fetch("/app/goals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ notice }),
+          })
+            .then((response) => response.json())
+            .then((json: { id?: string | null }) => setGoalId(json.id ?? null))
+            .catch(() => {});
         }}
       />
     );
@@ -220,12 +240,28 @@ function NextStep({ notice }: { notice: Notice }) {
           정보 수정
         </Button>
       </div>
-      <RunView notice={notice} profile={profile} />
+      <RunView notice={notice} profile={profile} goalId={goalId} />
     </div>
   );
 }
 
 function NoticeView({ result }: { result: Result }) {
+  const evidence = result.evidence ?? [];
+  return (
+    <EvidenceProvider evidence={evidence}>
+      <div className="grid gap-4 lg:grid-cols-[1fr_19rem] lg:items-start">
+        <NoticeCard result={result} />
+        {evidence.length > 0 && (
+          <div className="lg:sticky lg:top-6">
+            <EvidencePanel evidence={evidence} cited={result.cited ?? []} />
+          </div>
+        )}
+      </div>
+    </EvidenceProvider>
+  );
+}
+
+function NoticeCard({ result }: { result: Result }) {
   const { notice } = result;
   return (
     <section className="space-y-6 rounded-2xl border border-border bg-card p-6">
@@ -241,7 +277,11 @@ function NoticeView({ result }: { result: Result }) {
         <h2 className="text-lg font-medium">{notice.title}</h2>
         <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
           <Field label="주관" value={notice.organization} />
-          <Field label="마감" value={notice.deadline} />
+          <Field
+            label="마감"
+            value={notice.deadline && readableDate(notice.deadline)}
+            needle={notice.deadline}
+          />
           <Field label="규모" value={notice.budget} />
         </dl>
       </header>
@@ -260,10 +300,9 @@ function NoticeView({ result }: { result: Result }) {
       <Block title={`자격 요건 ${notice.requirements.length}`}>
         {notice.requirements.map((item) => (
           <li key={item.text} className="rounded-lg bg-muted/40 px-3 py-2">
-            <p className="text-sm">{item.text}</p>
-            {item.source && (
-              <p className="mt-1 text-xs text-muted-foreground">근거: {item.source}</p>
-            )}
+            <Cite label="자격 요건" needle={item.source ?? item.text} className="text-sm">
+              {item.text}
+            </Cite>
           </li>
         ))}
       </Block>
@@ -274,7 +313,9 @@ function NoticeView({ result }: { result: Result }) {
             key={item.name}
             className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm"
           >
-            <span>{item.name}</span>
+            <Cite label="제출 서류" needle={item.name}>
+              {item.name}
+            </Cite>
             {item.formName && <Badge variant="outline">{item.formName}</Badge>}
             {!item.required && <Badge variant="secondary">해당 시</Badge>}
           </li>
@@ -288,7 +329,9 @@ function NoticeView({ result }: { result: Result }) {
               key={item.criterion}
               className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm"
             >
-              <span>{item.criterion}</span>
+              <Cite label="평가 배점" needle={item.criterion}>
+                {item.criterion}
+              </Cite>
               <span className="font-mono text-brand">{item.points ?? "—"}</span>
             </li>
           ))}
@@ -298,12 +341,32 @@ function NoticeView({ result }: { result: Result }) {
   );
 }
 
-function Field({ label, value }: { label: string; value: string | null }) {
+/** 마감은 `2026-09-15T18:00` 로 정규화돼 온다. 사람이 읽는 자리에서는 T 를 뗀다. */
+function readableDate(value: string): string {
+  return value.replace("T", " ");
+}
+
+function Field({
+  label,
+  value,
+  /** 화면에 보이는 값과 원문에서 찾을 값이 다를 때만 따로 준다 */
+  needle,
+}: {
+  label: string;
+  value: string | null | undefined;
+  needle?: string | null;
+}) {
   return (
     <div>
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className={cn("text-sm", !value && "text-muted-foreground")}>
-        {value ?? "미확인"}
+        {value ? (
+          <Cite label={label} needle={needle ?? value}>
+            {value}
+          </Cite>
+        ) : (
+          "미확인"
+        )}
       </dd>
     </div>
   );

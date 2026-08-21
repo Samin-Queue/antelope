@@ -37,7 +37,8 @@ export async function POST(req: Request) {
           via: `upstage/studio (${result.steps.join(" → ")})`,
           chars: result.markdown?.length ?? 0,
           notice: result.notice,
-          citations: result.citations,
+          evidence: result.evidence,
+          cited: result.cited,
         });
       }
     } else if (kind === "url") {

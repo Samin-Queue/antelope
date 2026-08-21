@@ -231,6 +231,38 @@ export function stepOutputs(job: StudioJob): StepOutput[] {
   });
 }
 
+/** 정규화 좌표(0..1) 사각형의 꼭짓점 네 개. 페이지 크기와 무관하다. */
+export type Quad = Array<{ x: number; y: number }>;
+
+/**
+ * parse 스텝이 `coordinates: true` 로 내려주는 문서 요소.
+ * 근거 하이라이트는 이 좌표를 그대로 그린다 — 우리가 추정하지 않는다.
+ */
+export type ParsedElement = {
+  id: number;
+  page: number;
+  category: string;
+  content: { html?: string; markdown?: string; text?: string };
+  coordinates: Quad;
+};
+
+/**
+ * instruct 응답의 인용. 본문에 섞여 오는 `【†1】` 이 여기의 index 를 가리키고,
+ * node_index 는 parse 요소의 id 다.
+ */
+export type Citation = {
+  index: number;
+  page: number;
+  node_index: number;
+  coordinates: Quad;
+};
+
+/** parse 스텝 출력에서 요소 목록을 꺼낸다. 좌표가 없으면 빈 배열. */
+export function parsedElements(parse: StepOutput | null): ParsedElement[] {
+  const json = parse?.json as { elements?: ParsedElement[] } | null;
+  return json?.elements?.filter((item) => item.coordinates?.length === 4) ?? [];
+}
+
 /** 이름이 접두사로 시작하는 첫 스텝. extract-general·extract-job 등을 한 번에 잡는다. */
 export function findStep(outputs: StepOutput[], prefix: string): StepOutput | null {
   return outputs.find((item) => item.step.startsWith(prefix)) ?? null;
