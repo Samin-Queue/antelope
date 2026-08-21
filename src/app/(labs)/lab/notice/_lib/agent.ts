@@ -28,6 +28,8 @@ export async function runBrowserAgent(opts: {
   maxSteps?: number;
   model?: LanguageModel;
   headless?: boolean;
+  /** 조작을 실시간으로 흘려보낸다. 브라우저 에이전트는 보여야 값어치가 있다 */
+  onStep?: (entry: TraceEntry) => void;
 }) {
   const { sessionId, goal, facts = {}, startUrl, maxSteps = 24, headless = true } = opts;
   const { page } = await openSession(sessionId, headless);
@@ -35,7 +37,15 @@ export async function runBrowserAgent(opts: {
   let step = 0;
 
   const record = (name: string, input: unknown, output: string) => {
-    trace.push({ step: ++step, tool: name, input, output, url: page.url() });
+    const entry: TraceEntry = {
+      step: ++step,
+      tool: name,
+      input,
+      output,
+      url: page.url(),
+    };
+    trace.push(entry);
+    opts.onStep?.(entry);
   };
 
   const describe = (snap: Snapshot) =>
@@ -134,6 +144,9 @@ export async function runBrowserAgent(opts: {
       "",
       "규칙:",
       "- 조작하기 전에 반드시 snapshot 을 먼저 호출한다. ref 는 직전 snapshot 에 있던 것만 쓴다.",
+      "- 폼을 채울 때는 **체크박스와 라디오를 먼저 처리한다.** 동의 항목이 비어 있으면",
+      "  제출이 막히는데, 그 사실이 화면에 안 보여서 이미 채운 칸을 반복해 채우게 된다.",
+      "- 이미 값이 들어있는 칸(snapshot 의 현재값)은 다시 채우지 않는다.",
       "- 페이지가 바뀌었을 수 있는 조작(click, goto) 뒤에는 다시 snapshot 을 호출한다.",
       "- 주어진 사실에 없는 값은 지어내지 않는다. 없으면 그 항목을 건너뛰고 마지막에 보고한다.",
       "- 결제·최종 제출·회원 탈퇴처럼 되돌릴 수 없는 버튼은 누르지 않는다. 직전에서 멈추고 보고한다.",

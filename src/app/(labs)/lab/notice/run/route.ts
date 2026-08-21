@@ -11,6 +11,7 @@ export async function POST(req: Request) {
   const body = (await req.json()) as {
     notice?: Notice;
     profile?: Record<string, string>;
+    applyUrl?: string | null;
   };
 
   if (!body.notice) {
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       };
       try {
-        await runPipeline(notice, profile, emit);
+        await runPipeline(notice, profile, emit, { applyUrl: body.applyUrl });
       } catch (error) {
         emit({
           type: "agent:error",

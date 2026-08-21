@@ -19,9 +19,25 @@ type AgentState = {
   status: "idle" | "running" | "done" | "error";
   ms?: number;
   error?: string;
+  /** 브라우저 에이전트의 최근 조작. 무엇을 클릭하고 있는지 보여야 한다 */
+  steps?: string[];
 };
 
-const AGENTS: AgentId[] = ["eligibility", "documents", "outline"];
+const IDLE: Record<AgentId, AgentState> = {
+  eligibility: { status: "idle" },
+  documents: { status: "idle" },
+  outline: { status: "idle" },
+  browser: { status: "idle" },
+};
+
+const TOOL_LABEL: Record<string, string> = {
+  goto: "이동",
+  snapshot: "화면 읽기",
+  click: "클릭",
+  fill: "입력",
+  select: "선택",
+  check: "체크",
+};
 
 const ORIGIN_LABEL = {
   hold: "보유",
@@ -42,11 +58,12 @@ export function RunView({
   notice: Notice;
   profile: Record<string, string>;
 }) {
-  const [states, setStates] = useState<Record<AgentId, AgentState>>({
-    eligibility: { status: "idle" },
-    documents: { status: "idle" },
-    outline: { status: "idle" },
-  });
+  const [states, setStates] = useState<Record<AgentId, AgentState>>(IDLE);
+  const [agents, setAgents] = useState<AgentId[]>([
+    "eligibility",
+    "documents",
+    "outline",
+  ]);
   const [result, setResult] = useState<PipelineResult | null>(null);
   const [totalMs, setTotalMs] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
@@ -56,11 +73,7 @@ export function RunView({
     setRunning(true);
     setResult(null);
     setTotalMs(null);
-    setStates({
-      eligibility: { status: "idle" },
-      documents: { status: "idle" },
-      outline: { status: "idle" },
-    });
+    setStates(IDLE);
 
     const response = await fetch("/lab/notice/run", {
       method: "POST",
@@ -91,7 +104,21 @@ export function RunView({
         if (!line.startsWith("data: ")) continue;
         const event = JSON.parse(line.slice(6)) as RunEvent;
 
-        if (event.type === "agent:start") {
+        if (event.type === "start") {
+          setAgents(event.agents);
+        } else if (event.type === "agent:step") {
+          setStates((prev) => ({
+            ...prev,
+            [event.agent]: {
+              ...prev[event.agent],
+              status: "running",
+              steps: [
+                ...(prev[event.agent].steps ?? []).slice(-5),
+                `${TOOL_LABEL[event.tool] ?? event.tool} ${event.detail}`,
+              ],
+            },
+          }));
+        } else if (event.type === "agent:start") {
           setStates((prev) => ({ ...prev, [event.agent]: { status: "running" } }));
         } else if (event.type === "agent:done") {
           setStates((prev) => ({
@@ -127,8 +154,8 @@ export function RunView({
         )}
       </div>
 
-      <ul className="grid gap-3 sm:grid-cols-3">
-        {AGENTS.map((id) => (
+      <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {agents.map((id) => (
           <AgentCard key={id} id={id} state={states[id]} />
         ))}
       </ul>
@@ -176,7 +203,7 @@ function AgentCard({ id, state }: { id: AgentId; state: AgentState }) {
 }
 
 function ResultView({ result }: { result: PipelineResult }) {
-  const { eligibility, documents, outline } = result;
+  const { eligibility, documents, outline, browser } = result;
 
   return (
     <div className="space-y-6">
@@ -245,6 +272,31 @@ function ResultView({ result }: { result: PipelineResult }) {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {browser && (
+        <section className="rounded-2xl border border-border bg-card p-6">
+          <h3 className="text-sm font-medium">신청 폼 작성</h3>
+          <p className="mt-1 font-mono text-xs text-muted-foreground">
+            {browser.steps}스텝 · {browser.finalUrl}
+          </p>
+          <ol className="mt-4 space-y-1">
+            {browser.trace.map((entry) => (
+              <li key={entry.step} className="flex gap-2 text-xs">
+                <span className="w-5 shrink-0 text-right font-mono text-muted-foreground">
+                  {entry.step}
+                </span>
+                <span className="w-12 shrink-0 text-brand">
+                  {TOOL_LABEL[entry.tool] ?? entry.tool}
+                </span>
+                <span className="min-w-0 truncate font-mono text-muted-foreground">
+                  {JSON.stringify(entry.input)}
+                </span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-4 text-sm whitespace-pre-wrap">{browser.summary}</p>
         </section>
       )}
 
