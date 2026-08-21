@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { site } from "@/content/site";
@@ -15,10 +16,10 @@ export function Hero() {
         <Badge variant="secondary" className="mb-6">
           {site.hero.eyebrow}
         </Badge>
-        <h1 className="max-w-3xl text-balance text-4xl font-semibold leading-[1.1] tracking-tight sm:text-6xl">
+        <h1 className="max-w-3xl text-4xl leading-[1.1] font-semibold tracking-tight text-balance sm:text-6xl">
           {site.hero.headline}
         </h1>
-        <p className="mt-6 max-w-xl text-pretty text-lg text-muted-foreground">
+        <p className="mt-6 max-w-xl text-lg text-pretty text-muted-foreground">
           {site.hero.sub}
         </p>
         <div className="mt-10 flex flex-wrap gap-3">

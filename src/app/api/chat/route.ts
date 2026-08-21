@@ -1,4 +1,5 @@
 import { convertToModelMessages, streamText, type UIMessage } from "ai";
+
 import { chatModel } from "@/lib/llm";
 
 export const maxDuration = 60;
