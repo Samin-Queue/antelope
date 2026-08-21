@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { auth, enabledProviders } from "@/lib/auth";
 import { hasDb } from "@/lib/db";
+import { GOOGLE_ALL_SCOPES } from "@/lib/google-scopes";
 import { Combination } from "@/components/brand";
 import { SignInButtons } from "@/components/sign-in-buttons";
 import { site } from "@/content/site";
@@ -34,7 +35,7 @@ export default async function SignInPage() {
           </div>
         </div>
 
-        <SignInButtons providers={enabledProviders} />
+        <SignInButtons providers={enabledProviders} googleScopes={GOOGLE_ALL_SCOPES} />
 
         <p className="text-center text-xs leading-relaxed text-muted-foreground">
           계속하면 {site.team} 의 서비스 약관과 개인정보 처리방침에 동의하는 것으로

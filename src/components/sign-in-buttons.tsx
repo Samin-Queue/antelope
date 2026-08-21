@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { signIn } from "@/lib/auth-client";
+import { GOOGLE_CONSENT_PARAMS } from "@/lib/google-scopes";
 import { Button } from "@/components/ui/button";
 
 const LABELS = { google: "Google 로 계속하기", github: "GitHub 로 계속하기" } as const;
@@ -45,9 +46,16 @@ function GitHubMark() {
 export function SignInButtons({
   providers,
   callbackURL = "/app",
+  googleScopes,
 }: {
   providers: Provider[];
   callbackURL?: string;
+  /**
+   * 로그인 동의 화면에서 함께 요청할 구글 스코프. 넘기면 로그인 한 번으로
+   * 캘린더·Gmail 권한까지 끝난다 — 데모에서 클릭이 가장 적은 경로다.
+   * 빼면 로그인은 가벼워지고, 권한은 `/app/settings` 에서 따로 받는다.
+   */
+  googleScopes?: string[];
 }) {
   const [pending, setPending] = useState<Provider | null>(null);
 
@@ -62,7 +70,16 @@ export function SignInButtons({
 
   async function start(provider: Provider) {
     setPending(provider);
-    const { error } = await signIn.social({ provider, callbackURL });
+    // 추가 스코프를 달 때만 offline·consent 를 붙인다. 스코프가 없으면
+    // 동의 화면을 다시 띄울 이유가 없다.
+    const scoped = provider === "google" && googleScopes?.length;
+    const { error } = await signIn.social({
+      provider,
+      callbackURL,
+      ...(scoped
+        ? { scopes: googleScopes, additionalParams: { ...GOOGLE_CONSENT_PARAMS } }
+        : {}),
+    });
     if (error) {
       setPending(null);
       toast.error(error.message ?? "로그인에 실패했습니다.");

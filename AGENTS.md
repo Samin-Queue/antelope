@@ -382,6 +382,69 @@ better-auth + Drizzle. **OAuth 만 쓴다** — 도메인이 없어 Resend 무�
   키가 없어도 앱은 뜬다.
 - 콜백 URL 은 로컬·프로덕션 둘 다 등록되어 있다:
   `{origin}/api/auth/callback/{google|github}`
+- **포트를 바꾸면 리디렉션 URI 를 따로 등록해야 한다.** 구글은 포트까지 정확히
+  일치해야 하고 와일드카드가 없다. `3001` 로 띄우려면 콘솔에 URI 를 추가하고
+  `BETTER_AUTH_URL=http://localhost:3001` 도 같이 넘긴다 — 안 그러면 3000 으로
+  돌아간다.
+
+### 구글 캘린더 · Gmail 연동
+
+Google Cloud 프로젝트 `antelope-506205`. 로그인 스코프와 API 스코프를 갈라 둔다.
+
+- 스코프 상수: `src/lib/google-scopes.ts` — **클라이언트 안전**. 서버 헬퍼는
+  `src/lib/google.ts` 인데 `next/headers` 를 import 하므로 클라이언트 컴포넌트가
+  이걸 import 하면 빌드가 깨진다. 그래서 파일이 둘이다.
+- 화면: `/app/settings` (사용자 메뉴 → 「설정 · 연동」)
+
+**스코프는 2개다. 좁게 잡으면 오히려 손해다.**
+
+| 스코프              | 등급   | 왜 이걸로                                                                                                           |
+| ------------------- | ------ | ------------------------------------------------------------------------------------------------------------------- |
+| `auth/calendar`     | 민감   | `calendar.events` 로는 `calendarList.list`·`freebusy.query` 가 안 된다. 둘 다 민감 등급이라 넓혀도 검증 부담이 같다 |
+| `auth/gmail.modify` | 제한됨 | `readonly` + `send` 를 하나로 덮고 라벨·`users.watch` 까지 된다. `readonly` 가 이미 제한됨이라 등급이 안 내려간다   |
+
+`gmail.send` 만 쓰면 민감 등급으로 내려가지만, 웹훅(`users.watch`)이 `readonly`
+이상을 요구해서 어차피 제한됨을 못 피한다.
+
+**동의는 증분으로 받는다.** 로그인은 `email·profile·openid` 만으로도 되고,
+캘린더·Gmail 은 `linkSocial` 로 나중에 받는다. 이미 연결된 구글 계정에 다시
+걸어도 충돌하지 않는다 — 콜백이 같은 계정이면 토큰을 갱신하고 `scope` 를
+**병합**한다. `include_granted_scopes=true` 가 기본이라 토큰 하나가 전부 덮는다.
+
+```ts
+// 스코프를 한 배열로 넘기면 동의 화면도 한 번이다
+signIn.social({
+  provider: "google",
+  scopes: GOOGLE_ALL_SCOPES,
+  additionalParams: GOOGLE_CONSENT_PARAMS,
+}); // 로그인과 동시에
+authClient.linkSocial({ provider: "google", scopes, additionalParams }); // 로그인 후
+```
+
+`access_type=offline` 없이는 **refresh token 이 안 온다.** `prompt=consent` 도
+필요하다 — 구글은 최초 동의 때만 refresh token 을 주기 때문에, 재연동 때 이게
+없으면 조용히 빈다. 둘 다 `GOOGLE_CONSENT_PARAMS` 에 있고 **provider 전역이 아니라
+호출마다** 붙인다. 전역에 넣으면 스코프가 필요 없는 로그인에도 동의 화면이 뜬다.
+
+**토큰은 `googleAccessToken(...scopes)` 로만 꺼낸다.** 만료 5초 전이면 better-auth
+가 갱신해서 DB 에 다시 쓴다. 요청한 스코프가 아직 동의 전이면 `null` 이라,
+없는 권한으로 API 를 때려 403 을 받는 대신 연동 화면으로 보낼 수 있다.
+
+⚠ `getAccessToken` 의 `accountId` 는 `account` 테이블의 **행 id** 다. 구글 sub 인
+`account.accountId` 를 넣으면 1.7.x 는 `ACCOUNT_NOT_FOUND` 로 400 을 돌려준다.
+`listUserAccounts()` 가 주는 `id` 를 쓴다 (같은 응답의 `scopes` 로 연동 상태도 그린다).
+
+**Testing 모드의 두 가지 제약** — 등록된 test user 만 동의할 수 있고(최대 100명),
+발급된 refresh token 은 **7일 뒤 만료된다.** 단기 사용에는 무해하지만 그 뒤엔
+재연동이 필요하다. `gmail.modify` 가 제한됨 등급이라 Publish 하려면 CASA 심사를
+받아야 한다.
+
+**웹훅은 스코프 밖에 일이 더 있다.** Gmail 은 Pub/Sub 토픽을 만들고
+`gmail-api-push@system.gserviceaccount.com` 에 Publisher 를 준 뒤 push 구독을
+공개 HTTPS 로 걸어야 한다. `users.watch` 는 **7일마다 갱신**해야 하고, 알림에는
+`emailAddress`·`historyId` 만 와서 `users.history.list` 로 따로 조회한다.
+캘린더는 채널 자동 갱신이 없어 만료 전에 다시 만들어야 하는데, 그냥
+`events.list` 를 `syncToken` 으로 증분 폴링하는 편이 단순하다.
 
 브랜드:
 
