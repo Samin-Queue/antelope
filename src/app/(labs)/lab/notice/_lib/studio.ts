@@ -1,7 +1,7 @@
+import { isCategory } from "@/lib/categories";
 import { env } from "@/lib/env";
 import { findStep, runAgent, stepOutputs, type JobStatus } from "@/lib/upstage-studio";
 
-import { isCategory } from "./categories";
 import { normalize, type Notice } from "./schema";
 
 /**

@@ -1,9 +1,9 @@
 import { generateObject } from "ai";
 
+import { CATEGORIES, CATEGORY_LABEL } from "@/lib/categories";
 import { chatModel } from "@/lib/llm";
 import { parseDocument } from "@/lib/upstage";
 
-import { CATEGORIES, CATEGORY_LABEL } from "./categories";
 import { extractionSchema, normalize, type Notice } from "./schema";
 
 /** 프롬프트에 박을 분류 목록. Studio Classify 와 같은 값이어야 한다. */

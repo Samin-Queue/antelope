@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { CATEGORIES, isCategory, type Category } from "./categories";
+import { CATEGORIES, isCategory, type Category } from "@/lib/categories";
 
 /**
  * 정규화된 「공고 객체」.

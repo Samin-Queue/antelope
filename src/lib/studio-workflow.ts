@@ -1,9 +1,5 @@
+import { CATEGORIES, CATEGORY_HINT, CATEGORY_LABEL } from "@/lib/categories";
 import type { Step } from "@/lib/upstage-studio";
-import {
-  CATEGORIES,
-  CATEGORY_HINT,
-  CATEGORY_LABEL,
-} from "@/app/(labs)/lab/notice/_lib/categories";
 
 /**
  * Studio 워크플로 정의.
