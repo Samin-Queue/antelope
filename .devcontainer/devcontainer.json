@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.schema.json",
-  "name": "samin-queue",
+  "name": "antelope",
 
   // 팀·Railway 가 쓰는 compose 를 그대로 재사용하고, devcontainer 전용 설정만 얹는다.
   "dockerComposeFile": ["../compose.yaml", "compose.yaml"],
