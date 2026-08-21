@@ -30,11 +30,13 @@ LLM_PROVIDER=backendai  # BACKENDAI_BASE_URL + BACKENDAI_API_KEY
 
 ## Railway — 배포와 환경변수
 
-워크스페이스 `Newey` · 프로젝트 `samin-queue` · 서비스 `web`(GitHub 연동) + `Postgres`.
+워크스페이스 `Samin Queue` · 프로젝트 `samin-queue` · 서비스 `web`(GitHub 연동) + `Postgres`.
 `main` 에 푸시하면 Dockerfile 로 빌드되어 자동 배포된다.
 
-- 배포 URL: https://web-production-cd700.up.railway.app
+- 배포 URL: https://web-production-3f8f1.up.railway.app
 - `DATABASE_URL` 은 `${{Postgres.DATABASE_URL}}` 참조로 연결됨 — 직접 값을 넣지 말 것.
+- `PORT=3000` 을 서비스 변수로 고정했다. Railway 기본값은 8080 이라 도메인
+  타깃 포트(3000)와 어긋나 502 가 난다. 지우지 말 것.
 
 환경변수는 Railway 가 단일 소스다. 로컬에서도 같은 값을 끌어다 쓴다.
 
