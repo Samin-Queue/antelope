@@ -36,4 +36,12 @@ export const labs: Lab[] = [
     status: "exploring",
     owner: "승욱",
   },
+  {
+    slug: "samson",
+    title: "Samson · 문서 요약",
+    hypothesis:
+      "무작위 문서를 Parse → 판단 → 하나의 Markdown 요약으로 안정적으로 압축할 수 있는가",
+    status: "exploring",
+    owner: "Samin Queue",
+  },
 ];
