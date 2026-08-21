@@ -28,10 +28,17 @@ Next.js 16 (App Router, Turbopack) · TypeScript · Tailwind v4 · shadcn/ui(bas
 트랙이 정해지면 **환경변수만** 바꾼다 — 애플리케이션 코드는 건드리지 않는다.
 
 ```bash
-LLM_PROVIDER=upstage    # api.upstage.ai/v1, solar-pro4
+LLM_PROVIDER=upstage    # api.upstage.ai/v1 · solar-pro4 (solar-pro3/pro2/mini 도 가용)
 LLM_PROVIDER=azure      # AZURE_BASE_URL + AZURE_API_KEY
-LLM_PROVIDER=backendai  # BACKENDAI_BASE_URL + BACKENDAI_API_KEY
 ```
+
+Azure 는 두 가지가 다르다.
+
+- **신형 v1 경로만 지원한다** — `https://<resource>.services.ai.azure.com/openai/v1`.
+  레거시 `/openai/deployments/<name>/chat/completions?api-version=...` 은 규격이 달라
+  붙지 않는다.
+- **인증이 `api-key` 헤더다** (Bearer 아님). 어댑터가 두 헤더를 모두 보낸다.
+- `LLM_MODEL` 에는 모델 id 가 아니라 **배포(deployment) 이름**을 넣는다.
 
 `/api/health` 가 현재 붙은 프로바이더·모델·DB 상태를 반환한다. `/playground` 는 그 연결을 눈으로 확인하는 채팅 UI.
 
