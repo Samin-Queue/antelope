@@ -6,6 +6,32 @@
 | 레포 | https://github.com/Samin-Queue/antelope          |
 | 배포 | https://web-production-3f8f1.up.railway.app      |
 
+## 에이전트에게
+
+이 저장소에서 코드를 만지기 전에 이 섹션만은 반드시 지킨다. 근거와 상세는 아래 각 섹션에 있다.
+
+**작업 시작 전**
+
+1. `git pull` — 세 명이 같은 `main` 에 직접 푸시한다. 리베이스로 설정돼 있다.
+2. 무엇을 만들지 확정되지 않았으면 `/lab` 실험으로 시작한다. "실험 (lab)" 섹션 참고.
+
+**작업 중 — 어기면 남의 작업이 깨지는 것들**
+
+- 실험 코드는 `src/app/(labs)/lab/<slug>/` 안에만 둔다. **`src/lib/*` 를 고치지 않는다.**
+- 랜딩 문구는 `src/content/site.ts` 한 파일에만. 컴포넌트에 문자열을 박지 않는다.
+- UI 는 `src/components/ui/*`(shadcn) 를 먼저 찾는다. 이 스타일의 `Button` 은
+  `asChild` 가 아니라 base-ui `render` prop 을 쓴다: `<Button render={<Link href="/x" />}>`.
+- 제목 세리프는 `.heading-display` 유틸리티로만 쓴다. 현재 사용처는 2곳이고, 늘리기 전에 한 번 더 생각한다.
+- DB 접근은 `getDb()` 로. `DATABASE_URL` 없이도 앱이 떠야 한다.
+- **"지우면 안 되는 것들" 표를 먼저 읽는다.** 7개 항목 전부 실제로 한 번씩 깨져서 고친 것이다.
+
+**작업 후**
+
+- `pnpm build` — 타입체크가 포함된다. push 전에 훅이 format·lint·typecheck 를 다시 돌린다.
+- 환경이 이상하면 `pnpm doctor` 가 무엇이 빠졌는지 알려준다.
+- **커밋 이메일은 저장소 `git config` 값을 그대로 쓴다.** 임의로 지정하지 않는다 —
+  잘못된 계정으로 귀속되면 히스토리를 다시 써야 한다(실제로 겪었다).
+
 ---
 
 ## 시작하기
