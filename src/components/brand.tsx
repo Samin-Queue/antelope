@@ -37,16 +37,16 @@ export function Combination({ className, priority }: LogoProps) {
       <Image
         src="/brand/combination-on-light.svg"
         alt="Antelope"
-        width={140}
-        height={32}
+        width={131}
+        height={42}
         priority={priority}
         className={cn("dark:hidden", className)}
       />
       <Image
         src="/brand/combination-on-dark.svg"
         alt="Antelope"
-        width={140}
-        height={32}
+        width={131}
+        height={42}
         priority={priority}
         className={cn("hidden dark:block", className)}
       />
