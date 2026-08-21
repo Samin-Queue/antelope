@@ -206,9 +206,18 @@ diff 600줄 초과면 opus, 아니면 sonnet 으로 자동 라우팅한다.
 required check 을 걸 수 없다. STOP 은 빨간 체크까지고 머지 자체는 안 막힌다.
 팀 규칙으로 운영한다: STOP 해소 전 머지 금지.
 
-**Railway "Wait for CI" 를 켜 둔다.** 안 켜면 Railway 가 푸시 즉시 배포해서
-CI 가 실패한 커밋이 데모 URL 에 그대로 올라간다.
-대시보드 → `web` → Settings → Deploy → Wait for CI.
+**Railway "Wait for CI" 는 켜져 있다** (`checkSuites: true`). 안 켜면 Railway 가
+푸시 즉시 배포해서 CI 가 실패한 커밋이 데모 URL 에 그대로 올라간다.
+
+CLI 에는 이 설정이 없어 GraphQL 로 켰다:
+
+```
+deploymentTriggers(projectId, serviceId, environmentId)   # 트리거 id 조회
+deploymentTriggerUpdate(id: <triggerId>, input: { checkSuites: true })
+```
+
+토큰은 `~/.railway/config.json` 의 `user.accessToken` 을 쓴다. `User-Agent` 를
+`railwayapp-cli/<ver>` 로 보내지 않으면 Cloudflare 가 403 을 돌려준다.
 
 ## 인증 · 브랜드
 
