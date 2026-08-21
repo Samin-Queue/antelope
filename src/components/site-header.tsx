@@ -39,14 +39,9 @@ export async function SiteHeader({ marketing = false }: { marketing?: boolean })
 
         <div className="ml-auto flex items-center gap-1">
           {!marketing && (
-            <>
-              <Button render={<Link href="/documents" />} variant="ghost" size="sm">
-                Documents
-              </Button>
-              <Button render={<Link href="/playground" />} variant="ghost" size="sm">
-                Playground
-              </Button>
-            </>
+            <Button render={<Link href="/app" />} variant="ghost" size="sm">
+              워크스페이스
+            </Button>
           )}
           <ThemeToggle />
           {session ? (

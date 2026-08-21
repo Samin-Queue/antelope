@@ -355,7 +355,9 @@ src/content/labs.ts                  레지스트리 (제목·가설·상태·�
 - UI 프리미티브는 `src/components/ui/*`. 직접 만들기 전에
   `pnpm dlx shadcn@latest add <name>` 부터.
 - 이 스타일의 `Button` 은 `asChild` 가 아니라 base-ui `render` prop 을 쓴다:
-  `<Button render={<Link href="/x" />}>`.
+  `<Button render={<Link href="/x" />}>`. `SidebarMenuButton` 도 같다.
+- 화면은 셸이 셋이다. **마케팅**(랜딩, 셸 없음) · **앱**(`(app)`, 사이드바) ·
+  **실험**(`(labs)`, 점선 배너). 새 화면은 어디에 속하는지부터 정한다.
 - 저장하면 Prettier 가 포맷한다. 손으로 정렬하지 않는다 — Tailwind 클래스 순서와
   import 순서까지 플러그인이 맞춘다. CI 가 `format:check` 로 막는다.
 - 커밋 전 `pnpm build` — 타입체크가 빌드에 포함되어 있다.

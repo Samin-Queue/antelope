@@ -15,7 +15,7 @@ export const site = {
   repo: "https://github.com/Samin-Queue/antelope",
 
   cta: { label: "무료로 시작하기", href: "/sign-in" },
-  secondaryCta: { label: "데모 보기", href: "/documents" },
+  secondaryCta: { label: "데모 보기", href: "/app/notices" },
 
   /** 상단 공지 필 */
   announcement: {

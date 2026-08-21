@@ -44,7 +44,7 @@ function GitHubMark() {
 
 export function SignInButtons({
   providers,
-  callbackURL = "/",
+  callbackURL = "/app",
 }: {
   providers: Provider[];
   callbackURL?: string;
