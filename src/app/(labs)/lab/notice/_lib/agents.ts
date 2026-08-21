@@ -243,3 +243,83 @@ export async function draftOutline(notice: Notice, profile: Profile): Promise<Ou
       })),
   };
 }
+
+// ── 4. 이 공고에 필요한 정보만 도출 ─────────────────────────────────────
+const fieldsSchema = z.object({
+  fields: z
+    .array(
+      z.object({
+        key: z.string(),
+        why: z.string().nullish(),
+        kind: z.enum(["text", "date", "number", "money", "long"]).nullish(),
+        placeholder: z.string().nullish(),
+        required: z.boolean().nullish(),
+      }),
+    )
+    .nullish(),
+});
+
+export type RequiredField = {
+  key: string;
+  /** 왜 묻는지. 공고의 어느 요건·배점 때문인지 */
+  why: string | null;
+  kind: "text" | "date" | "number" | "money" | "long";
+  placeholder: string | null;
+  required: boolean;
+};
+
+/**
+ * 공고마다 필요한 정보가 다르다. 고정 폼으로 항상 같은 걸 묻는 건 낭비이고,
+ * 정작 그 공고에 필요한 항목은 안 물어보게 된다.
+ */
+export async function deriveFields(notice: Notice): Promise<RequiredField[]> {
+  const { object } = await generateObject({
+    model: chatModel(),
+    schema: fieldsSchema,
+    system: [
+      "너는 지원사업 공고를 읽고 신청자에게 무엇을 물어야 하는지 정하는 설계자다.",
+      "결과를 아래 JSON 구조 그대로 낸다. 키 이름을 바꾸거나 새로 만들지 않는다.",
+      `{ "fields": [{ "key": string, "why": string, "kind": "text"|"date"|"number"|"money"|"long", "placeholder": string, "required": boolean }] }`,
+      "",
+      "규칙:",
+      "- **이 공고를 판정하거나 작성하는 데 실제로 필요한 항목만** 넣는다. 일반적인 회사 정보를 나열하지 않는다.",
+      "- 자격 요건마다 그것을 확인할 항목이 있어야 한다. (예: '만 39세 이하' → 생년월일)",
+      "- 평가 배점에 필요한 항목도 넣는다. (예: '고용창출 효과' → 현재 직원수, 채용 계획)",
+      "- why 에는 공고의 어느 요건·배점 때문에 묻는지 한 문장으로 적는다.",
+      "- key 는 한국어 명사구로 짧게. (예: 생년월일, 상시근로자 수)",
+      "- required 는 그 항목 없이는 판정이 불가능한 경우에만 true.",
+      "- 최대 8개. 많을수록 신청자가 이탈한다.",
+    ].join("\n"),
+    prompt: [
+      `공고: ${notice.title}`,
+      notice.target ? `지원 대상: ${notice.target}` : "",
+      "",
+      "자격 요건:",
+      ...notice.requirements.map((item, index) => `  ${index + 1}. ${item.text}`),
+      "",
+      notice.scoring.length
+        ? [
+            "평가 배점:",
+            ...notice.scoring.map((s) => `  ${s.criterion} ${s.points ?? "?"}점`),
+          ].join("\n")
+        : "평가 배점: 명시되지 않음",
+      "",
+      notice.documents.length
+        ? ["제출 서류:", ...notice.documents.map((d) => `  ${d.name}`)].join("\n")
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  });
+
+  return (object.fields ?? [])
+    .filter((item) => item.key?.trim())
+    .slice(0, 8)
+    .map((item) => ({
+      key: item.key.trim(),
+      why: item.why?.trim() || null,
+      kind: item.kind ?? "text",
+      placeholder: item.placeholder?.trim() || null,
+      required: item.required ?? false,
+    }));
+}

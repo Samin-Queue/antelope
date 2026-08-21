@@ -149,7 +149,7 @@ function NextStep({ notice }: { notice: Notice }) {
   const [profile, setProfile] = useState<Record<string, string> | null>(null);
 
   if (!profile) {
-    return <ProfileForm onSubmit={setProfile} />;
+    return <ProfileForm notice={notice} onSubmit={setProfile} />;
   }
 
   return (

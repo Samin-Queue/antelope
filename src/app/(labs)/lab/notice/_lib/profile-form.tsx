@@ -1,59 +1,133 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { HelpCircle, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
+import type { RequiredField } from "./agents";
+import type { Notice } from "./schema";
 
 /**
- * 자격 판정에 쓸 신청자 정보.
- * 비워두면 그 항목은 unknown 으로 떨어지고 에이전트가 되묻는다 — 그게 정상 동작이다.
+ * 공고마다 묻는 것이 다르다.
+ *
+ * 고정 폼은 두 번 틀린다 — 안 쓰는 걸 묻고, 정작 필요한 걸 안 묻는다.
+ * 공고를 이미 구조화해뒀으므로 필요한 항목을 거기서 도출한다.
  */
-const FIELDS = [
-  { key: "성명", placeholder: "김시윤" },
-  { key: "생년월일", placeholder: "1999-04-12" },
-  { key: "기업명", placeholder: "안텔로프" },
-  { key: "창업일", placeholder: "2024-03-01" },
-  { key: "업종", placeholder: "지식서비스업(소프트웨어 개발)" },
-  { key: "매출", placeholder: "2025년 8천만원" },
-  { key: "직원수", placeholder: "3명" },
-] as const;
-
 export function ProfileForm({
+  notice,
+  known = {},
   onSubmit,
 }: {
+  notice: Notice;
+  /** 지식베이스에서 이미 아는 값 */
+  known?: Record<string, string>;
   onSubmit: (profile: Record<string, string>) => void;
 }) {
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [fields, setFields] = useState<RequiredField[] | null>(null);
+  const [values, setValues] = useState<Record<string, string>>(known);
+  const [error, setError] = useState<string | null>(null);
 
-  const filled = Object.values(values).filter((value) => value.trim()).length;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch("/lab/notice/fields", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notice }),
+        });
+        const json = await response.json();
+        if (cancelled) return;
+        if (!response.ok) throw new Error(json.error ?? `HTTP ${response.status}`);
+        setFields(json.fields as RequiredField[]);
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [notice]);
+
+  if (error) {
+    return (
+      <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs text-destructive">
+        {error}
+      </p>
+    );
+  }
+
+  if (!fields) {
+    return (
+      <section className="flex items-center gap-2 rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin text-brand" />이 공고에 필요한 항목을
+        고르는 중
+      </section>
+    );
+  }
+
+  const missingRequired = fields.filter(
+    (field) => field.required && !values[field.key]?.trim(),
+  ).length;
+  const prefilled = fields.filter((field) => known[field.key]?.trim()).length;
 
   return (
     <section className="rounded-2xl border border-border bg-card p-6">
-      <h2 className="text-sm font-medium">신청자 정보</h2>
+      <h2 className="text-sm font-medium">이 공고에 필요한 정보 {fields.length}개</h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        비워두면 그 항목은 「확인 필요」로 표시된다. 추측해서 판정하지 않는다.
+        {prefilled > 0
+          ? `${prefilled}개는 이미 알고 있어 채워뒀다. 나머지만 확인하면 된다.`
+          : "공고의 자격 요건과 평가 배점에서 도출했다. 비워두면 「확인 필요」로 표시된다."}
       </p>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {FIELDS.map((field) => (
-          <label key={field.key} className="space-y-1.5">
-            <span className="text-xs text-muted-foreground">{field.key}</span>
-            <Input
-              value={values[field.key] ?? ""}
-              placeholder={field.placeholder}
-              onChange={(event) =>
-                setValues((prev) => ({ ...prev, [field.key]: event.target.value }))
-              }
-            />
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        {fields.map((field) => (
+          <label
+            key={field.key}
+            className={
+              field.kind === "long" ? "space-y-1.5 sm:col-span-2" : "space-y-1.5"
+            }
+          >
+            <span className="flex items-center gap-1.5 text-xs">
+              {field.key}
+              {field.required && <span className="text-brand">*</span>}
+              {known[field.key] && <span className="text-[10px] text-brand">기억함</span>}
+            </span>
+            {field.kind === "long" ? (
+              <Textarea
+                rows={3}
+                value={values[field.key] ?? ""}
+                placeholder={field.placeholder ?? ""}
+                onChange={(event) =>
+                  setValues((prev) => ({ ...prev, [field.key]: event.target.value }))
+                }
+              />
+            ) : (
+              <Input
+                value={values[field.key] ?? ""}
+                placeholder={field.placeholder ?? ""}
+                onChange={(event) =>
+                  setValues((prev) => ({ ...prev, [field.key]: event.target.value }))
+                }
+              />
+            )}
+            {field.why && (
+              <span className="flex items-start gap-1 text-[11px] text-muted-foreground">
+                <HelpCircle className="mt-px size-3 shrink-0" />
+                {field.why}
+              </span>
+            )}
           </label>
         ))}
       </div>
 
-      <div className="mt-5 flex items-center gap-3">
+      <div className="mt-6 flex items-center gap-3">
         <Button onClick={() => onSubmit(values)}>다음</Button>
         <span className="text-xs text-muted-foreground">
-          {filled}/{FIELDS.length} 입력됨
+          {missingRequired > 0 ? `필수 ${missingRequired}개 미입력` : "필수 항목 완료"}
         </span>
       </div>
     </section>
