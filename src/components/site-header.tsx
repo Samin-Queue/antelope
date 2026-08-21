@@ -17,7 +17,7 @@ export async function SiteHeader({ marketing = false }: { marketing?: boolean })
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-6 px-5">
+      <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-6 px-5">
         <Link href="/" aria-label="Antelope 홈" className="shrink-0">
           <Combination priority className="h-8 w-auto" />
         </Link>
