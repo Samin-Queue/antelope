@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Brain, History, Target } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ import {
   type ComposerSubmit,
   type ModelOption,
 } from "@/components/app/composer";
+import { takePendingInput } from "@/components/app/pending-input";
 import { Button } from "@/components/ui/button";
 import { NoticeWorkbench } from "@/app/(labs)/lab/notice/_lib/workbench";
 
@@ -33,6 +34,16 @@ export function AppTabs({
 }) {
   const [tab, setTab] = useState<TabId>("start");
   const [input, setInput] = useState<ComposerSubmit | null>(null);
+
+  // 랜딩 히어로에 넣고 온 입력을 이어받는다. 다시 입력하게 하지 않는다.
+  //
+  // 마운트 후에 읽어야 한다 — 초기 렌더에서 읽으면 서버에는 없는 값이라
+  // 하이드레이션이 어긋난다. 그래서 effect 안에서의 setState 가 여기서는 맞다.
+  useEffect(() => {
+    const held = takePendingInput();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (held) setInput(held);
+  }, []);
 
   return (
     <div className="flex min-h-[calc(100svh-3.5rem)] flex-col">

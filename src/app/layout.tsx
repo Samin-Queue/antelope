@@ -11,10 +11,10 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: { default: `${site.name} — ${site.tagline}`, template: `%s — ${site.name}` },
+  title: { default: `${site.name} · ${site.tagline}`, template: `%s · ${site.name}` },
   description: site.description,
   openGraph: {
-    title: `${site.name} — ${site.tagline}`,
+    title: `${site.name} · ${site.tagline}`,
     description: site.description,
     locale: "ko_KR",
     type: "website",

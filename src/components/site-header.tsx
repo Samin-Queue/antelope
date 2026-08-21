@@ -17,13 +17,14 @@ export async function SiteHeader({ marketing = false }: { marketing?: boolean })
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-6 px-5">
+      <div className="relative mx-auto flex h-14 w-full max-w-7xl items-center gap-6 px-5">
         <Link href="/" aria-label="Antelope 홈" className="shrink-0">
           <Combination priority className="h-8 w-auto" />
         </Link>
 
         {marketing && (
-          <nav className="hidden items-center gap-1 md:flex">
+          // 로고·우측 액션의 폭에 흔들리지 않게 컨테이너 기준으로 가운데 고정한다
+          <nav className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-1 md:flex">
             {site.nav.map((item) => (
               <Button
                 key={item.href}

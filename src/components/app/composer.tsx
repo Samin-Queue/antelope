@@ -70,24 +70,27 @@ const SUGGESTIONS = [
   },
 ];
 
+export type ModelOption = { id: string; label: string; provider: string };
+
 /**
- * 세션 시작 화면.
+ * 입력 상자.
  *
  * 에이전트 제품의 입구는 폼이 아니라 하나의 입력창이다. 무엇을 넣을지
  * 사용자가 고르게 하지 않는다 — 붙여넣은 것이 URL 이면 URL 로, 파일을 끌어다
  * 놓으면 파일로 알아서 처리한다.
+ *
+ * 랜딩 히어로와 워크스페이스가 **같은 컴포넌트**를 쓴다. 랜딩에서 본 상자와
+ * 로그인 후 쓰는 상자가 다르면 그 자체가 거짓말이다.
  */
-export type ModelOption = { id: string; label: string; provider: string };
-
-export function Composer({
-  greeting,
+export function ComposerBox({
   models,
   onSubmit,
+  className,
 }: {
-  greeting: string;
   /** 실제로 붙어 있는 모델. 서버에서 내려온 값이라 표시가 곧 사실이다 */
   models: ModelOption[];
   onSubmit: (input: ComposerSubmit) => void;
+  className?: string;
 }) {
   const [model, setModel] = useState(models[0]?.id ?? "");
   const selected = models.find((item) => item.id === model) ?? models[0];
@@ -108,11 +111,7 @@ export function Composer({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-6 py-10">
-      <h1 className="text-center heading-display text-3xl text-balance sm:text-4xl">
-        {greeting}
-      </h1>
-
+    <div className={cn("w-full", className)}>
       <div
         onDragOver={(event) => {
           event.preventDefault();
@@ -126,7 +125,7 @@ export function Composer({
           if (dropped) setFile(dropped);
         }}
         className={cn(
-          "mt-10 w-full rounded-3xl border bg-card p-3 transition-colors",
+          "w-full rounded-3xl border bg-card p-3 transition-colors",
           dragging ? "border-brand bg-brand/5" : "border-border",
         )}
       >
@@ -245,6 +244,26 @@ export function Composer({
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/** 세션 시작 화면. 인사말 + 입력 상자. */
+export function Composer({
+  greeting,
+  models,
+  onSubmit,
+}: {
+  greeting: string;
+  models: ModelOption[];
+  onSubmit: (input: ComposerSubmit) => void;
+}) {
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-6 py-10">
+      <h1 className="text-center heading-display text-3xl text-balance sm:text-4xl">
+        {greeting}
+      </h1>
+      <ComposerBox models={models} onSubmit={onSubmit} className="mt-10" />
     </div>
   );
 }

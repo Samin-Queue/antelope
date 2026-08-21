@@ -134,6 +134,11 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* 한글은 기본 줄바꿈이 글자 단위라 「자격 / 을 판정하고」처럼 어절이 쪼개진다.
+       keep-all 로 어절을 지키고, 끊을 데가 없는 긴 문자열(URL·에러 메시지)만
+       예외로 아무 데서나 끊는다. */
+    word-break: keep-all;
+    overflow-wrap: anywhere;
   }
   html {
     @apply font-sans;
