@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
+import { ProfileForm } from "./profile-form";
+import { RunView } from "./run-view";
 import type { Notice } from "./schema";
 
 type Result = { via: string; chars: number; notice: Notice };
@@ -132,7 +134,33 @@ export function NoticeWorkbench() {
         </p>
       )}
 
-      {result && <NoticeView result={result} />}
+      {result && (
+        <>
+          <NoticeView result={result} />
+          <NextStep notice={result.notice} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 공고를 읽었으면 그다음은 「나는 되는가」다. 프로필을 받아 파이프라인으로 넘긴다. */
+function NextStep({ notice }: { notice: Notice }) {
+  const [profile, setProfile] = useState<Record<string, string> | null>(null);
+
+  if (!profile) {
+    return <ProfileForm onSubmit={setProfile} />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-medium">신청 준비</h2>
+        <Button variant="ghost" size="xs" onClick={() => setProfile(null)}>
+          정보 수정
+        </Button>
+      </div>
+      <RunView notice={notice} profile={profile} />
     </div>
   );
 }
