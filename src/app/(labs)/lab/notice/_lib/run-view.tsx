@@ -60,6 +60,7 @@ export function RunView({
     "outline",
   ]);
   const [result, setResult] = useState<PipelineResult | null>(null);
+  const [frame, setFrame] = useState<{ image: string; url: string } | null>(null);
   const [totalMs, setTotalMs] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
 
@@ -69,6 +70,7 @@ export function RunView({
     setResult(null);
     setTotalMs(null);
     setStates(IDLE);
+    setFrame(null);
 
     const response = await fetch("/lab/notice/run", {
       method: "POST",
@@ -101,6 +103,8 @@ export function RunView({
 
         if (event.type === "start") {
           setAgents(event.agents);
+        } else if (event.type === "frame") {
+          setFrame({ image: event.image, url: event.url });
         } else if (event.type === "agent:step") {
           setStates((prev) => ({
             ...prev,
@@ -149,13 +153,65 @@ export function RunView({
         )}
       </div>
 
-      <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {agents.map((id) => (
-          <AgentCard key={id} id={id} state={states[id]} />
-        ))}
-      </ul>
+      <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
+        <LiveScreen frame={frame} running={running} />
+        <ul className="space-y-2.5">
+          {agents.map((id) => (
+            <AgentCard key={id} id={id} state={states[id]} />
+          ))}
+        </ul>
+      </div>
 
       {result && <ResultView result={result} />}
+    </div>
+  );
+}
+
+/**
+ * 에이전트가 조작 중인 실제 화면.
+ *
+ * 데모의 제약은 실무와 반대다 — 3분 동안 화면이 죽으면 안 된다. 진행 막대보다
+ * 진짜 폼에 글자가 채워지는 장면이 시간을 채우면서 동시에 읽힌다.
+ */
+function LiveScreen({
+  frame,
+  running,
+}: {
+  frame: { image: string; url: string } | null;
+  running: boolean;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <span className="flex gap-1.5">
+          <span className="size-2.5 rounded-full bg-muted-foreground/30" />
+          <span className="size-2.5 rounded-full bg-muted-foreground/30" />
+          <span className="size-2.5 rounded-full bg-muted-foreground/30" />
+        </span>
+        <span className="truncate font-mono text-xs text-muted-foreground">
+          {frame?.url ?? "about:blank"}
+        </span>
+        {running && frame && (
+          <span className="ml-auto flex items-center gap-1.5 text-xs text-brand">
+            <span className="size-1.5 animate-pulse rounded-full bg-brand" />
+            LIVE
+          </span>
+        )}
+      </div>
+      <div className="relative aspect-[16/10] bg-muted/30">
+        {frame ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={frame.image}
+            alt="에이전트가 조작 중인 화면"
+            className="size-full object-cover object-top"
+          />
+        ) : (
+          <div className="flex size-full items-center justify-center text-sm text-muted-foreground">
+            {running ? "브라우저 준비 중" : "신청 URL 이 있으면 여기에 실제 화면이 뜬다"}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

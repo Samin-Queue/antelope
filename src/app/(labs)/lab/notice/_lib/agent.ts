@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { chatModel } from "@/lib/llm";
 
-import { act, openSession, settle, snapshot, type Snapshot } from "./browser";
+import { act, openSession, screenshot, settle, snapshot, type Snapshot } from "./browser";
 import type { TraceEntry } from "./types";
 
 /**
@@ -23,6 +23,8 @@ export async function runBrowserAgent(opts: {
   headless?: boolean;
   /** 조작을 실시간으로 흘려보낸다. 브라우저 에이전트는 보여야 값어치가 있다 */
   onStep?: (entry: TraceEntry) => void;
+  /** 조작 직후 화면. 데모에서 이게 시간을 채운다 */
+  onFrame?: (image: string, url: string) => void;
 }) {
   const { sessionId, goal, facts = {}, startUrl, maxSteps = 24, headless = true } = opts;
   const { page } = await openSession(sessionId, headless);
@@ -39,6 +41,13 @@ export async function runBrowserAgent(opts: {
     };
     trace.push(entry);
     opts.onStep?.(entry);
+  };
+
+  /** 화면을 한 장 흘린다. 실패해도 조작은 계속한다 */
+  const frame = async () => {
+    if (!opts.onFrame) return;
+    const image = await screenshot(page);
+    if (image) opts.onFrame(image, page.url());
   };
 
   const describe = (snap: Snapshot) =>
@@ -67,6 +76,7 @@ export async function runBrowserAgent(opts: {
         await settle(page);
         const snap = await snapshot(page);
         const text = describe(snap);
+        await frame();
         record("snapshot", {}, `요소 ${snap.elements.length}개`);
         return text;
       },
@@ -76,6 +86,7 @@ export async function runBrowserAgent(opts: {
       inputSchema: z.object({ url: z.string() }),
       execute: async ({ url }) => {
         const message = await act(page, { type: "goto", url });
+        await frame();
         record("goto", { url }, message);
         return message;
       },
@@ -95,6 +106,7 @@ export async function runBrowserAgent(opts: {
           after === before
             ? `${ref} 를 클릭했지만 URL 이 바뀌지 않았다 (${after}). 필수 입력 누락이나 검증 실패일 수 있다. snapshot 으로 오류 메시지와 빈 칸을 확인하라.`
             : `${ref} 를 클릭했고 ${after} 로 이동했다.`;
+        await frame();
         record("click", { ref }, message);
         return message;
       },
@@ -104,6 +116,7 @@ export async function runBrowserAgent(opts: {
       inputSchema: z.object({ ref: z.string(), value: z.string() }),
       execute: async ({ ref, value }) => {
         const message = await act(page, { type: "fill", ref, value });
+        await frame();
         record("fill", { ref, value }, message);
         return message;
       },
@@ -113,6 +126,7 @@ export async function runBrowserAgent(opts: {
       inputSchema: z.object({ ref: z.string(), value: z.string() }),
       execute: async ({ ref, value }) => {
         const message = await act(page, { type: "select", ref, value });
+        await frame();
         record("select", { ref, value }, message);
         return message;
       },
@@ -122,6 +136,7 @@ export async function runBrowserAgent(opts: {
       inputSchema: z.object({ ref: z.string() }),
       execute: async ({ ref }) => {
         const message = await act(page, { type: "check", ref });
+        await frame();
         record("check", { ref }, message);
         return message;
       },

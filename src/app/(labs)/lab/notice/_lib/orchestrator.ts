@@ -1,13 +1,5 @@
 import { runBrowserAgent } from "./agent";
-import {
-  draftOutline,
-  judgeEligibility,
-  planDocuments,
-  type DocumentPlan,
-  type Eligibility,
-  type Outline,
-  type Profile,
-} from "./agents";
+import { draftOutline, judgeEligibility, planDocuments, type Profile } from "./agents";
 import type { Notice } from "./schema";
 import type { AgentId, PipelineResult, RunEvent } from "./types";
 
@@ -96,6 +88,8 @@ export async function runPipeline(
                 detail: JSON.stringify(entry.input).slice(0, 120),
                 url: entry.url,
               }),
+            onFrame: (image, url) =>
+              emit({ type: "frame", agent: "browser", image, url }),
           }),
         )
       : Promise.resolve({

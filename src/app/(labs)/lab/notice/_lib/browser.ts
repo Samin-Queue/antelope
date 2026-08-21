@@ -205,6 +205,20 @@ export async function act(page: Page, action: Action): Promise<string> {
   }
 }
 
+/**
+ * 현재 화면을 JPEG data URL 로 뜬다.
+ * 데모에서 3분 동안 화면이 죽지 않게 하는 것이 이 함수의 존재 이유다.
+ * 품질을 낮게 잡는다 — SSE 로 흘리므로 용량이 곧 지연이다.
+ */
+export async function screenshot(page: Page): Promise<string | null> {
+  try {
+    const buffer = await page.screenshot({ type: "jpeg", quality: 45, timeout: 5_000 });
+    return `data:image/jpeg;base64,${buffer.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
 /** 조작 후 페이지가 안정될 때까지 짧게 기다린다. 실패해도 진행한다. */
 export async function settle(page: Page) {
   await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});

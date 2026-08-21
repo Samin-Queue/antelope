@@ -43,6 +43,8 @@ export type RunEvent =
   | { type: "start"; agents: AgentId[] }
   | { type: "agent:start"; agent: AgentId }
   | { type: "agent:step"; agent: AgentId; tool: string; detail: string; url?: string }
+  /** 브라우저 화면. data:image/jpeg;base64 — 조작할 때마다 한 장씩 흘린다 */
+  | { type: "frame"; agent: AgentId; image: string; url: string }
   | { type: "agent:done"; agent: AgentId; ms: number }
   | { type: "agent:error"; agent: AgentId; error: string }
   | { type: "result"; result: PipelineResult }
