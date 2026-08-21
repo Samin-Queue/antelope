@@ -126,8 +126,9 @@ LLM_PROVIDER=azure      # AZURE_BASE_URL + AZURE_API_KEY
 
 1. `next.config.ts` 의 `serverExternalPackages: ["playwright", "playwright-core"]`
 2. **클라이언트 컴포넌트는 `_lib/types.ts` 에서만 타입을 가져온다.**
-   `orchestrator` 를 import 하면 `agent → browser → playwright` 로 이어져
-   브라우저 번들에 끌려 들어간다. 실제로 한 번 밟았다.
+   `orchestrator` 를 import 하면 `agent → desktop → node:child_process` 로 이어져
+   브라우저 번들에 끌려 들어간다. Playwright 시절에 실제로 한 번 밟았고, 지금은
+   의존성이 달라졌을 뿐 같은 규칙이다.
 
 ### 임베딩으로 항목을 매칭할 때
 
@@ -145,16 +146,41 @@ LLM_PROVIDER=azure      # AZURE_BASE_URL + AZURE_API_KEY
 임계값은 **0.50** 이다. 정답 최저 0.578, 오답 최고 0.435 사이에서 골랐다.
 올리면 못 찾고, 내리면 엉뚱한 값을 자동으로 채워 넣는다.
 
-### 브라우저 자동화의 함정
+### 브라우저 자동화 — CDP 를 쓰지 않는다
 
-`page.evaluate` 에 **함수를 넘기지 않는다. 문자열로 넘긴다.**
-tsx·esbuild·Next 번들러가 인라인 함수를 변환하면서 `__name` 같은 헬퍼를 주입하는데,
-브라우저 컨텍스트에는 그 헬퍼가 없어 `__name is not defined` 로 죽는다.
-문자열은 변환을 타지 않는다 — `_lib/browser.ts` 의 `SNAPSHOT_SCRIPT` 참고.
+`lab/notice` 의 브라우저 에이전트는 Playwright·CDP 없이 돈다. **Xvfb 위에 일반
+Chromium 을 띄우고 xdotool 로 마우스·키보드를 넣는다** (`_lib/desktop.ts`).
+원격 디버깅 포트가 없으니 `navigator.webdriver` 도 CDP `Runtime.enable` 흔적도
+없다 — 캡챠 벤더가 보는 자동화 지문 중 브라우저 쪽은 사라진다.
+(IP 평판은 남는다. 데이터센터 IP 는 여전히 의심받는다 — 주거용 프록시가 답이다.)
 
-그리고 클릭 후 **URL 이 바뀌었는지 모델에게 알려준다.** 제출을 눌렀는데 필수 입력
-누락으로 페이지가 그대로면, 그 사실을 모르는 모델은 이미 채운 칸을 계속 다시
-채우며 헤맨다. 이 한 줄 피드백으로 28스텝이 16스텝이 됐다.
+대가는 **DOM 이 없다는 것**이다. 그래서 읽기는 전부 화면 기준이다:
+
+- 요소 목록 대신 **스크린샷을 OCR** 한 글자 줄(`t1, t2 …`)을 모델에게 준다
+  (`_lib/ocr.ts`). 모델이 `t12 를 클릭` 하면 그 글자의 bbox 중심을 실제로 누른다.
+- **입력칸은 찾지 않는다.** `<label for>` 글자를 클릭하면 연결된 input 에 포커스가
+  가는 HTML 표준 동작을 쓴다. 플레이스홀더는 글자로 찍히니 직접 눌린다.
+- **URL 을 모른다.** 전환 여부는 창 제목(`xdotool getwindowname`)과 화면 변화율
+  (128×90 래스터 차분, `changeRatio`)로 판정해 모델에게 알린다. 제출을 눌렀는데
+  화면이 그대로면 대개 검증 실패다 — 이 피드백이 없으면 모델은 채운 칸을 계속
+  다시 채운다. 여백이 많은 페이지는 스크롤해도 0.1 남짓이니 임계값을 올리지 말 것.
+- OCR 은 `UPSTAGE_API_KEY` 가 있으면 Upstage, 없으면 **tesseract** 로 떨어진다.
+  키 없이도 실험이 돌아야 해서다. tesseract 한국어는 음절 사이에 공백을 끼우므로
+  (`다 온 소프트`) 한글 사이 공백은 걷어낸다.
+
+Chromium 은 **kiosk** 로 띄운다. 주소창이 없어야 페이지 좌표 = 화면 좌표가 된다.
+한글 입력은 xdotool 키심 매핑이 불안정해 **클립보드(xclip) + Ctrl+V** 로 넣는다.
+
+사람에게 넘기기: `/lab/notice/live`(SSE 프레임) + `/lab/notice/control`(POST 조작).
+X 서버로 직접 들어가므로 **캡챠 iframe 안도 똑같이 눌린다** — CDP 로는 못 하던
+일이다. 캡챠 문구가 OCR 에 보이면 에이전트가 `hold` 를 걸고 사람을 기다린다.
+
+실행 환경: `Dockerfile` base 에 `chromium xvfb xdotool xclip imagemagick tesseract-ocr`
+이 들어간다. 컨테이너 안에서는 `--no-sandbox` 가 필요하다(페이지에서 감지되지 않는다).
+**로컬 arm64 에는 Google Chrome 빌드가 없다** — Debian `chromium` 을 쓴다.
+
+⚠ `pkill -f "Xvfb :1"` 처럼 패턴으로 죽이면 **그 문자열을 가진 자기 셸이 먼저 죽는다.**
+`/proc` 을 돌며 cmdline 을 비교하고 `$$` 를 제외할 것.
 
 ### Upstage Studio 에이전트 (/v2)
 

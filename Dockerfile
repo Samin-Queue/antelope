@@ -6,6 +6,14 @@
 FROM node:24-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
+# 브라우저 에이전트용 가상 데스크톱. CDP 없이 진짜 Chromium 을 Xvfb 위에 띄우고
+# xdotool 로 조작한다. tesseract 는 UPSTAGE_API_KEY 가 없을 때의 OCR 폴백이다.
+# (BuildKit 지시자를 쓰지 않는다 — Railway Metal 빌더가 빈 로그로 죽는다)
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      chromium xvfb xdotool xclip imagemagick \
+      tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng fonts-noto-cjk \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 # ── 의존성만 별도 레이어로: 소스가 바뀌어도 재설치하지 않는다 ──

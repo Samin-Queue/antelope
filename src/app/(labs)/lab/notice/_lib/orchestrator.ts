@@ -58,6 +58,11 @@ export async function runPipeline(
   if (applyUrl) agents.push("browser");
   emit({ type: "start", agents });
 
+  // 세션 id 를 먼저 알린다. 클라이언트는 이걸로 라이브 뷰를 붙이고, 브라우저가
+  // 실제로 뜨는 2단계까지 기다린다 (desktop.waitForSession).
+  const sessionId = `pipeline-${started}`;
+  if (applyUrl) emit({ type: "session", sessionId });
+
   // 1단계 — 서로 독립이라 병렬로 돌린다.
   const [eligibility, documents] = await Promise.all([
     runAgent("eligibility", emit, () => judgeEligibility(notice, profile)),
@@ -75,7 +80,7 @@ export async function runPipeline(
     applyUrl && !skipOutline
       ? runAgent("browser", emit, () =>
           runBrowserAgent({
-            sessionId: `pipeline-${started}`,
+            sessionId,
             startUrl: applyUrl,
             goal: `${notice.title} 신청 폼을 채워라. 최종 제출 버튼은 누르지 말고 직전에서 멈춘다.`,
             facts: profile,
@@ -90,6 +95,8 @@ export async function runPipeline(
               }),
             onFrame: (image, url) =>
               emit({ type: "frame", agent: "browser", image, url }),
+            onNeedHuman: (reason) => emit({ type: "need:human", reason }),
+            onHumanDone: () => emit({ type: "human:done" }),
           }),
         )
       : Promise.resolve({

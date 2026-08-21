@@ -1,8 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { CheckCircle2, CircleDashed, HelpCircle, Loader2, XCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  CheckCircle2,
+  CircleDashed,
+  Hand,
+  HelpCircle,
+  Loader2,
+  XCircle,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +18,14 @@ import { Button } from "@/components/ui/button";
 import type { Evidence } from "./evidence";
 import { Cite, EvidencePanel } from "./evidence-view";
 import type { Notice } from "./schema";
-import { AGENT_LABEL, type AgentId, type PipelineResult, type RunEvent } from "./types";
+import {
+  AGENT_LABEL,
+  LIVE_SCREEN,
+  type AgentId,
+  type LiveInput,
+  type PipelineResult,
+  type RunEvent,
+} from "./types";
 
 type AgentState = {
   status: "idle" | "running" | "done" | "error";
@@ -29,12 +43,14 @@ const IDLE: Record<AgentId, AgentState> = {
 };
 
 const TOOL_LABEL: Record<string, string> = {
-  goto: "이동",
-  snapshot: "화면 읽기",
+  read: "화면 읽기",
   click: "클릭",
-  fill: "입력",
+  click_at: "좌표 클릭",
+  type: "입력",
   select: "선택",
-  check: "체크",
+  press: "키",
+  scroll: "스크롤",
+  "need:human": "사람 호출",
 };
 
 const ORIGIN_LABEL = {
@@ -75,6 +91,9 @@ export function RunView({
   const [frame, setFrame] = useState<{ image: string; url: string } | null>(null);
   const [totalMs, setTotalMs] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
+  /** 브라우저 에이전트의 가상 데스크톱. 라이브 뷰와 조작이 여기 붙는다 */
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [needHuman, setNeedHuman] = useState<string | null>(null);
 
   /**
    * 파이프라인 결과를 목표에 남긴다.
@@ -107,6 +126,8 @@ export function RunView({
     setTotalMs(null);
     setStates(IDLE);
     setFrame(null);
+    setSessionId(null);
+    setNeedHuman(null);
 
     const response = await fetch("/lab/notice/run", {
       method: "POST",
@@ -141,6 +162,12 @@ export function RunView({
           setAgents(event.agents);
         } else if (event.type === "frame") {
           setFrame({ image: event.image, url: event.url });
+        } else if (event.type === "session") {
+          setSessionId(event.sessionId);
+        } else if (event.type === "need:human") {
+          setNeedHuman(event.reason);
+        } else if (event.type === "human:done") {
+          setNeedHuman(null);
         } else if (event.type === "agent:step") {
           setStates((prev) => ({
             ...prev,
@@ -191,7 +218,13 @@ export function RunView({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
-        <LiveScreen frame={frame} running={running} />
+        <LiveScreen
+          frame={frame}
+          running={running}
+          sessionId={sessionId}
+          needHuman={needHuman}
+          onHumanDone={() => setNeedHuman(null)}
+        />
         <ul className="space-y-2.5">
           {agents.map((id) => (
             <AgentCard key={id} id={id} state={states[id]} />
@@ -207,18 +240,72 @@ export function RunView({
 }
 
 /**
- * 에이전트가 조작 중인 실제 화면.
+ * 에이전트가 조작 중인 실제 화면 — 그리고 필요하면 사람이 넘겨받는 곳.
  *
- * 데모의 제약은 실무와 반대다 — 3분 동안 화면이 죽으면 안 된다. 진행 막대보다
- * 진짜 폼에 글자가 채워지는 장면이 시간을 채우면서 동시에 읽힌다.
+ * 평소에는 에이전트가 보내는 프레임을 그린다. 세션이 생기면 /lab/notice/live 에
+ * 붙어 가상 데스크톱을 그대로 스트리밍하고, 「직접 조작」을 켜면 클릭·키·스크롤이
+ * 그 데스크톱의 X 서버로 들어간다. 캡챠가 뜨면 에이전트가 먼저 멈추고 이걸 켠다.
  */
 function LiveScreen({
   frame,
   running,
+  sessionId,
+  needHuman,
+  onHumanDone,
 }: {
   frame: { image: string; url: string } | null;
   running: boolean;
+  sessionId: string | null;
+  needHuman: string | null;
+  onHumanDone: () => void;
 }) {
+  const [live, setLive] = useState<string | null>(null);
+  const [manualByUser, setManualByUser] = useState(false);
+  // 캡챠 등으로 에이전트가 멈추면 조작권은 자동으로 사람에게 온다 — 효과가 아니라 파생값이다
+  const manual = manualByUser || needHuman !== null;
+  const imgRef = useRef<HTMLImageElement>(null);
+  const dragFrom = useRef<{ x: number; y: number } | null>(null);
+
+  // 세션이 생기면 라이브 스트림에 붙는다. 화면이 바뀐 프레임만 온다.
+  useEffect(() => {
+    if (!sessionId) return;
+    const source = new EventSource(
+      `/lab/notice/live?session=${encodeURIComponent(sessionId)}`,
+    );
+    source.addEventListener("frame", (e) =>
+      setLive(`data:image/jpeg;base64,${(e as MessageEvent).data}`),
+    );
+    source.addEventListener("error", () => source.close());
+    return () => source.close();
+  }, [sessionId]);
+
+  const send = (input: LiveInput | { kind: "hold"; held: boolean }) => {
+    if (!sessionId) return;
+    void fetch(`/lab/notice/control?session=${encodeURIComponent(sessionId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  };
+
+  const toggleManual = (next: boolean) => {
+    setManualByUser(next);
+    send({ kind: "hold", held: next });
+    if (!next) onHumanDone();
+  };
+
+  /** 표시 크기 → 가상 데스크톱 픽셀 */
+  const toScreen = (e: React.MouseEvent) => {
+    const rect = imgRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * LIVE_SCREEN.width,
+      y: ((e.clientY - rect.top) / rect.height) * LIVE_SCREEN.height,
+    };
+  };
+
+  const image = live ?? frame?.image ?? null;
+
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -230,19 +317,88 @@ function LiveScreen({
         <span className="truncate font-mono text-xs text-muted-foreground">
           {frame?.url ?? "about:blank"}
         </span>
-        {running && frame && (
-          <span className="ml-auto flex items-center gap-1.5 text-xs text-brand">
-            <span className="size-1.5 animate-pulse rounded-full bg-brand" />
-            LIVE
-          </span>
-        )}
+        <span className="ml-auto flex items-center gap-3">
+          {running && image && !manual && (
+            <span className="flex items-center gap-1.5 text-xs text-brand">
+              <span className="size-1.5 animate-pulse rounded-full bg-brand" />
+              LIVE
+            </span>
+          )}
+          {sessionId && (
+            <Button
+              size="xs"
+              variant={manual ? "default" : "outline"}
+              onClick={() => toggleManual(!manual)}
+            >
+              <Hand />
+              {manual ? "에이전트에게 돌려주기" : "직접 조작"}
+            </Button>
+          )}
+        </span>
       </div>
-      <div className="relative aspect-[16/10] bg-muted/30">
-        {frame ? (
+
+      {needHuman && (
+        <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+          <Hand className="size-3.5" />
+          {needHuman} 끝나면 「에이전트에게 돌려주기」를 누르세요.
+        </div>
+      )}
+
+      <div
+        className={cn(
+          "relative aspect-[16/10] bg-muted/30 select-none",
+          manual && "cursor-crosshair ring-2 ring-brand ring-inset",
+        )}
+        tabIndex={manual ? 0 : -1}
+        onKeyDown={(e) => {
+          if (!manual) return;
+          e.preventDefault();
+          // 글자 하나는 type 으로, 나머지는 X 키 이름으로 보낸다
+          if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+            send({ kind: "type", text: e.key });
+          } else {
+            const map: Record<string, string> = {
+              Enter: "Return",
+              Backspace: "BackSpace",
+              ArrowUp: "Up",
+              ArrowDown: "Down",
+              ArrowLeft: "Left",
+              ArrowRight: "Right",
+              " ": "space",
+            };
+            const key = map[e.key] ?? e.key;
+            send({ kind: "key", key: e.ctrlKey ? `ctrl+${key.toLowerCase()}` : key });
+          }
+        }}
+        onWheel={(e) => {
+          if (!manual) return;
+          const p = toScreen(e);
+          if (p) send({ kind: "scroll", x: p.x, y: p.y, dy: e.deltaY });
+        }}
+        onMouseDown={(e) => {
+          if (!manual) return;
+          dragFrom.current = toScreen(e);
+          (e.currentTarget as HTMLDivElement).focus();
+        }}
+        onMouseUp={(e) => {
+          if (!manual) return;
+          const from = dragFrom.current;
+          const to = toScreen(e);
+          dragFrom.current = null;
+          if (!from || !to) return;
+          const moved = Math.hypot(to.x - from.x, to.y - from.y) > 6;
+          if (moved) send({ kind: "drag", x: from.x, y: from.y, toX: to.x, toY: to.y });
+          else if (e.detail >= 2) send({ kind: "dblclick", x: to.x, y: to.y });
+          else send({ kind: "click", x: to.x, y: to.y });
+        }}
+      >
+        {image ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={frame.image}
+            ref={imgRef}
+            src={image}
             alt="에이전트가 조작 중인 화면"
+            draggable={false}
             className="size-full object-cover object-top"
           />
         ) : (

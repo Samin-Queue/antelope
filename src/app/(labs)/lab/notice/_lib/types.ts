@@ -9,6 +9,22 @@ import type { DocumentPlan, Eligibility, Outline } from "./agents";
 
 export type AgentId = "eligibility" | "documents" | "outline" | "browser";
 
+/** 가상 데스크톱 해상도. 라이브 뷰가 클릭 좌표를 이 기준으로 환산한다 */
+export const LIVE_SCREEN = { width: 1280, height: 900 } as const;
+
+/**
+ * 사람이 라이브 화면에서 보내는 조작. 좌표는 LIVE_SCREEN 기준 픽셀이다.
+ * 브라우저 DOM 이 아니라 xdotool 로 X 서버에 들어가므로 캡챠 iframe 안도 똑같이 눌린다.
+ */
+export type LiveInput =
+  | { kind: "click"; x: number; y: number }
+  | { kind: "dblclick"; x: number; y: number }
+  | { kind: "move"; x: number; y: number }
+  | { kind: "drag"; x: number; y: number; toX: number; toY: number }
+  | { kind: "scroll"; x: number; y: number; dy: number }
+  | { kind: "type"; text: string }
+  | { kind: "key"; key: string };
+
 export const AGENT_LABEL: Record<AgentId, string> = {
   eligibility: "자격 판정",
   documents: "서류 준비 계획",
@@ -45,6 +61,12 @@ export type RunEvent =
   | { type: "agent:step"; agent: AgentId; tool: string; detail: string; url?: string }
   /** 브라우저 화면. data:image/jpeg;base64 — 조작할 때마다 한 장씩 흘린다 */
   | { type: "frame"; agent: AgentId; image: string; url: string }
+  /** 세션 id. 클라이언트가 /lab/notice/live 로 라이브 뷰를 붙일 주소다 */
+  | { type: "session"; sessionId: string }
+  /** 에이전트가 멈추고 사람을 기다린다 — 캡챠 등 */
+  | { type: "need:human"; reason: string }
+  /** 사람이 끝내고 에이전트가 다시 움직인다 */
+  | { type: "human:done" }
   | { type: "agent:done"; agent: AgentId; ms: number }
   | { type: "agent:error"; agent: AgentId; error: string }
   | { type: "result"; result: PipelineResult }
