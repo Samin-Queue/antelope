@@ -34,6 +34,10 @@ Azure 는 두 가지가 다르다.
 - 이 스타일의 `Button` 은 `asChild` 가 아니라 base-ui `render` prop 을 쓴다: `<Button render={<Link href="/x" />}>`.
 - DB 접근은 `getDb()` 로. `DATABASE_URL` 없이도 앱이 떠야 한다 (랜딩·데모는 DB 무관).
 - 커밋 전 `pnpm build` — 타입체크가 빌드에 포함되어 있다.
+- 저장하면 Prettier 가 포맷한다(`.vscode/settings.json`). 손으로 정렬하지 않는다 —
+  Tailwind 클래스 순서와 import 순서까지 플러그인이 맞춘다. CI 가 `format:check` 로 막는다.
+- DB 는 pgvector 를 쓸 수 있다(로컬·프로덕션 동일 이미지, vector 0.8.6).
+  임베딩이 필요하면 `CREATE EXTENSION vector` 후 Upstage `solar-embedding-2-*` 를 쓴다.
 
 ## Railway 계정 없이 협업하기
 
@@ -114,5 +118,7 @@ pnpm dev              # 로컬 개발
 pnpm build            # 타입체크 + 프로덕션 빌드
 pnpm db:push          # 스키마를 DB 에 반영 (마이그레이션 파일 없이, 해커톤용)
 pnpm db:studio        # Drizzle Studio
+pnpm format           # Prettier 일괄 적용
+pnpm typecheck        # 빌드 없이 타입만
 railway up            # 수동 배포 (기본은 GitHub push 자동 배포)
 ```
