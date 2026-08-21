@@ -2,12 +2,15 @@ name: samin-queue
 
 services:
   db:
-    image: postgres:17-alpine
+    # Railway 프로덕션과 동일한 이미지. pgvector 등 확장 구성이 같아야
+    # "로컬에선 되는데" 가 안 생긴다.
+    image: ghcr.io/railwayapp-templates/postgres-ssl:18
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: samin_queue
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
