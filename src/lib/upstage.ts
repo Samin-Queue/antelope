@@ -113,3 +113,32 @@ export async function extractInformation<T = unknown>(
   if (!content) throw new Error("[upstage] information-extraction: 빈 응답");
   return JSON.parse(content) as T;
 }
+
+/** Upstage 임베딩 모델. 질의와 문서에 서로 다른 모델을 쓴다. */
+export const EMBEDDING_MODELS = {
+  query: "solar-embedding-2-query",
+  passage: "solar-embedding-2-passage",
+} as const;
+
+/**
+ * 텍스트 배열을 1024차원 벡터로 변환한다.
+ * 저장할 문서는 "passage", 검색어는 "query" 를 쓴다 — 섞으면 정확도가 떨어진다.
+ */
+export async function embed(
+  input: string[],
+  kind: keyof typeof EMBEDDING_MODELS = "passage",
+): Promise<number[][]> {
+  if (input.length === 0) return [];
+
+  const result = (await post(
+    "/embeddings",
+    JSON.stringify({ model: EMBEDDING_MODELS[kind], input }),
+    { "Content-Type": "application/json" },
+  )) as { data?: Array<{ index: number; embedding: number[] }> };
+
+  const data = result.data;
+  if (!data) throw new Error("[upstage] embeddings: 빈 응답");
+
+  // API 가 순서를 보장하지 않을 수 있어 index 로 재정렬한다.
+  return [...data].sort((a, b) => a.index - b.index).map((item) => item.embedding);
+}

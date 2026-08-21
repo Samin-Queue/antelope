@@ -15,6 +15,8 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # 새 볼륨 초기화 시 1회 실행 — pgvector 확장을 만든다.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d antelope"]
       interval: 3s

@@ -109,8 +109,15 @@ pnpm db:studio     # Drizzle Studio
 
 - 컨테이너 안 `DATABASE_URL` 은 `postgres://postgres:postgres@db:5432/antelope`,
   호스트에서는 `@localhost:5432`.
-- **pgvector 0.8.6 사용 가능**. RAG 가 필요하면 `CREATE EXTENSION vector` 후
-  Upstage `solar-embedding-2-*` 와 붙인다.
+- **pgvector 0.8.6 이 로컬·프로덕션 모두 활성화되어 있다.** 로컬은
+  `docker/initdb/01-extensions.sql` 이 새 볼륨마다 자동 실행한다 — 이 파일이 없으면
+  drizzle 의 vector 컬럼이 42704(type "vector" does not exist)로 깨진다.
+- 검색이 필요하면 `document_chunks` 테이블이 이미 있다 — `vector(1024)` 컬럼에
+  HNSW 코사인 인덱스. 임베딩은 `embed()` 로 만든다
+  (저장 문서는 `passage`, 검색어는 `query` — 섞으면 정확도가 떨어진다).
+- 프로덕션 DB 에 직접 붙어야 하면 TCP 프록시를 잠깐 열고 닫는다:
+  `railway tcp-proxy create --service Postgres --port 5432` → 작업 →
+  `railway tcp-proxy delete <id> --service Postgres --yes`. 열어둔 채 두지 않는다.
 - DB 접근은 항상 `getDb()` 로. `DATABASE_URL` 없이도 앱은 떠야 한다
   (랜딩·플레이그라운드는 DB 무관).
 
