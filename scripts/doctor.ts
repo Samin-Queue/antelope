@@ -88,7 +88,7 @@ const OPTIONAL = [
 ];
 
 if (!existsSync(".env.local")) {
-  push(false, ".env.local", "파일 없음", "팀에서 .env.local 을 받아 레포 루트에 둔다");
+  push(false, ".env.local", "파일 없음", "cp .env.example .env.local 로 만든다");
 } else {
   const env = Object.fromEntries(
     readFileSync(".env.local", "utf8")
@@ -106,7 +106,7 @@ if (!existsSync(".env.local")) {
     missing.length
       ? `비어 있음: ${missing.join(", ")}`
       : `${REQUIRED.length}개 모두 설정됨`,
-    "팀에서 받은 값으로 채운다",
+    "README 의 환경변수 표를 보고 채운다 (UPSTAGE_API_KEY 는 console.upstage.ai)",
   );
   const missingOptional = OPTIONAL.filter((key) => !env[key]);
   push(
