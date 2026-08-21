@@ -1,7 +1,19 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ArrowUp, FileText, Link2, Paperclip, Sparkles, X } from "lucide-react";
+import {
+  ArrowUp,
+  Building2,
+  FileText,
+  GraduationCap,
+  Landmark,
+  Link2,
+  Paperclip,
+  PartyPopper,
+  Rocket,
+  Trophy,
+  X,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { ProviderMark } from "@/components/app/provider-mark";
@@ -19,10 +31,43 @@ export type ComposerSubmit =
   | { kind: "url"; url: string }
   | { kind: "file"; file: File };
 
+/**
+ * 무엇을 넣을 수 있는지 예시로 보여준다.
+ *
+ * "공고" 를 좁게 잡으면 사용자가 정부지원사업만 떠올린다. 실제로는 자격을
+ * 따지고 서류를 내는 모든 일이 같은 구조다 — 청약도, 수시도, 이벤트 응모도.
+ */
 const SUGGESTIONS = [
-  { icon: Sparkles, label: "공고문 분석", hint: "지원사업 공고를 넣어보세요" },
-  { icon: Link2, label: "링크로 시작", hint: "https://www.k-startup.go.kr/..." },
-  { icon: FileText, label: "말로 설명", hint: "포항에서 하는 청년 창업 지원사업인데..." },
+  {
+    icon: Landmark,
+    label: "정부지원사업",
+    hint: "청년창업사관학교 13기 모집한다는데 나 되는지 봐줘",
+  },
+  {
+    icon: Building2,
+    label: "임대·분양 청약",
+    hint: "행복주택 공고 캡쳐한 건데 내가 신청 자격 되는지 확인해줘",
+  },
+  {
+    icon: Rocket,
+    label: "스타트업 크레딧",
+    hint: "https://www.cloudflare.com/forstartups/",
+  },
+  {
+    icon: GraduationCap,
+    label: "대학 수시",
+    hint: "이 학과 수시 모집요강인데 내 생기부로 지원 가능한지 봐줘",
+  },
+  {
+    icon: Trophy,
+    label: "공모전·대회",
+    hint: "이 해커톤 참가 요건이랑 제출물이 뭔지 정리해줘",
+  },
+  {
+    icon: PartyPopper,
+    label: "이벤트 응모",
+    hint: "기대평 쓰면 추첨한다는 이벤트인데 뭘 해야 하는지 알려줘",
+  },
 ];
 
 /**
@@ -63,7 +108,7 @@ export function Composer({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col items-center px-6 py-20">
+    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-6 py-10">
       <h1 className="text-center heading-display text-3xl text-balance sm:text-4xl">
         {greeting}
       </h1>
@@ -103,6 +148,16 @@ export function Composer({
 
         <textarea
           value={text}
+          onPaste={(event) => {
+            // 캡쳐를 그대로 붙여넣는 것이 가장 흔한 입력이다.
+            const image = Array.from(event.clipboardData.files).find((item) =>
+              item.type.startsWith("image/"),
+            );
+            if (image) {
+              event.preventDefault();
+              setFile(image);
+            }
+          }}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -111,7 +166,7 @@ export function Composer({
             }
           }}
           rows={3}
-          placeholder="공고문을 올리거나, 링크를 붙여넣거나, 어떤 사업인지 그냥 설명하세요"
+          placeholder="캡쳐를 붙여넣거나, 링크를 넣거나, 뭘 신청하려는지 그냥 말하세요"
           className="w-full resize-none bg-transparent px-3 py-2 text-base outline-none placeholder:text-muted-foreground"
         />
 
@@ -173,7 +228,10 @@ export function Composer({
         </div>
       </div>
 
-      <ul className="mt-6 flex flex-wrap justify-center gap-2">
+      <p className="mt-6 text-center text-xs text-muted-foreground">
+        자격을 따지고 서류를 내는 일이면 무엇이든 됩니다
+      </p>
+      <ul className="mt-3 flex flex-wrap justify-center gap-2">
         {SUGGESTIONS.map((item) => (
           <li key={item.label}>
             <button

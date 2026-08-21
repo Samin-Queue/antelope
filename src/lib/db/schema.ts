@@ -116,6 +116,42 @@ export const memories = pgTable(
   ],
 );
 
+/** 목표 하나 = 세션 하나. 지난 목표 탭이 이걸 읽는다. */
+export const goalStage = pgEnum("goal_stage", [
+  "reviewing", // 검토 중 — 공고를 읽고 자격을 따지는 단계
+  "working", // 작업 중 — 서류·신청서를 만드는 단계
+  "waiting", // 결과 대기 중 — 제출하고 발표를 기다리는 단계
+  "closed", // 종료됨
+]);
+
+export const goalOutcome = pgEnum("goal_outcome", [
+  "won", // 선정
+  "rejected", // 미선정
+  "ineligible", // 자격 미달로 신청 못 함
+  "deferred", // 나중에
+  "abandoned", // 접음
+]);
+
+export const goals = pgTable(
+  "goals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    title: text("title").notNull(),
+    organization: text("organization"),
+    deadline: text("deadline"),
+    stage: goalStage("stage").notNull().default("reviewing"),
+    /** 아직 끝나지 않았으면 null */
+    outcome: goalOutcome("outcome"),
+    /** 정규화된 공고 객체와 파이프라인 결과 원본 */
+    notice: jsonb("notice"),
+    result: jsonb("result"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("goals_user_idx").on(table.userId, table.updatedAt)],
+);
+
 export const chatSessions = pgTable("chat_sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title"),
