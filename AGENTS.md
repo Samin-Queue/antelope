@@ -1,10 +1,10 @@
 # Antelope
 
-|      |                                                  |
-| ---- | ------------------------------------------------ |
-| 제품 | **Antelope**                                     |
-| 레포 | https://github.com/Samin-Queue/antelope          |
-| 배포 | https://antelope.up.railway.app                  |
+|      |                                         |
+| ---- | --------------------------------------- |
+| 제품 | **Antelope**                            |
+| 레포 | https://github.com/Samin-Queue/antelope |
+| 배포 | https://antelope.up.railway.app         |
 
 ## 에이전트에게
 
@@ -178,11 +178,18 @@ GET  /v2/responses/{job_id}    폴링 → completed
 리뷰도 못 한다. Config 는 **불변**이라 고칠 때마다 새 Config 가 생긴다 —
 버전 관리와 감사 추적이 공짜로 따라온다.
 
-현재: Agent `agt_a9gUAjuJGwpDtckvKyLvGH` · Config `cfg_gxMvNZnQg2MyLxqmum23CQ`
+현재: Agent `agt_RmWVz8DE7ALhim5WaVhmqK` · Config `cfg_35tKZLwa6yNbmkdbSbEFBe`
 
 Agent·Config 는 **API 키 소유 계정에 묶인다.** 키를 바꾸면 이전 에이전트가 안 보이므로
 `pnpm studio:provision` 을 다시 돌려 새 계정에 Config 를 만들고 `UPSTAGE_AGENT_ID` 를
 갱신한다. 로컬과 Railway 양쪽 다 바꿔야 한다.
+
+⚠ **Studio UI 로 만든 에이전트를 코드에서 쓰면 안 된다.** `GET /v2/agents` 에는
+`visibility: "readonly"` 로 멀쩡히 보이고 config 조회도 200 이지만, 우리 키로 올린
+파일로 job 을 만들면 `403 No access to file: file_...` 이 돌아온다. 파일과 에이전트가
+다른 프로젝트에 있기 때문이고, 증상이 파일 쪽 오류로 나와 원인을 엉뚱한 데서 찾게 된다.
+`pnpm studio:provision` 이 만든 에이전트로 바꾸면 그대로 돈다 — 프로덕션이 이걸로
+한 번 죽었다.
 
 ```
 parse → classify(split) ─┬─ CONTRACT_TERMS        → extract-contract ─┐
@@ -209,12 +216,35 @@ Config 의 존재 이유다.
 
 instruct 응답에는 `additional_values.citations` 로 **원문 좌표가 따라온다.**
 "모른다" 고 말하면서 어디를 봤는지 증명할 수 있다 — 근거 하이라이트의 재료다.
+`additional_values` 는 **문자열**이라 한 번 파싱해야 하고, 본문의 `【†1】` 이
+`citations[].index` 를, `citations[].node_index` 가 parse 요소의 `id` 를 가리킨다.
 
 **에이전트를 만들기만 하면 안 되고 노드 구성을 저장해야 한다.** 저장 전에는
 `404 No default config found for agent` 가 돌아온다. Studio 화면에서
 Parse → Classify → Extract → Instruct 를 구성하고 저장하면 Config ID 가 생긴다.
 
 `UPSTAGE_AGENT_ID` 가 없으면 v1 직접 호출로 떨어지므로 앱은 계속 동작한다.
+
+### 근거 하이라이트
+
+「이 값 어디서 나왔어?」에 좌표로 답한다. 재료는 전부 Studio 가 준다.
+
+- parse 스텝의 `coordinates: true` 가 요소마다 **정규화 좌표(0~1)** 를 준다.
+  페이지 실제 크기를 몰라도 그릴 수 있다 — 화면은 A4 비율 상자를 깔고 그 위에 얹는다.
+- `src/app/(labs)/lab/notice/_lib/evidence.ts` 가 값 ↔ 원문 요소를 잇는다.
+  UI 는 `evidence-view.tsx` 의 `<Cite>` 와 `<EvidencePanel>`.
+- 매칭은 정규화 후 **완전 포함 → 문자 2-gram 포함율** 순이다. 임계값 **0.6**.
+  실측(요소 15개): 모델이 문장을 다듬은 경우 0.727, 무관한 요소 최고 0.176.
+- **날짜만 예외다.** 추출 결과는 `2026-09-15` 인데 원문은 「2026년 9월 15일」이라
+  글자로 절대 안 만난다. `queries()` 가 한국어 표기를 만들어 다시 찾는다.
+  이걸 넣기 전 12개 값 중 마감일 하나만 근거를 못 찾았다.
+- **못 찾으면 못 찾았다고 쓴다.** 아무 블록이나 칠하면 하이라이트가 근거인 척하는
+  장식이 된다. 이 제품이 파는 게 정확히 그 신뢰다.
+- 응답 크기 때문에 parse 원본의 **단어별 좌표는 버린다**. 요소 단위로 줄이면
+  1쪽짜리 공고 기준 5KB 정도다.
+
+링크·자연어 입력은 좌표가 없다(Studio 를 안 탄다). `evidence` 가 비면 패널이
+아예 안 뜨고 `<Cite>` 는 평문으로 남는다.
 
 ### Upstage 구조화 출력의 함정 두 가지
 
@@ -524,15 +554,16 @@ src/content/labs.ts                  레지스트리 (제목·가설·상태·�
 
 전부 한 번씩 실제로 깨져서 고친 것들이다.
 
-| 위치                           | 무엇                                                            | 지우면                                                                                                         |
-| ------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `Dockerfile`                   | `pnpm config set node-linker hoisted`                           | pnpm 심볼릭 링크 레이아웃을 Next standalone 트레이싱이 못 따라가 `@swc/helpers` 누락 → 런타임 MODULE_NOT_FOUND |
-| `Dockerfile`                   | BuildKit 지시자(`# syntax`, `--mount=type=cache`) **없는** 상태 | Railway Metal 빌더가 빈 로그로 FAILED. 다시 넣지 말 것                                                         |
-| Railway 변수                   | `PORT=3000`                                                     | Railway 기본값 8080 과 도메인 타깃 포트(3000)가 어긋나 502                                                     |
-| `public/.gitkeep`              | 빈 디렉터리 유지                                                | git 이 빈 디렉터리를 추적하지 않아 fresh clone 에서 `COPY /app/public` 이 not found                            |
-| `drizzle.config.ts`            | `config({ path: ".env.local" })`                                | dotenv 기본값은 `.env` 인데 Next 는 `.env.local` 을 쓴다 → `db:push` 가 DATABASE_URL 을 못 찾음                |
-| `.devcontainer/post-create.sh` | `--config.confirmModulesPurge=false`                            | pnpm 이 "reinstall from scratch? (Y/n)" 를 띄우고 비대화형에서 응답이 안 돼 postCreate 무한 대기               |
-| `.devcontainer/compose.yaml`   | `NODE_ENV: ""`                                                  | Dockerfile dev 타깃의 `NODE_ENV=development` 상태로 `pnpm build` 하면 React 가 dev/prod 로 갈려 프리렌더 깨짐  |
+| 위치                           | 무엇                                                            | 지우면                                                                                                                                                        |
+| ------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Dockerfile`                   | `pnpm config set node-linker hoisted`                           | pnpm 심볼릭 링크 레이아웃을 Next standalone 트레이싱이 못 따라가 `@swc/helpers` 누락 → 런타임 MODULE_NOT_FOUND                                                |
+| `Dockerfile`                   | BuildKit 지시자(`# syntax`, `--mount=type=cache`) **없는** 상태 | Railway Metal 빌더가 빈 로그로 FAILED. 다시 넣지 말 것                                                                                                        |
+| Railway 변수                   | `PORT=3000`                                                     | Railway 기본값 8080 과 도메인 타깃 포트(3000)가 어긋나 502                                                                                                    |
+| `public/.gitkeep`              | 빈 디렉터리 유지                                                | git 이 빈 디렉터리를 추적하지 않아 fresh clone 에서 `COPY /app/public` 이 not found                                                                           |
+| `package.json`                 | `studio:provision` 의 `--env-file=.env.local`                   | `@/lib/env` 가 import 시점에 `process.env` 를 굳혀서, 스크립트 안에서 `dotenv` 를 부르면 이미 늦다 → `Missing required environment variable: UPSTAGE_API_KEY` |
+| `drizzle.config.ts`            | `config({ path: ".env.local" })`                                | dotenv 기본값은 `.env` 인데 Next 는 `.env.local` 을 쓴다 → `db:push` 가 DATABASE_URL 을 못 찾음                                                               |
+| `.devcontainer/post-create.sh` | `--config.confirmModulesPurge=false`                            | pnpm 이 "reinstall from scratch? (Y/n)" 를 띄우고 비대화형에서 응답이 안 돼 postCreate 무한 대기                                                              |
+| `.devcontainer/compose.yaml`   | `NODE_ENV: ""`                                                  | Dockerfile dev 타깃의 `NODE_ENV=development` 상태로 `pnpm build` 하면 React 가 dev/prod 로 갈려 프리렌더 깨짐                                                 |
 
 ## 이름 규칙
 
