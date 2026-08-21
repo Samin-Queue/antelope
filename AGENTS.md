@@ -3,7 +3,9 @@
 ## 스택
 
 Next.js 16 (App Router, Turbopack) · TypeScript · Tailwind v4 · shadcn/ui(base-nova, base-ui)
-· Drizzle + Postgres · Vercel AI SDK v7 · Railway 배포.
+· Drizzle + Postgres · Vercel AI SDK v7 · Docker · Railway 배포.
+
+레포: https://github.com/Samin-Queue/samin-queue
 
 ## 트랙 스위칭
 
@@ -25,6 +27,25 @@ LLM_PROVIDER=backendai  # BACKENDAI_BASE_URL + BACKENDAI_API_KEY
 - 이 스타일의 `Button` 은 `asChild` 가 아니라 base-ui `render` prop 을 쓴다: `<Button render={<Link href="/x" />}>`.
 - DB 접근은 `getDb()` 로. `DATABASE_URL` 없이도 앱이 떠야 한다 (랜딩·데모는 DB 무관).
 - 커밋 전 `pnpm build` — 타입체크가 빌드에 포함되어 있다.
+
+## Docker — 3명이 같은 환경을 쓴다
+
+`Dockerfile` 하나를 개발·배포가 공유한다. Railway 도 이 Dockerfile 로 빌드하므로
+로컬에서 도는 이미지가 곧 프로덕션 이미지다.
+
+```bash
+pnpm docker:up      # app(핫리로드) + postgres 전체 기동 → localhost:3000
+pnpm docker:db      # DB 만 띄우고 앱은 호스트에서 pnpm dev (macOS 에서 가장 빠름)
+pnpm docker:prod    # 프로덕션 이미지를 로컬에서 그대로 실행
+pnpm docker:down    # 정리
+```
+
+- 컨테이너 안 `DATABASE_URL` 은 `postgres://postgres:postgres@db:5432/samin_queue`.
+  호스트에서 붙을 땐 `@localhost:5432`.
+- API 키 등은 `.env.local` 에 두면 compose 가 자동으로 읽는다 (없어도 기동됨).
+- Dockerfile 은 컨테이너 안에서만 pnpm `node-linker=hoisted` 를 쓴다.
+  pnpm 심볼릭 링크 레이아웃이 Next standalone 트레이싱에서 `@swc/helpers` 를
+  누락시켜 런타임에 MODULE_NOT_FOUND 가 나기 때문. 지우지 말 것.
 
 ## 명령
 
