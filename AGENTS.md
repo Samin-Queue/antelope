@@ -242,6 +242,11 @@ better-auth + Drizzle. **OAuth 만 쓴다** — 도메인이 없어 Resend 무�
   흰색(어두운 배경용)이고 `src/components/brand.tsx` 가 CSS 로 전환한다.
 - 파비콘·앱 아이콘은 `src/app/icon.png`·`apple-icon.png` 에서 Next 가 생성한다.
 - 테마는 next-themes(`class` 전략). 헤더의 `ThemeToggle` 로 전환한다.
+- 타이포는 두 벌이다. 본문·UI 는 **Pretendard**(`font-sans`), 랜딩 최상위 제목만
+  **Diphylleia**(`font-serif`) — 로고와 같은 세리프 계열이라 붙는다.
+  · 적용 범위는 히어로 h1 과 랜딩 섹션 h2 까지다. 내비·버튼·본문·앱 화면에는 쓰지 않는다.
+  · Diphylleia 는 **weight 400 하나뿐**이라 반드시 `font-normal` 과 함께 쓴다.
+  `font-semibold` 를 얹으면 브라우저가 가짜 볼드를 합성해 획이 뭉개진다.
 
 ## 규칙
 

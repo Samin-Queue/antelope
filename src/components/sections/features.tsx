@@ -7,7 +7,7 @@ export function Features() {
     <section id="features" className="mx-auto w-full max-w-7xl px-5 py-24">
       <div className="max-w-2xl">
         <p className="text-sm font-medium text-brand">{site.features.eyebrow}</p>
-        <h2 className="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+        <h2 className="mt-3 font-serif text-3xl font-normal tracking-tight text-balance sm:text-4xl">
           {site.features.headline}
         </h2>
       </div>

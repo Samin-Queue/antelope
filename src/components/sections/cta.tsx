@@ -14,7 +14,7 @@ export function Cta() {
       />
       <div className="relative mx-auto w-full max-w-5xl px-5 py-24 text-center">
         <SymbolBadge className="mx-auto size-12" />
-        <h2 className="mx-auto mt-8 max-w-2xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+        <h2 className="mx-auto mt-8 max-w-2xl font-serif text-3xl font-normal tracking-tight text-balance sm:text-4xl">
           {site.finalCta.headline}
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-muted-foreground">{site.finalCta.sub}</p>

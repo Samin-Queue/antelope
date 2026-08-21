@@ -7,7 +7,7 @@ export function Comparison() {
     <section id="pricing" className="mx-auto w-full max-w-5xl px-5 py-24">
       <div className="text-center">
         <p className="text-sm font-medium text-brand">{site.comparison.eyebrow}</p>
-        <h2 className="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+        <h2 className="mt-3 font-serif text-3xl font-normal tracking-tight text-balance sm:text-4xl">
           {site.comparison.headline}
         </h2>
       </div>
