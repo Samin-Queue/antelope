@@ -43,6 +43,27 @@ LLM_PROVIDER=backendai  # BACKENDAI_BASE_URL + BACKENDAI_API_KEY
 - DB 접근은 `getDb()` 로. `DATABASE_URL` 없이도 앱이 떠야 한다 (랜딩·데모는 DB 무관).
 - 커밋 전 `pnpm build` — 타입체크가 빌드에 포함되어 있다.
 
+## Railway — 배포와 환경변수
+
+워크스페이스 `Newey` · 프로젝트 `samin-queue` · 서비스 `web`(GitHub 연동) + `Postgres`.
+`main` 에 푸시하면 Dockerfile 로 빌드되어 자동 배포된다.
+
+- 배포 URL: https://web-production-cd700.up.railway.app
+- `DATABASE_URL` 은 `${{Postgres.DATABASE_URL}}` 참조로 연결됨 — 직접 값을 넣지 말 것.
+
+환경변수는 Railway 가 단일 소스다. 로컬에서도 같은 값을 끌어다 쓴다.
+
+```bash
+railway link                                    # 최초 1회, 디렉터리를 프로젝트에 연결
+railway variable set UPSTAGE_API_KEY=... --skip-deploys
+railway variable list --kv                      # 현재 값 확인
+railway run pnpm dev                            # Railway 변수로 로컬 실행 (.env.local 불필요)
+railway logs --service web                      # 배포 로그
+```
+
+현재 플랜(Hobby)에서는 워크스페이스 멤버 초대가 안 된다. 팀원이 Railway 를 직접
+봐야 하면 Pro 로 올려야 하고, 그때까지는 키를 별도로 전달한다.
+
 ## 제품명이 정해지면
 
 `samin-queue` 는 팀 이름이다. 제품명은 별개이고, 바꿔야 하는 곳은 두 군데뿐이다.
