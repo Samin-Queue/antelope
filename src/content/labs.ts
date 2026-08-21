@@ -28,12 +28,12 @@ export const LAB_STATUS_LABEL: Record<LabStatus, string> = {
 };
 
 export const labs: Lab[] = [
-  // 예시. 실제 실험을 추가하면 이 줄은 지운다.
-  // {
-  //   slug: "notice",
-  //   title: "공고문 → 신청 준비 일습",
-  //   hypothesis: "HWP 공고문에서 자격요건·제출서류를 뽑아 제출 직전 상태까지 자동 완성할 수 있는가",
-  //   status: "exploring",
-  //   owner: "승욱",
-  // },
+  {
+    slug: "notice",
+    title: "공고 → 신청 준비 일습",
+    hypothesis:
+      "파일·링크·자연어 무엇으로 넣어도 하나의 「공고 객체」로 수렴시키고, 제출 직전 상태까지 자동으로 채울 수 있는가",
+    status: "exploring",
+    owner: "승욱",
+  },
 ];

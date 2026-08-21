@@ -120,6 +120,22 @@ LLM_PROVIDER=azure      # AZURE_BASE_URL + AZURE_API_KEY
 - **인증이 `api-key` 헤더다** (Bearer 아님). 어댑터가 두 헤더를 모두 보낸다.
 - `LLM_MODEL` 에는 모델 id 가 아니라 **배포(deployment) 이름**을 넣는다.
 
+### Upstage 구조화 출력의 함정 두 가지
+
+`generateObject` 로 JSON 을 받을 때 둘 다 밟았다. 우회 코드는
+`src/app/(labs)/lab/notice/_lib/extract.ts` 에 있다.
+
+1. **메시지에 `json` 이라는 단어가 없으면 거부한다.**
+   `response_format: json_object` 를 쓸 때 Upstage 가 요구한다.
+   시스템 프롬프트에 "구조화된 JSON 으로" 같은 표현을 넣어 해결한다.
+2. **스키마가 모델에 전달되지 않는다.** zod 스키마를 줘도 Upstage 는 "JSON 으로
+   답해라" 만 받는다. 그래서 모델이 `organizer`·`eligibility` 처럼 제 필드명을
+   지어내고 검증이 통째로 실패한다. **필드 계약을 프롬프트에 직접 박아야 한다.**
+
+그리고 LLM 은 값이 없으면 키를 **생략**한다. 추출용 스키마는 전부 `.nullish()` 로
+느슨하게 받고, 그 뒤 `normalize()` 로 확정 모양을 만든다. 추출 단계에서 엄격하게
+굴면 필드 하나 빠졌다고 전체가 실패한다.
+
 ---
 
 ## 데이터베이스
@@ -360,3 +376,13 @@ pnpm docker:down
 pnpm db:push        # 스키마 반영
 pnpm db:studio      # Drizzle Studio
 ```
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
