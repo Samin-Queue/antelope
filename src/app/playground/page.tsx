@@ -1,6 +1,6 @@
-import { SiteHeader } from "@/components/site-header";
-import { ChatPanel } from "@/components/chat-panel";
 import { llmInfo } from "@/lib/llm";
+import { ChatPanel } from "@/components/chat-panel";
+import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 
 export const dynamic = "force-dynamic";

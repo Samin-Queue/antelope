@@ -13,7 +13,11 @@ function authHeader(): Record<string, string> {
   return { Authorization: `Bearer ${required("UPSTAGE_API_KEY")}` };
 }
 
-async function post(path: string, body: BodyInit, extraHeaders: Record<string, string> = {}) {
+async function post(
+  path: string,
+  body: BodyInit,
+  extraHeaders: Record<string, string> = {},
+) {
   const response = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: { ...authHeader(), ...extraHeaders },

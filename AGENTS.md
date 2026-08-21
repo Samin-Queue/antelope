@@ -5,15 +5,15 @@
 
 ## 일정 (KST)
 
-| 시각 | 항목 |
-|---|---|
-| 8/21 20:00 | 트랙 발표 |
-| 8/21 21:00 | 트랙 파트너 워크숍 |
+| 시각       | 항목                      |
+| ---------- | ------------------------- |
+| 8/21 20:00 | 트랙 발표                 |
+| 8/21 21:00 | 트랙 파트너 워크숍        |
 | 8/22 00:00 | **Mission 1 제출** (컨셉) |
-| 8/23 00:00 | **Mission 2 제출** (MVP) |
+| 8/23 00:00 | **Mission 2 제출** (MVP)  |
 | 8/23 12:00 | **Mission 3 제출** (최종) |
-| 8/23 13:00 | Demo Expo |
-| 8/23 16:00 | Final Pitch |
+| 8/23 13:00 | Demo Expo                 |
+| 8/23 16:00 | Final Pitch               |
 
 ## 스택
 
@@ -28,10 +28,17 @@ Next.js 16 (App Router, Turbopack) · TypeScript · Tailwind v4 · shadcn/ui(bas
 트랙이 정해지면 **환경변수만** 바꾼다 — 애플리케이션 코드는 건드리지 않는다.
 
 ```bash
-LLM_PROVIDER=upstage    # api.upstage.ai/v1, solar-pro4
+LLM_PROVIDER=upstage    # api.upstage.ai/v1 · solar-pro4 (solar-pro3/pro2/mini 도 가용)
 LLM_PROVIDER=azure      # AZURE_BASE_URL + AZURE_API_KEY
-LLM_PROVIDER=backendai  # BACKENDAI_BASE_URL + BACKENDAI_API_KEY
 ```
+
+Azure 는 두 가지가 다르다.
+
+- **신형 v1 경로만 지원한다** — `https://<resource>.services.ai.azure.com/openai/v1`.
+  레거시 `/openai/deployments/<name>/chat/completions?api-version=...` 은 규격이 달라
+  붙지 않는다.
+- **인증이 `api-key` 헤더다** (Bearer 아님). 어댑터가 두 헤더를 모두 보낸다.
+- `LLM_MODEL` 에는 모델 id 가 아니라 **배포(deployment) 이름**을 넣는다.
 
 `/api/health` 가 현재 붙은 프로바이더·모델·DB 상태를 반환한다. `/playground` 는 그 연결을 눈으로 확인하는 채팅 UI.
 
@@ -42,6 +49,10 @@ LLM_PROVIDER=backendai  # BACKENDAI_BASE_URL + BACKENDAI_API_KEY
 - 이 스타일의 `Button` 은 `asChild` 가 아니라 base-ui `render` prop 을 쓴다: `<Button render={<Link href="/x" />}>`.
 - DB 접근은 `getDb()` 로. `DATABASE_URL` 없이도 앱이 떠야 한다 (랜딩·데모는 DB 무관).
 - 커밋 전 `pnpm build` — 타입체크가 빌드에 포함되어 있다.
+- 저장하면 Prettier 가 포맷한다(`.vscode/settings.json`). 손으로 정렬하지 않는다 —
+  Tailwind 클래스 순서와 import 순서까지 플러그인이 맞춘다. CI 가 `format:check` 로 막는다.
+- DB 는 pgvector 를 쓸 수 있다(로컬·프로덕션 동일 이미지, vector 0.8.6).
+  임베딩이 필요하면 `CREATE EXTENSION vector` 후 Upstage `solar-embedding-2-*` 를 쓴다.
 
 ## Railway 계정 없이 협업하기
 
@@ -122,5 +133,7 @@ pnpm dev              # 로컬 개발
 pnpm build            # 타입체크 + 프로덕션 빌드
 pnpm db:push          # 스키마를 DB 에 반영 (마이그레이션 파일 없이, 해커톤용)
 pnpm db:studio        # Drizzle Studio
+pnpm format           # Prettier 일괄 적용
+pnpm typecheck        # 빌드 없이 타입만
 railway up            # 수동 배포 (기본은 GitHub push 자동 배포)
 ```
