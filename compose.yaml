@@ -15,8 +15,9 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # 새 볼륨 초기화 시 1회 실행 — pgvector 확장을 만든다.
-      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+      # ⚠ 디렉터리째 마운트하면 이미지가 갖고 있는 init-ssl.sh 를 가려서
+      # 컨테이너가 재시작 루프에 빠진다. 파일 하나만 얹는다.
+      - ./docker/initdb/01-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d antelope"]
       interval: 3s

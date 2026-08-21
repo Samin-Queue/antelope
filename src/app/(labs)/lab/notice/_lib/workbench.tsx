@@ -196,7 +196,20 @@ function NextStep({ notice }: { notice: Notice }) {
   const [profile, setProfile] = useState<Record<string, string> | null>(null);
 
   if (!profile) {
-    return <ProfileForm notice={notice} onSubmit={setProfile} />;
+    return (
+      <ProfileForm
+        notice={notice}
+        onSubmit={(next) => {
+          setProfile(next);
+          // 저장 실패가 신청을 막지 않도록 기다리지 않는다.
+          void fetch("/lab/notice/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ profile: next, sourceNotice: notice.title }),
+          }).catch(() => {});
+        }}
+      />
+    );
   }
 
   return (

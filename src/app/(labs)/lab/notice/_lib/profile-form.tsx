@@ -16,18 +16,18 @@ import type { Notice } from "./schema";
  * 고정 폼은 두 번 틀린다 — 안 쓰는 걸 묻고, 정작 필요한 걸 안 묻는다.
  * 공고를 이미 구조화해뒀으므로 필요한 항목을 거기서 도출한다.
  */
+type Known = Record<string, { value: string; label: string }>;
+
 export function ProfileForm({
   notice,
-  known = {},
   onSubmit,
 }: {
   notice: Notice;
-  /** 지식베이스에서 이미 아는 값 */
-  known?: Record<string, string>;
   onSubmit: (profile: Record<string, string>) => void;
 }) {
   const [fields, setFields] = useState<RequiredField[] | null>(null);
-  const [values, setValues] = useState<Record<string, string>>(known);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [known, setKnown] = useState<Known>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,7 +42,26 @@ export function ProfileForm({
         const json = await response.json();
         if (cancelled) return;
         if (!response.ok) throw new Error(json.error ?? `HTTP ${response.status}`);
-        setFields(json.fields as RequiredField[]);
+        const derived = json.fields as RequiredField[];
+        if (cancelled) return;
+        setFields(derived);
+
+        // 도출된 항목으로 지식베이스를 조회한다. 이미 아는 것은 채워서 보여준다.
+        const recall = await fetch("/lab/notice/recall", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ labels: derived.map((field) => field.key) }),
+        });
+        const recalled = (await recall.json()) as { known: Known };
+        if (cancelled) return;
+        setKnown(recalled.known ?? {});
+        setValues((prev) => {
+          const next = { ...prev };
+          for (const [key, memory] of Object.entries(recalled.known ?? {})) {
+            if (!next[key]) next[key] = memory.value;
+          }
+          return next;
+        });
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
       }
@@ -72,7 +91,7 @@ export function ProfileForm({
   const missingRequired = fields.filter(
     (field) => field.required && !values[field.key]?.trim(),
   ).length;
-  const prefilled = fields.filter((field) => known[field.key]?.trim()).length;
+  const prefilled = fields.filter((field) => known[field.key]).length;
 
   return (
     <section className="rounded-2xl border border-border bg-card p-6">
