@@ -17,6 +17,8 @@ const schema = z.object({
   LLM_API_KEY: z.string().optional(),
 
   UPSTAGE_API_KEY: z.string().optional(),
+  /** Studio 에서 만든 문서 처리 에이전트. 없으면 v1 직접 호출로 떨어진다 */
+  UPSTAGE_AGENT_ID: z.string().optional(),
   AZURE_API_KEY: z.string().optional(),
   AZURE_BASE_URL: z.string().optional(),
   BACKENDAI_API_KEY: z.string().optional(),

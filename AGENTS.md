@@ -156,6 +156,24 @@ tsx·esbuild·Next 번들러가 인라인 함수를 변환하면서 `__name` 같
 누락으로 페이지가 그대로면, 그 사실을 모르는 모델은 이미 채운 칸을 계속 다시
 채우며 헤맨다. 이 한 줄 피드백으로 28스텝이 16스텝이 됐다.
 
+### Upstage Studio 에이전트 (/v2)
+
+문서 처리 핵심 단계는 v1 REST 직접 호출이 아니라 Upstage Studio 워크플로가 담당한다.
+
+`src/lib/upstage-studio.ts` 가 3단계를 감싼다 — 동기 응답이 아니다.
+
+```
+POST /v2/files                 (file, purpose=user_data)  → file_id
+POST /v2/responses             (model=<agentId>, input_file) → job_id
+GET  /v2/responses/{job_id}    폴링 → completed
+```
+
+**에이전트를 만들기만 하면 안 되고 노드 구성을 저장해야 한다.** 저장 전에는
+`404 No default config found for agent` 가 돌아온다. Studio 화면에서
+Parse → Classify → Extract → Instruct 를 구성하고 저장하면 Config ID 가 생긴다.
+
+`UPSTAGE_AGENT_ID` 가 없으면 v1 직접 호출로 떨어지므로 앱은 계속 동작한다.
+
 ### Upstage 구조화 출력의 함정 두 가지
 
 `generateObject` 로 JSON 을 받을 때 둘 다 밟았다. 우회 코드는
