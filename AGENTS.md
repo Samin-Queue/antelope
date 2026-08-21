@@ -28,6 +28,22 @@ LLM_PROVIDER=backendai  # BACKENDAI_BASE_URL + BACKENDAI_API_KEY
 - DB 접근은 `getDb()` 로. `DATABASE_URL` 없이도 앱이 떠야 한다 (랜딩·데모는 DB 무관).
 - 커밋 전 `pnpm build` — 타입체크가 빌드에 포함되어 있다.
 
+## 제품명이 정해지면
+
+`samin-queue` 는 팀 이름이다. 제품명은 별개이고, 바꿔야 하는 곳은 두 군데뿐이다.
+
+```bash
+# 1. 랜딩·메타데이터 (site.name 한 줄)
+#    src/content/site.ts → name: "새제품명"
+
+# 2. GitHub 레포 이름 (옛 URL 은 GitHub 이 리다이렉트하므로 clone·remote 안 깨짐)
+gh repo rename <new-name> --repo Samin-Queue/samin-queue
+git remote set-url origin https://github.com/Samin-Queue/<new-name>.git
+```
+
+`package.json` 의 name, compose 프로젝트명, Postgres DB 이름, 도커 이미지 태그는
+팀 단위 식별자라 그대로 둔다 — 바꾸면 로컬 볼륨과 DB 가 새로 만들어진다.
+
 ## Docker — 3명이 같은 환경을 쓴다
 
 `Dockerfile` 하나를 개발·배포가 공유한다. Railway 도 이 Dockerfile 로 빌드하므로
