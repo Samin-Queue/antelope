@@ -4,7 +4,7 @@
 | ---- | ------------------------------------------------ |
 | 제품 | **Antelope**                                     |
 | 레포 | https://github.com/Samin-Queue/antelope          |
-| 배포 | https://web-production-3f8f1.up.railway.app      |
+| 배포 | https://antelope.up.railway.app                  |
 
 ## 에이전트에게
 

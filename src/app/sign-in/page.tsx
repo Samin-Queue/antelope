@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { auth, enabledProviders } from "@/lib/auth";
 import { hasDb } from "@/lib/db";
 import { GOOGLE_ALL_SCOPES } from "@/lib/google-scopes";
-import { Combination } from "@/components/brand";
+import { CombinationMono } from "@/components/brand";
 import { SignInButtons } from "@/components/sign-in-buttons";
 import { site } from "@/content/site";
 
@@ -27,7 +27,7 @@ export default async function SignInPage() {
       <div className="relative w-full max-w-sm space-y-8">
         <div className="flex flex-col items-center gap-4 text-center">
           <Link href="/">
-            <Combination priority className="h-8 w-auto" />
+            <CombinationMono priority className="h-8 w-auto" />
           </Link>
           <div className="space-y-1">
             <h1 className="text-xl font-semibold tracking-tight">{site.name} 시작하기</h1>
