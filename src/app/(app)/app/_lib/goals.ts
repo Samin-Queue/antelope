@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { getDb, schema } from "@/lib/db";
 
@@ -87,6 +87,6 @@ export async function updateGoal(
         : {}),
       updatedAt: new Date(),
     })
-    .where(eq(schema.goals.id, id));
-  void userId;
+    // 소유자까지 걸어야 남의 목표를 id 만으로 고칠 수 없다.
+    .where(and(eq(schema.goals.id, id), eq(schema.goals.userId, userId)));
 }

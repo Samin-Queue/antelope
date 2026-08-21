@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { CheckCircle2, CircleDashed, HelpCircle, Loader2, XCircle } from "lucide-react";
 
@@ -49,10 +50,14 @@ const OVERALL = {
 export function RunView({
   notice,
   profile,
+  goalId,
 }: {
   notice: Notice;
   profile: Record<string, string>;
+  /** 로그인·DB 가 없으면 null. 그때는 목표를 남기지 않고 그냥 돈다 */
+  goalId?: string | null;
 }) {
+  const router = useRouter();
   const [states, setStates] = useState<Record<AgentId, AgentState>>(IDLE);
   const [agents, setAgents] = useState<AgentId[]>([
     "eligibility",
@@ -63,6 +68,30 @@ export function RunView({
   const [frame, setFrame] = useState<{ image: string; url: string } | null>(null);
   const [totalMs, setTotalMs] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
+
+  /**
+   * 파이프라인 결과를 목표에 남긴다.
+   *
+   * 자격 미달은 그 자리에서 끝난 목표다 — 「지난 목표」에서 왜 접었는지 보이도록
+   * outcome 까지 박는다. 나머지는 아직 작업 중이다.
+   */
+  function saveGoal(value: PipelineResult) {
+    if (!goalId) return;
+    const ineligible = value.eligibility?.overall === "ineligible";
+    void fetch("/app/goals", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: goalId,
+        stage: ineligible ? "closed" : "working",
+        outcome: ineligible ? "ineligible" : null,
+        result: value,
+      }),
+    })
+      // 서버에서 그리는 「지난 목표」 탭이 새 값을 읽도록 한 번 새로 고친다.
+      .then(() => router.refresh())
+      .catch(() => {});
+  }
 
   async function run() {
     if (running) return;
@@ -131,6 +160,7 @@ export function RunView({
           }));
         } else if (event.type === "result") {
           setResult(event.result);
+          saveGoal(event.result);
         } else if (event.type === "end") {
           setTotalMs(event.ms);
         }
