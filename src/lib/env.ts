@@ -28,6 +28,16 @@ const schema = z.object({
   BETTER_AUTH_SECRET: z.string().optional(),
   BETTER_AUTH_URL: z.string().optional(),
 
+  // 데모 공고 사이트의 이메일 인증 발송(SMTP). 없으면 개발 환경에서만
+  // 코드를 응답에 실어 흐름을 이어간다 — src/app/api/demo/email-code 참고.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  SMTP_FROM_NAME: z.string().optional(),
+  /** 비우면 누구에게나 발송(레이트 리밋만 적용). 콤마로 주소나 @도메인 나열 */
+  DEMO_MAIL_ALLOWLIST: z.string().optional(),
+
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GITHUB_CLIENT_ID: z.string().optional(),
