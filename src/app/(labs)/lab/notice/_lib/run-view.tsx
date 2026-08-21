@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
+import type { Evidence } from "./evidence";
+import { Cite, EvidencePanel } from "./evidence-view";
 import type { Notice } from "./schema";
 import { AGENT_LABEL, type AgentId, type PipelineResult, type RunEvent } from "./types";
 
@@ -51,11 +53,16 @@ export function RunView({
   notice,
   profile,
   goalId,
+  evidence = [],
+  cited = [],
 }: {
   notice: Notice;
   profile: Record<string, string>;
   /** 로그인·DB 가 없으면 null. 그때는 목표를 남기지 않고 그냥 돈다 */
   goalId?: string | null;
+  /** 원문 좌표. Studio 를 탄 파일 입력에만 있다 */
+  evidence?: Evidence[];
+  cited?: Evidence[];
 }) {
   const router = useRouter();
   const [states, setStates] = useState<Record<AgentId, AgentState>>(IDLE);
@@ -192,7 +199,9 @@ export function RunView({
         </ul>
       </div>
 
-      {result && <ResultView result={result} />}
+      {result && (
+        <ResultView result={result} notice={notice} evidence={evidence} cited={cited} />
+      )}
     </div>
   );
 }
@@ -283,50 +292,82 @@ function AgentCard({ id, state }: { id: AgentId; state: AgentState }) {
   );
 }
 
-function ResultView({ result }: { result: PipelineResult }) {
+function ResultView({
+  result,
+  notice,
+  evidence,
+  cited,
+}: {
+  result: PipelineResult;
+  notice: Notice;
+  evidence: Evidence[];
+  cited: Evidence[];
+}) {
   const { eligibility, documents, outline, browser } = result;
+
+  /**
+   * 판정에 걸린 요건의 원문 문장.
+   *
+   * 판정문은 모델이 쓴 말이라 원문과 글자가 다르다. 추출 단계에서 요건마다
+   * 받아 둔 `source` 를 통해 원문으로 되돌린다 — 그게 실제로 문서에 있던 문장이다.
+   */
+  const sourceOf = (requirement: string): string =>
+    notice.requirements.find((item) => item.text === requirement)?.source ?? requirement;
 
   return (
     <div className="space-y-6">
       {eligibility && (
-        <section className="rounded-2xl border border-border bg-card p-6">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-medium">자격 판정</h3>
-            <span
-              className={cn("text-sm font-medium", OVERALL[eligibility.overall].tone)}
-            >
-              {OVERALL[eligibility.overall].label}
-            </span>
-          </div>
-          <ul className="mt-4 space-y-2">
-            {eligibility.verdicts.map((item) => (
-              <li key={item.requirement} className="rounded-lg bg-muted/40 px-3 py-2.5">
-                <div className="flex items-start gap-2">
-                  {item.status === "meets" ? (
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand" />
-                  ) : item.status === "fails" ? (
-                    <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
-                  ) : (
-                    <HelpCircle className="mt-0.5 size-4 shrink-0 text-amber-500" />
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-sm">{item.requirement}</p>
-                    {item.reason && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {item.reason}
-                      </p>
+        <div className="grid gap-4 lg:grid-cols-[1fr_19rem] lg:items-start">
+          <section className="rounded-2xl border border-border bg-card p-6">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-medium">자격 판정</h3>
+              <span
+                className={cn("text-sm font-medium", OVERALL[eligibility.overall].tone)}
+              >
+                {OVERALL[eligibility.overall].label}
+              </span>
+            </div>
+            <ul className="mt-4 space-y-2">
+              {eligibility.verdicts.map((item) => (
+                <li key={item.requirement} className="rounded-lg bg-muted/40 px-3 py-2.5">
+                  <div className="flex items-start gap-2">
+                    {item.status === "meets" ? (
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand" />
+                    ) : item.status === "fails" ? (
+                      <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                    ) : (
+                      <HelpCircle className="mt-0.5 size-4 shrink-0 text-amber-500" />
                     )}
-                    {item.needsFromUser && (
-                      <p className="mt-1 text-xs text-amber-500">
-                        확인 필요 — {item.needsFromUser}
-                      </p>
-                    )}
+                    <div className="min-w-0">
+                      <Cite
+                        label="자격 요건"
+                        needle={sourceOf(item.requirement)}
+                        className="text-sm"
+                      >
+                        {item.requirement}
+                      </Cite>
+                      {item.reason && (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {item.reason}
+                        </p>
+                      )}
+                      {item.needsFromUser && (
+                        <p className="mt-1 text-xs text-amber-500">
+                          확인 필요 — {item.needsFromUser}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
+                </li>
+              ))}
+            </ul>
+          </section>
+          {evidence.length > 0 && (
+            <div className="lg:sticky lg:top-6">
+              <EvidencePanel evidence={evidence} cited={cited} />
+            </div>
+          )}
+        </div>
       )}
 
       {documents && documents.items.length > 0 && (

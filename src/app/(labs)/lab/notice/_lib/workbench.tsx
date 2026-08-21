@@ -191,17 +191,29 @@ export function NoticeWorkbench({
       )}
 
       {result && (
-        <>
+        <EvidenceProvider evidence={result.evidence ?? []}>
           <NoticeView result={result} />
-          <NextStep notice={result.notice} />
-        </>
+          <NextStep
+            notice={result.notice}
+            evidence={result.evidence ?? []}
+            cited={result.cited ?? []}
+          />
+        </EvidenceProvider>
       )}
     </div>
   );
 }
 
 /** 공고를 읽었으면 그다음은 「나는 되는가」다. 프로필을 받아 파이프라인으로 넘긴다. */
-function NextStep({ notice }: { notice: Notice }) {
+function NextStep({
+  notice,
+  evidence,
+  cited,
+}: {
+  notice: Notice;
+  evidence: Evidence[];
+  cited: Evidence[];
+}) {
   const [profile, setProfile] = useState<Record<string, string> | null>(null);
   const [goalId, setGoalId] = useState<string | null>(null);
 
@@ -240,7 +252,13 @@ function NextStep({ notice }: { notice: Notice }) {
           정보 수정
         </Button>
       </div>
-      <RunView notice={notice} profile={profile} goalId={goalId} />
+      <RunView
+        notice={notice}
+        profile={profile}
+        goalId={goalId}
+        evidence={evidence}
+        cited={cited}
+      />
     </div>
   );
 }
@@ -248,16 +266,14 @@ function NextStep({ notice }: { notice: Notice }) {
 function NoticeView({ result }: { result: Result }) {
   const evidence = result.evidence ?? [];
   return (
-    <EvidenceProvider evidence={evidence}>
-      <div className="grid gap-4 lg:grid-cols-[1fr_19rem] lg:items-start">
-        <NoticeCard result={result} />
-        {evidence.length > 0 && (
-          <div className="lg:sticky lg:top-6">
-            <EvidencePanel evidence={evidence} cited={result.cited ?? []} />
-          </div>
-        )}
-      </div>
-    </EvidenceProvider>
+    <div className="grid gap-4 lg:grid-cols-[1fr_19rem] lg:items-start">
+      <NoticeCard result={result} />
+      {evidence.length > 0 && (
+        <div className="lg:sticky lg:top-6">
+          <EvidencePanel evidence={evidence} cited={result.cited ?? []} />
+        </div>
+      )}
+    </div>
   );
 }
 
