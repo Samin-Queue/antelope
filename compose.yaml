@@ -1,4 +1,4 @@
-name: samin-queue
+name: antelope
 
 services:
   db:
@@ -9,14 +9,14 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: samin_queue
+      POSTGRES_DB: antelope
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d samin_queue"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d antelope"]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -33,7 +33,7 @@ services:
       - path: .env.local
         required: false
     environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/samin_queue
+      DATABASE_URL: postgres://postgres:postgres@db:5432/antelope
     ports:
       - "3000:3000"
     volumes:

@@ -9,7 +9,7 @@ const url = process.env.DATABASE_URL;
 if (!url) {
   throw new Error(
     "DATABASE_URL 미설정 — .env.local 에 추가하거나 `pnpm docker:db` 로 로컬 DB 를 띄우세요.\n" +
-      "  로컬 기본값: postgres://postgres:postgres@localhost:5432/samin_queue",
+      "  로컬 기본값: postgres://postgres:postgres@localhost:5432/antelope",
   );
 }
 

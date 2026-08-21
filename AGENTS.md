@@ -1,4 +1,4 @@
-# Samin Queue — JunctionX Korea 2026
+# Antelope — JunctionX Korea 2026
 
 포항 · 2026-08-21 ~ 08-23 · 3인 팀.
 트랙은 8/21 20:00 현장 발표. 그 전까지는 트랙 무관 인프라만 만든다.
@@ -20,7 +20,8 @@
 Next.js 16 (App Router, Turbopack) · TypeScript · Tailwind v4 · shadcn/ui(base-nova, base-ui)
 · Drizzle + Postgres · Vercel AI SDK v7 · Docker · Railway 배포.
 
-레포: https://github.com/Samin-Queue/samin-queue
+레포: https://github.com/Samin-Queue/antelope
+팀: Samin Queue
 
 ## 트랙 스위칭
 
@@ -70,7 +71,7 @@ Railway 콘솔이 있어야만 되는 일은 셋뿐이다 — 프로덕션 로�
 
 ## Railway — 배포와 환경변수
 
-워크스페이스 `Samin Queue` · 프로젝트 `samin-queue` · 서비스 `web`(GitHub 연동) + `Postgres`.
+워크스페이스 `Samin Queue` · 프로젝트 `antelope` · 서비스 `web`(GitHub 연동) + `Postgres`.
 `main` 에 푸시하면 Dockerfile 로 빌드되어 자동 배포된다.
 
 - 배포 URL: https://web-production-3f8f1.up.railway.app
@@ -91,21 +92,14 @@ railway logs --service web                      # 배포 로그
 현재 플랜(Hobby)에서는 워크스페이스 멤버 초대가 안 된다. 팀원이 Railway 를 직접
 봐야 하면 Pro 로 올려야 하고, 그때까지는 키를 별도로 전달한다.
 
-## 제품명이 정해지면
+## 이름 규칙
 
-`samin-queue` 는 팀 이름이다. 제품명은 별개이고, 바꿔야 하는 곳은 두 군데뿐이다.
+- **제품 = Antelope** — 레포, Railway 프로젝트, `site.name`, `package.json`,
+  compose 프로젝트명, Postgres DB 이름, 도커 이미지 태그 전부 `antelope`.
+- **팀 = Samin Queue** — GitHub org(`Samin-Queue`), Railway 워크스페이스.
 
-```bash
-# 1. 랜딩·메타데이터 (site.name 한 줄)
-#    src/content/site.ts → name: "새제품명"
-
-# 2. GitHub 레포 이름 (옛 URL 은 GitHub 이 리다이렉트하므로 clone·remote 안 깨짐)
-gh repo rename <new-name> --repo Samin-Queue/samin-queue
-git remote set-url origin https://github.com/Samin-Queue/<new-name>.git
-```
-
-`package.json` 의 name, compose 프로젝트명, Postgres DB 이름, 도커 이미지 태그는
-팀 단위 식별자라 그대로 둔다 — 바꾸면 로컬 볼륨과 DB 가 새로 만들어진다.
+제품명을 또 바꾸게 되면 인프라 식별자(compose 프로젝트명·DB 이름·도커 태그)는
+그대로 두는 편이 낫다 — 바꾸면 로컬 볼륨과 DB 가 새로 만들어져 팀원 환경이 초기화된다.
 
 ## Docker — 3명이 같은 환경을 쓴다
 
@@ -119,7 +113,7 @@ pnpm docker:prod    # 프로덕션 이미지를 로컬에서 그대로 실행
 pnpm docker:down    # 정리
 ```
 
-- 컨테이너 안 `DATABASE_URL` 은 `postgres://postgres:postgres@db:5432/samin_queue`.
+- 컨테이너 안 `DATABASE_URL` 은 `postgres://postgres:postgres@db:5432/antelope`.
   호스트에서 붙을 땐 `@localhost:5432`.
 - API 키 등은 `.env.local` 에 두면 compose 가 자동으로 읽는다 (없어도 기동됨).
 - Dockerfile 은 컨테이너 안에서만 pnpm `node-linker=hoisted` 를 쓴다.

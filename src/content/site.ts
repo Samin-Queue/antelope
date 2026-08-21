@@ -4,13 +4,13 @@
  */
 export const site = {
   /** 제품명. 트랙 확정 전까지 팀명을 임시로 쓴다. 여기만 바꾸면 랜딩 전체가 따라온다. */
-  name: "Samin Queue",
+  name: "Antelope",
   tagline: "트랙 미정",
   description:
     "JunctionX Korea 2026 · 포항 · 8월 21–23일. 트랙 발표 후 제품 설명으로 교체합니다.",
   /** 팀명 — 제품명이 정해져도 바뀌지 않는다. */
   team: "Samin Queue",
-  repo: "https://github.com/Samin-Queue/samin-queue",
+  repo: "https://github.com/Samin-Queue/antelope",
   cta: { label: "데모 열기", href: "/playground" },
 
   /** 히어로 */

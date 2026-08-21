@@ -1,4 +1,4 @@
-# Samin Queue
+# Antelope
 
 JunctionX Korea 2026 (포항, 8/21–8/23) 출품작.
 
