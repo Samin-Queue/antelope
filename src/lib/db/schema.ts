@@ -9,6 +9,10 @@ import {
   vector,
 } from "drizzle-orm/pg-core";
 
+// better-auth 테이블(user·session·account·verification). drizzleAdapter 가
+// schema 객체에서 이 이름들을 찾는다.
+export * from "./auth-schema";
+
 /** Upstage solar-embedding-2-* 의 출력 차원. */
 export const EMBEDDING_DIM = 1024;
 

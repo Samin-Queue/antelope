@@ -1,3 +1,4 @@
+import { Cta } from "@/components/sections/cta";
 import { Hero } from "@/components/sections/hero";
 import { Pillars } from "@/components/sections/pillars";
 import { Steps } from "@/components/sections/steps";
@@ -12,6 +13,7 @@ export default function HomePage() {
         <Hero />
         <Pillars />
         <Steps />
+        <Cta />
       </main>
       <SiteFooter />
     </>

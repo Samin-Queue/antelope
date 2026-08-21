@@ -10,7 +10,7 @@ export function Hero() {
     <section className="relative overflow-hidden border-b border-border/60">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 -top-40 h-80 bg-[radial-gradient(60%_60%_at_50%_50%,color-mix(in_oklch,var(--primary),transparent_88%),transparent)]"
+        className="pointer-events-none absolute inset-x-0 -top-32 h-96 bg-[radial-gradient(55%_60%_at_50%_0%,color-mix(in_oklch,var(--brand),transparent_86%),transparent)]"
       />
       <div className="relative mx-auto w-full max-w-6xl px-5 py-24 sm:py-32">
         <Badge variant="secondary" className="mb-6">
@@ -27,8 +27,12 @@ export function Hero() {
             {site.cta.label}
             <ArrowRight />
           </Button>
-          <Button render={<Link href={site.repo} />} size="lg" variant="outline">
-            GitHub
+          <Button
+            render={<Link href={site.secondaryCta.href} />}
+            size="lg"
+            variant="outline"
+          >
+            {site.secondaryCta.label}
           </Button>
         </div>
       </div>

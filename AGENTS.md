@@ -193,6 +193,30 @@ required check 을 걸 수 없다. STOP 은 빨간 체크까지고 머지 자체
 CI 가 실패한 커밋이 데모 URL 에 그대로 올라간다.
 대시보드 → `web` → Settings → Deploy → Wait for CI.
 
+## 인증 · 브랜드
+
+better-auth + Drizzle. **OAuth 만 쓴다** — 도메인이 없어 Resend 무료 플랜은
+본인 계정 주소로만 발송되므로(테스트 도메인 제약) 매직링크를 쓸 수 없다.
+
+- 서버: `src/lib/auth.ts` · 클라이언트: `src/lib/auth-client.ts`
+- 라우트: `/api/auth/[...all]` · 로그인 화면: `/sign-in`
+- 스키마는 better-auth CLI 생성물이다. 플러그인을 추가하면 다시 생성한다:
+  `pnpm exec better-auth generate --config src/lib/auth.ts --output <path>`
+  → `src/lib/db/auth-schema.ts` 갈아끼우고 `pnpm db:push`
+- 자격증명이 없는 프로바이더는 `enabledProviders` 에서 빠져 버튼도 안 그려진다.
+  키가 없어도 앱은 뜬다.
+- 콜백 URL 은 로컬·프로덕션 둘 다 등록되어 있다:
+  `{origin}/api/auth/callback/{google|github}`
+
+브랜드:
+
+- 컬러 **#713BFF** = `--brand`(oklch). `--primary` 가 이걸 참조하므로 버튼·링은
+  자동으로 브랜드색이다. 다크 테마는 대비 확보를 위해 한 단계 밝은 값을 쓴다.
+- 로고는 `public/brand/`. `-on-light` 는 검정(밝은 배경용), `-on-dark` 는
+  흰색(어두운 배경용)이고 `src/components/brand.tsx` 가 CSS 로 전환한다.
+- 파비콘·앱 아이콘은 `src/app/icon.png`·`apple-icon.png` 에서 Next 가 생성한다.
+- 테마는 next-themes(`class` 전략). 헤더의 `ThemeToggle` 로 전환한다.
+
 ## 규칙
 
 - 랜딩 문구는 전부 `src/content/site.ts` 에. 컴포넌트에 문자열을 박지 않는다.

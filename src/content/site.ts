@@ -11,7 +11,8 @@ export const site = {
   /** 팀명 — 제품명이 정해져도 바뀌지 않는다. */
   team: "Samin Queue",
   repo: "https://github.com/Samin-Queue/antelope",
-  cta: { label: "데모 열기", href: "/playground" },
+  cta: { label: "시작하기", href: "/sign-in" },
+  secondaryCta: { label: "데모 보기", href: "/documents" },
 
   /** 히어로 */
   hero: {
