@@ -193,6 +193,17 @@ pnpm db:studio     # Drizzle Studio
 - 검색이 필요하면 `document_chunks` 테이블이 이미 있다 — `vector(1024)` 컬럼에
   HNSW 코사인 인덱스. 임베딩은 `embed()` 로 만든다
   (저장 문서는 `passage`, 검색어는 `query` — 섞으면 정확도가 떨어진다).
+- **스키마를 바꾸면 프로덕션에도 반드시 push 한다.** `pnpm db:push` 는 로컬만
+  건드린다. 잊으면 배포는 성공하는데 그 테이블을 쓰는 화면만 런타임에 죽는다
+  (실제로 `memories` 추가 후 `/app/knowledge` 가 React #441 로 터졌다).
+
+  ```bash
+  railway tcp-proxy create --service Postgres --port 5432 --json
+  PW=$(railway variable list --service Postgres --kv | grep '^PGPASSWORD=' | cut -d= -f2-)
+  DATABASE_URL="postgresql://postgres:$PW@<host>:<port>/railway" pnpm exec drizzle-kit push --force
+  railway tcp-proxy delete <id> --service Postgres --yes
+  ```
+
 - 프로덕션 DB 에 직접 붙어야 하면 TCP 프록시를 잠깐 열고 닫는다:
   `railway tcp-proxy create --service Postgres --port 5432` → 작업 →
   `railway tcp-proxy delete <id> --service Postgres --yes`. 열어둔 채 두지 않는다.
