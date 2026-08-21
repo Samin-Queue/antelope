@@ -169,6 +169,9 @@ CI 가 게이트 역할을 한다. 리스크가 큰 변경만 PR 로 올린다.
 | `ci.yml`            | push(main) · PR | `format:check` → `lint` → `build`(타입체크 포함), 그리고 Railway 가 쓰는 Dockerfile 을 그대로 빌드 |
 | `claude-review.yml` | PR              | Claude 가 적대적 검증 리뷰. 첫 줄 `VERDICT: STOP` 이면 빨간 체크                                   |
 
+판정은 `VERDICT: STOP` 일 때뿐 아니라 **리뷰가 아예 안 나왔을 때도 실패**한다.
+조용한 통과가 가장 나쁘기 때문이다 — 무판정이면 잡을 re-run 한다.
+
 `claude-review` 는 PR 에서만 돈다 — PR 을 안 쓰면 비용이 0 이다.
 `ANTHROPIC_API_KEY` 시크릿이 필요하고, 없으면 잡이 명시적으로 실패한다.
 draft·dependabot·문서 전용 PR 은 트리거하지 않고, 같은 PR 의 이전 실행은 취소된다.
