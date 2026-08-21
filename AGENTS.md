@@ -258,6 +258,14 @@ better-auth + Drizzle. **OAuth 만 쓴다** — 도메인이 없어 Resend 무�
 - 저장하면 Prettier 가 포맷한다. 손으로 정렬하지 않는다 — Tailwind 클래스 순서와
   import 순서까지 플러그인이 맞춘다. CI 가 `format:check` 로 막는다.
 - 커밋 전 `pnpm build` — 타입체크가 빌드에 포함되어 있다.
+- **작업 시작 전에 `git pull`** 한다. 세 명이 같은 `main` 에 직접 푸시하므로
+  갈라진 채로 오래 두면 충돌이 커진다. `pnpm install` 이 `pull.rebase=true` 와
+  `rebase.autoStash=true` 를 잡아두므로 `git pull` 만 해도 리베이스되고,
+  작업 중인 변경은 자동으로 넣었다 빠진다.
+- 원격과 갈라진 상태로는 pre-push 훅이 푸시를 막는다. 여기서 막지 않으면
+  non-fast-forward 로 실패하고, 그때 force push 로 남의 커밋을 날리는 사고가 난다.
+- **`git push --force` 를 쓰지 않는다.** 정말 필요하면 `--force-with-lease` 를 쓰고
+  팀에 먼저 알린다.
 
 ## 지우면 안 되는 것들
 
