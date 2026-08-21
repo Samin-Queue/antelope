@@ -11,6 +11,9 @@ export function SiteHeader() {
           {site.name}
         </Link>
         <nav className="flex items-center gap-1 text-sm">
+          <Button render={<Link href="/documents" />} variant="ghost" size="sm">
+            Documents
+          </Button>
           <Button render={<Link href="/playground" />} variant="ghost" size="sm">
             Playground
           </Button>
