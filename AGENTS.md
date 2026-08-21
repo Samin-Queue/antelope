@@ -26,7 +26,7 @@ Next.js 16 (App Router, Turbopack) · TypeScript · Tailwind v4 · shadcn/ui(bas
 트랙이 정해지면 **환경변수만** 바꾼다 — 애플리케이션 코드는 건드리지 않는다.
 
 ```bash
-LLM_PROVIDER=upstage    # api.upstage.ai/v1, solar-pro2
+LLM_PROVIDER=upstage    # api.upstage.ai/v1, solar-pro4
 LLM_PROVIDER=azure      # AZURE_BASE_URL + AZURE_API_KEY
 LLM_PROVIDER=backendai  # BACKENDAI_BASE_URL + BACKENDAI_API_KEY
 ```

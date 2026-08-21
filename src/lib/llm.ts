@@ -26,7 +26,7 @@ function presets(): Record<ProviderId, Preset> {
       name: "upstage",
       baseURL: "https://api.upstage.ai/v1",
       apiKey: env.UPSTAGE_API_KEY,
-      model: "solar-pro2",
+      model: "solar-pro4",
     },
     azure: {
       name: "azure",
