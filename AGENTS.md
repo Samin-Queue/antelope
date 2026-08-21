@@ -120,6 +120,17 @@ LLM_PROVIDER=azure      # AZURE_BASE_URL + AZURE_API_KEY
 - **인증이 `api-key` 헤더다** (Bearer 아님). 어댑터가 두 헤더를 모두 보낸다.
 - `LLM_MODEL` 에는 모델 id 가 아니라 **배포(deployment) 이름**을 넣는다.
 
+### 브라우저 자동화의 함정
+
+`page.evaluate` 에 **함수를 넘기지 않는다. 문자열로 넘긴다.**
+tsx·esbuild·Next 번들러가 인라인 함수를 변환하면서 `__name` 같은 헬퍼를 주입하는데,
+브라우저 컨텍스트에는 그 헬퍼가 없어 `__name is not defined` 로 죽는다.
+문자열은 변환을 타지 않는다 — `_lib/browser.ts` 의 `SNAPSHOT_SCRIPT` 참고.
+
+그리고 클릭 후 **URL 이 바뀌었는지 모델에게 알려준다.** 제출을 눌렀는데 필수 입력
+누락으로 페이지가 그대로면, 그 사실을 모르는 모델은 이미 채운 칸을 계속 다시
+채우며 헤맨다. 이 한 줄 피드백으로 28스텝이 16스텝이 됐다.
+
 ### Upstage 구조화 출력의 함정 두 가지
 
 `generateObject` 로 JSON 을 받을 때 둘 다 밟았다. 우회 코드는
