@@ -44,4 +44,11 @@ export const labs: Lab[] = [
     status: "exploring",
     owner: "Samin Queue",
   },
+  {
+    slug: "michael",
+    title: "Michael · 신청 양식 설계",
+    hypothesis: "여러 문서를 분류해 신청 유형별 JSON 필드 목록으로 만들 수 있는가",
+    status: "exploring",
+    owner: "Samin Queue",
+  },
 ];
