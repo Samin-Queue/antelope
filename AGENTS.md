@@ -176,6 +176,30 @@ Pro 부터). 그래도 세 명이 막히지 않는다.
 
 ---
 
+## CI / PR 리뷰
+
+`main` 직접 푸시가 기본이다. 3명이 같은 공간에 있으니 리뷰 대기가 순손실이고,
+CI 가 게이트 역할을 한다. 리스크가 큰 변경만 PR 로 올린다.
+
+| 워크플로            | 트리거          | 하는 일                                                                                            |
+| ------------------- | --------------- | -------------------------------------------------------------------------------------------------- |
+| `ci.yml`            | push(main) · PR | `format:check` → `lint` → `build`(타입체크 포함), 그리고 Railway 가 쓰는 Dockerfile 을 그대로 빌드 |
+| `claude-review.yml` | PR              | Claude 가 적대적 검증 리뷰. 첫 줄 `VERDICT: STOP` 이면 빨간 체크                                   |
+
+`claude-review` 는 PR 에서만 돈다 — PR 을 안 쓰면 비용이 0 이다.
+`ANTHROPIC_API_KEY` 시크릿이 필요하고, 없으면 잡이 명시적으로 실패한다.
+draft·dependabot·문서 전용 PR 은 트리거하지 않고, 같은 PR 의 이전 실행은 취소된다.
+diff 600줄 초과면 opus, 아니면 sonnet 으로 자동 라우팅한다.
+건너뛰려면 `skip-claude-review` 라벨을 붙이고 실패한 잡을 re-run.
+
+**강제력의 한계** — 무료 플랜 프라이빗 레포는 branch protection API 가 403 이라
+required check 을 걸 수 없다. STOP 은 빨간 체크까지고 머지 자체는 안 막힌다.
+팀 규칙으로 운영한다: STOP 해소 전 머지 금지.
+
+**Railway "Wait for CI" 를 켜 둔다.** 안 켜면 Railway 가 푸시 즉시 배포해서
+CI 가 실패한 커밋이 데모 URL 에 그대로 올라간다.
+대시보드 → `web` → Settings → Deploy → Wait for CI.
+
 ## 규칙
 
 - 랜딩 문구는 전부 `src/content/site.ts` 에. 컴포넌트에 문자열을 박지 않는다.
