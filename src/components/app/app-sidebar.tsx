@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   MessagesSquare,
   Sparkles,
+  TestTubeDiagonal,
 } from "lucide-react";
 
 import { Combination } from "@/components/brand";
@@ -40,6 +41,7 @@ const SECTIONS = [
     label: "도구",
     items: [
       { href: "/app/playground", label: "플레이그라운드", icon: MessagesSquare },
+      { href: "/app/test", label: "테스트", icon: TestTubeDiagonal },
       { href: "/lab", label: "실험", icon: FlaskConical },
     ],
   },
