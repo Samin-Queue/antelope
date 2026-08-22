@@ -25,6 +25,10 @@ export const maxDuration = 900;
  *
  * 요청이 없으면 못 도는 것(`applyUrl`·`facts`·`runId`)만 거절할 수 있고,
  * 나머지 맥락은 잘라서 받는다.
+ *
+ * ⚠ 맥락 필드는 전부 `.nullish()` 다. `.optional()` 은 undefined 만 받는데
+ *   클라이언트 상태가 `string | null` 이라 `null` 이 그대로 실려 온다 —
+ *   실제로 `brief: null` 하나 때문에 신청이 400 으로 죽었다.
  */
 const clamped = (max: number) => z.string().transform((text) => text.slice(0, max));
 
@@ -36,7 +40,7 @@ const body = z.object({
    * 알 수 없다.
    */
   applyUrl: z.string().min(1),
-  title: clamped(200).optional(),
+  title: clamped(200).nullish(),
   facts: z.record(z.string(), z.string()),
   /**
    * 계획 에이전트가 세운 순서를 문자열로 옮긴 것.
@@ -47,14 +51,14 @@ const body = z.object({
     .object({
       browser: z
         .array(clamped(300))
-        .optional()
+        .nullish()
         .transform((list) => list?.slice(0, 8)),
       human: z
         .array(clamped(300))
-        .optional()
+        .nullish()
         .transform((list) => list?.slice(0, 8)),
     })
-    .optional(),
+    .nullish(),
   /**
    * 파일 에이전트가 만들어 둔 파일. `path` 는 컨테이너 안 경로라 같은
    * 인스턴스에서만 유효하다 — 없으면 업로드 칸을 건너뛴다.
@@ -67,16 +71,16 @@ const body = z.object({
         path: clamped(500),
       }),
     )
-    .optional()
-    .transform((list) => list?.slice(0, 12)),
+    .nullish()
+    .transform((list) => list?.slice(0, 12) ?? undefined),
   /** 사용자가 이 실행에 개입할 때 쓰는 id. 클라이언트가 만들어 보낸다 */
   runId: z.string().min(8).max(64),
   /** 되부르기에 필요한 재료 — 마스터 테이블과 준비 문서 */
   needs: z
     .array(z.record(z.string(), z.unknown()))
-    .optional()
-    .transform((list) => list?.slice(0, 200)),
-  brief: clamped(40_000).optional(),
+    .nullish()
+    .transform((list) => list?.slice(0, 200) ?? undefined),
+  brief: clamped(40_000).nullish(),
   organization: clamped(200).nullish(),
   deadline: clamped(40).nullish(),
   /**
@@ -91,8 +95,8 @@ const body = z.object({
         body: clamped(2000),
       }),
     )
-    .optional()
-    .transform((list) => list?.slice(-20)),
+    .nullish()
+    .transform((list) => list?.slice(-20) ?? undefined),
 });
 
 /**
@@ -165,7 +169,8 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const { facts, plan, runId, brief, organization, deadline } = parsed.data;
+  const { facts, runId, brief, organization, deadline } = parsed.data;
+  const plan = parsed.data.plan ?? undefined;
   const title = parsed.data.title?.trim() || "제목 미상";
   const history = (parsed.data.narration ?? []) as NarrationTurn[];
   const artifacts = [...(parsed.data.artifacts ?? [])];
