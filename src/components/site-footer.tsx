@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { CombinationMono } from "@/components/brand";
+import { Combination } from "@/components/brand";
 import { site } from "@/content/site";
 
 export function SiteFooter() {
@@ -9,7 +9,7 @@ export function SiteFooter() {
       <div className="mx-auto w-full max-w-7xl px-5 py-16">
         <div className="grid gap-12 lg:grid-cols-[1fr_2fr]">
           <div className="space-y-4">
-            <CombinationMono className="h-9 w-auto" />
+            <Combination className="h-9 w-auto" />
             <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">
               {site.description}
             </p>

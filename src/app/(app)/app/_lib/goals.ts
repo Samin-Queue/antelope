@@ -48,6 +48,20 @@ export async function listGoals(userId: string): Promise<Goal[]> {
     .orderBy(desc(schema.goals.updatedAt));
 }
 
+/** 세션 하나. 저장해 둔 공고 객체와 파이프라인 결과가 통째로 들어 있다. */
+export async function getGoal(
+  userId: string,
+  id: string,
+): Promise<(Goal & { notice: unknown; result: unknown }) | null> {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(schema.goals)
+    .where(and(eq(schema.goals.id, id), eq(schema.goals.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function createGoal(
   userId: string,
   input: {

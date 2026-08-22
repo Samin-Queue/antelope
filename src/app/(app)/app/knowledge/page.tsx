@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** 지식은 워크스페이스 탭으로 합쳤다. */
+/** 지식 베이스는 「허브」로 옮겼다. */
 export default function KnowledgeRedirect() {
-  redirect("/app");
+  redirect("/app/hub");
 }

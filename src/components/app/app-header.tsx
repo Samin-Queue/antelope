@@ -6,10 +6,8 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Separator } from "@/components/ui/separator";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 
-/** 앱 상단 바. 사이드바 토글 + 현재 위치 + 우측 액션. */
+/** 앱 상단 바. 현재 위치와 우측 액션만 — 사이드바 토글은 사이드바 자기 머리에 있다. */
 export function AppHeader({
   trail,
   actions,
@@ -19,8 +17,6 @@ export function AppHeader({
 }) {
   return (
     <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b border-border/60 bg-background/80 px-4 backdrop-blur-xl">
-      <SidebarTrigger className="-ml-1" />
-      <Separator orientation="vertical" className="mr-1 h-4" />
       <Breadcrumb>
         <BreadcrumbList>
           {trail.map((item, index) => (

@@ -3,10 +3,11 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 /**
- * 로고는 다크/라이트 두 벌이 있다. `-on-dark` 는 어두운 배경용,
- * `-on-light` 는 밝은 배경용이고 CSS 로 전환한다.
- * 콤비네이션은 여기에 한 축이 더 있다 — 심볼이 브랜드 퍼플인 `Combination` 과
- * 전부 단색인 `CombinationMono`.
+ * 로고는 다크/라이트 두 벌이다. `-on-dark` 는 어두운 배경용, `-on-light` 는
+ * 밝은 배경용이고 CSS 로 전환한다.
+ *
+ * 예전에는 콤비네이션에 퍼플/모노 두 축이 더 있었다. 지금은 없다 — 자리마다
+ * 다른 로고를 쓰면 같은 제품이 두 개로 보인다.
  */
 type LogoProps = { className?: string; priority?: boolean };
 
@@ -33,50 +34,23 @@ export function Wordmark({ className, priority }: LogoProps) {
   );
 }
 
-/**
- * 내비바·사이드바 상단처럼 브랜드를 처음 만나는 자리에만 쓴다.
- * 퍼플 심볼은 **다크에서만** — 라이트에서는 단색 검정이 그대로다.
- */
+/** 심볼 + 워드마크. 브랜드를 드러내는 모든 자리에서 이것 하나를 쓴다. */
 export function Combination({ className, priority }: LogoProps) {
   return (
     <>
       <Image
-        src="/brand/combination-mono-on-light.svg"
+        src="/brand/combination-on-light.svg"
         alt="Antelope"
-        width={150}
-        height={42}
+        width={152}
+        height={36}
         priority={priority}
         className={cn("dark:hidden", className)}
       />
       <Image
         src="/brand/combination-on-dark.svg"
         alt="Antelope"
-        width={150}
-        height={42}
-        priority={priority}
-        className={cn("hidden dark:block", className)}
-      />
-    </>
-  );
-}
-
-/** 단색 콤비네이션. 로고가 주인공이 아닌 자리(푸터·로그인)의 기본값이다. */
-export function CombinationMono({ className, priority }: LogoProps) {
-  return (
-    <>
-      <Image
-        src="/brand/combination-mono-on-light.svg"
-        alt="Antelope"
-        width={150}
-        height={42}
-        priority={priority}
-        className={cn("dark:hidden", className)}
-      />
-      <Image
-        src="/brand/combination-mono-on-dark.svg"
-        alt="Antelope"
-        width={150}
-        height={42}
+        width={152}
+        height={36}
         priority={priority}
         className={cn("hidden dark:block", className)}
       />

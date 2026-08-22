@@ -19,7 +19,7 @@ export async function SiteHeader({ marketing = false }: { marketing?: boolean })
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-xl">
       <div className="relative mx-auto flex h-14 w-full max-w-7xl items-center gap-6 px-5">
         <Link href="/" aria-label="Antelope 홈" className="shrink-0">
-          <Combination priority className="h-8 w-auto" />
+          <Combination priority className="h-6 w-auto" />
         </Link>
 
         {marketing && (
@@ -46,7 +46,14 @@ export async function SiteHeader({ marketing = false }: { marketing?: boolean })
           )}
           <ThemeToggle />
           {session ? (
-            <UserMenu user={session.user} />
+            <>
+              {/* 로그인해 있으면 랜딩에서 할 일은 하나다 — 앱으로 들어가는 것.
+                  아바타 메뉴만 두면 그 길이 어디 있는지 안 보인다. */}
+              <Button render={<Link href="/app" />} size="sm">
+                앱으로 이동하기
+              </Button>
+              <UserMenu user={session.user} />
+            </>
           ) : (
             <>
               <Button render={<Link href="/sign-in" />} variant="ghost" size="sm">

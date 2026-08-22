@@ -17,6 +17,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { ProviderMark } from "@/components/app/provider-mark";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -251,16 +252,29 @@ export function ComposerBox({
 /** 세션 시작 화면. 인사말 + 입력 상자. */
 export function Composer({
   greeting,
+  user,
   models,
   onSubmit,
 }: {
   greeting: string;
+  /** 있으면 인사말 왼쪽에 아바타를 붙인다. 로그인 전에는 없다 */
+  user?: { name?: string | null; email?: string | null; image?: string | null } | null;
   models: ModelOption[];
   onSubmit: (input: ComposerSubmit) => void;
 }) {
+  const label = user?.name || user?.email || "";
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-6 py-10">
-      <h1 className="text-center heading-display text-3xl text-balance sm:text-4xl">
+      <h1 className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-center heading-display text-3xl text-balance sm:text-4xl">
+        {user && (
+          <Avatar className="size-7 sm:size-8">
+            {user.image ? <AvatarImage src={user.image} alt={label} /> : null}
+            <AvatarFallback className="text-sm">
+              {label.slice(0, 1).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+        )}
         {greeting}
       </h1>
       <ComposerBox models={models} onSubmit={onSubmit} className="mt-10" />

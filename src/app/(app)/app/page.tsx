@@ -4,15 +4,11 @@ import { auth } from "@/lib/auth";
 import { hasDb } from "@/lib/db";
 import { llmInfo } from "@/lib/llm";
 import { AppHeader } from "@/components/app/app-header";
-import { graphEdges, listMemories } from "@/app/(labs)/lab/notice/_lib/memory";
 
-import { GoalList } from "./_lib/goal-list";
-import { listGoals } from "./_lib/goals";
-import { AppTabs } from "./_lib/tabs";
-import { KnowledgeView } from "./knowledge/_lib/view";
+import { StartSession } from "./_lib/start-session";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "워크스페이스" };
+export const metadata = { title: "세션 시작하기" };
 
 export default async function AppHomePage() {
   const session = hasDb()
@@ -24,28 +20,13 @@ export default async function AppHomePage() {
   const models =
     "error" in llm ? [] : [{ id: llm.model, label: llm.model, provider: llm.provider }];
 
-  const [goals, memories, edges] = session
-    ? await Promise.all([
-        listGoals(session.user.id),
-        listMemories(session.user.id),
-        graphEdges(session.user.id),
-      ])
-    : [[], [], []];
-
   const name = session?.user.name?.split(" ")[0];
   const greeting = name ? `${name}님, 무엇을 신청할까요?` : "무엇을 신청할까요?";
 
   return (
     <>
-      <AppHeader trail={["워크스페이스"]} />
-      <AppTabs
-        greeting={greeting}
-        models={models}
-        past={<GoalList goals={goals} />}
-        knowledge={
-          <KnowledgeView memories={memories} edges={edges} signedIn={Boolean(session)} />
-        }
-      />
+      <AppHeader trail={["세션 시작하기"]} />
+      <StartSession greeting={greeting} user={session?.user ?? null} models={models} />
     </>
   );
 }
