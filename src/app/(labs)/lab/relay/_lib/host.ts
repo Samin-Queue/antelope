@@ -6,8 +6,9 @@ import { runStart } from "@/app/(app)/app/start/_lib/pipeline";
 import type { Incoming, RelayChannel } from "./channel";
 import { acquire } from "./queue";
 import { makeSink } from "./sink";
-import { slackDisplayName } from "./slack";
+import { slackDm, slackProfile } from "./slack";
 import {
+  autoLinkByEmail,
   consumeLinkCode,
   findIdentity,
   openThread,
@@ -69,11 +70,36 @@ export async function handle(channel: RelayChannel, incoming: Incoming): Promise
     return;
   }
 
-  const identity = await findIdentity(
-    channel.id,
-    incoming.from,
-    incoming.ref.workspaceId,
-  );
+  let identity = await findIdentity(channel.id, incoming.from, incoming.ref.workspaceId);
+
+  /**
+   * 이메일이 같으면 그 자리에서 잇는다.
+   *
+   * 채널에서 멘션 한 번으로 일을 시키려면 「먼저 DM 으로 코드를 보내세요」가
+   * 중간에 끼면 안 된다. 슬랙이 확인한 프로필 이메일이라 남의 것을 적을 수 없고,
+   * 같은 이메일로 로그인한 Antelope 계정이 있을 때만 붙는다.
+   */
+  if (!identity) {
+    const profile =
+      channel.id === "slack"
+        ? await slackProfile(incoming.from)
+        : { displayName: incoming.displayName, email: null };
+    identity = await autoLinkByEmail({
+      channel: channel.id,
+      externalId: incoming.from,
+      workspaceId: incoming.ref.workspaceId,
+      email: profile.email,
+      displayName: profile.displayName,
+    });
+    if (identity) {
+      // 조용히 잇지 않는다. 자기 계정이 붙었다는 사실은 보여야 한다.
+      void channel.post(
+        incoming.ref,
+        `${profile.email} 계정으로 연결했습니다. 바로 시작합니다.`,
+      );
+    }
+  }
+
   if (!identity) {
     await tryLink(channel, incoming);
     return;
@@ -234,7 +260,23 @@ type Sink = ReturnType<typeof makeSink>;
 async function tryLink(channel: RelayChannel, incoming: Incoming): Promise<void> {
   const match = incoming.isDirect ? CODE.exec(incoming.text) : null;
   if (!match) {
-    await channel.post(incoming.ref, LINK_GUIDE);
+    if (incoming.isDirect) {
+      await channel.post(incoming.ref, LINK_GUIDE);
+      return;
+    }
+    /**
+     * 공개 채널이다. **코드를 여기 적게 하지 않는다** — 먼저 본 사람이 써서
+     * 남의 계정에 자기 슬랙 id 를 붙일 수 있다. 안내는 1:1 로 보내고
+     * 스레드에는 그 사실만 남긴다.
+     */
+    const sent =
+      channel.id === "slack" ? await slackDm(incoming.from, LINK_GUIDE) : false;
+    await channel.post(
+      incoming.ref,
+      sent
+        ? `${channel.mention(incoming.from)} 이 계정이 아직 연결되지 않았습니다. 개인 메시지로 연결 방법을 보냈습니다.`
+        : `${channel.mention(incoming.from)} 이 계정이 아직 연결되지 않았습니다. 저와의 1:1 대화에서 연결해 주세요.`,
+    );
     return;
   }
 
@@ -244,7 +286,7 @@ async function tryLink(channel: RelayChannel, incoming: Incoming): Promise<void>
     workspaceId: incoming.ref.workspaceId,
     displayName:
       incoming.displayName ??
-      (channel.id === "slack" ? await slackDisplayName(incoming.from) : null),
+      (channel.id === "slack" ? (await slackProfile(incoming.from)).displayName : null),
   });
 
   if (result.ok) {

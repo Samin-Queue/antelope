@@ -74,6 +74,41 @@ export async function identitiesOf(userId: string) {
     .orderBy(desc(schema.relayIdentities.createdAt));
 }
 
+/**
+ * 이메일이 같으면 자동으로 잇는다.
+ *
+ * 연동 코드를 없애기 위한 것이다 — 채널에서 멘션 한 번으로 일을 시키려면
+ * 「먼저 DM 으로 코드를 보내세요」가 중간에 끼면 안 된다.
+ *
+ * **이메일은 슬랙이 확인한 값이다.** 워크스페이스가 소유한 계정의 프로필
+ * 이메일이라 사용자가 임의로 남의 것을 적을 수 없다. 같은 이메일로 로그인한
+ * Antelope 계정이 있을 때만 잇고, 없으면 조용히 실패한다.
+ */
+export async function autoLinkByEmail(args: {
+  channel: ChannelId;
+  externalId: string;
+  workspaceId: string | null;
+  email: string | null;
+  displayName: string | null;
+}): Promise<Identity | null> {
+  if (!hasDb() || !args.email) return null;
+  const [row] = await getDb()
+    .select({ id: schema.user.id })
+    .from(schema.user)
+    .where(eq(schema.user.email, args.email.toLowerCase()))
+    .limit(1);
+  if (!row) return null;
+
+  await linkIdentity({
+    userId: row.id,
+    channel: args.channel,
+    externalId: args.externalId,
+    workspaceId: args.workspaceId,
+    displayName: args.displayName,
+  });
+  return { userId: row.id, displayName: args.displayName };
+}
+
 async function linkIdentity(args: {
   userId: string;
   channel: ChannelId;

@@ -267,11 +267,52 @@ export const slack: RelayChannel = {
   },
 };
 
-/** 사람 이름. 실패하면 null 이고, 그때는 id 를 그대로 쓴다 */
-export async function slackDisplayName(userId: string): Promise<string | null> {
+/**
+ * 사람의 이름과 이메일.
+ *
+ * `email` 은 **`users:read.email` 스코프가 있을 때만** 실린다. 없으면 슬랙이
+ * 그 필드만 빼고 200 을 준다 — 오류가 아니라 조용한 누락이라, 자동 연결이
+ * 안 되는 이유를 여기서 구분할 수 있어야 한다.
+ */
+export async function slackProfile(
+  userId: string,
+): Promise<{ displayName: string | null; email: string | null }> {
   const result = await call<{
-    user?: { profile?: { display_name?: string; real_name?: string } };
+    user?: { profile?: { display_name?: string; real_name?: string; email?: string } };
   }>("users.info", { user: userId });
   const profile = result?.user?.profile;
-  return profile?.display_name || profile?.real_name || null;
+  return {
+    displayName: profile?.display_name || profile?.real_name || null,
+    email: profile?.email ?? null,
+  };
+}
+
+/** 사람 이름. 실패하면 null 이고, 그때는 id 를 그대로 쓴다 */
+export async function slackDisplayName(userId: string): Promise<string | null> {
+  return (await slackProfile(userId)).displayName;
+}
+
+/**
+ * 1:1 대화를 연다.
+ *
+ * 공개 채널에서 연동 안내를 하면 코드가 남에게 보인다. 안내는 DM 으로 보내고
+ * 스레드에는 한 줄만 남긴다.
+ */
+export async function slackOpenDm(userId: string): Promise<string | null> {
+  const result = await call<{ channel?: { id?: string } }>("conversations.open", {
+    users: userId,
+  });
+  return result?.channel?.id ?? null;
+}
+
+/** DM 한 통. 스레드가 아니라 대화창에 직접 쓴다 */
+export async function slackDm(userId: string, text: string): Promise<boolean> {
+  const channel = await slackOpenDm(userId);
+  if (!channel) return false;
+  const sent = await call("chat.postMessage", {
+    channel,
+    text: text.slice(0, MAX_TEXT),
+    unfurl_links: false,
+  });
+  return Boolean(sent);
 }

@@ -4,6 +4,8 @@
     "⚠ 생성할 때는 settings.event_subscriptions 를 빼고 넣는다. 슬랙이 그 자리에서 request_url 로",
     "   challenge 를 쏘는데, 아직 배포 전이면 404 라 앱 생성 자체가 막힌다. 배포한 뒤 앱 설정의",
     "   Event Subscriptions 화면에서 URL 을 등록하고 bot_events 둘을 추가한다.",
+    "⚠ `users:read.email` 은 이메일 자동 연결(연동 코드 없이 채널 멘션만으로 시작)에 쓴다. 없으면",
+    "   users.info 가 email 필드만 빼고 200 을 준다 — 오류가 아니라 조용한 누락이다.",
     "⚠ 붙여넣기는 CodeMirror 에디터라 setValue 로는 안 들어간다 — React 가 value prop 으로 되돌린다.",
     "   사람이 손으로 붙여넣거나, 자동화할 때는 selectAll 뒤 사용자 입력 경로(inserttext)로 넣는다.",
     "생성 후 필요한 값 둘: Basic Information 의 Signing Secret → SLACK_SIGNING_SECRET,",
@@ -34,7 +36,8 @@
         "im:history",
         "im:read",
         "im:write",
-        "users:read"
+        "users:read",
+        "users:read.email"
       ]
     }
   },
