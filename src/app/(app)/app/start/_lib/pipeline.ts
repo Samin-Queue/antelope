@@ -27,6 +27,7 @@ import { createSession, updateSession } from "./session";
 import { judge, summarize, type Summary } from "./summarize";
 import {
   APPLY_URL_KEY,
+  STAGE_LABEL,
   type Artifact,
   type CardKey,
   type FileInfo,
@@ -61,6 +62,45 @@ type Emit = (event: StartEvent) => void;
  * 「시간 초과」만 남아 원인을 알 수 없다.
  */
 const STAGE_TIMEOUT_MS = 240_000;
+
+/**
+ * 한 번 더 해 볼 단계.
+ *
+ * 싼 것만 고른다. 실측(로컬, 데모 공고): research 15초 · analyze 36초 ·
+ * plan 31초. `documents` 는 혼자 45~120초라 재시도가 준비 시간을 통째로 배로
+ * 만들고, `summarize` 는 Studio job 이라 같은 이유로 뺐다. `intake`·`judge`·
+ * `prefill` 은 실패해도 뒤 단계가 알아서 견딘다 — 재시도할 값어치가 없다.
+ *
+ * 전송 실패(429·5xx)는 이미 AI SDK 가 2회 재시도하고, 계약 위반은 게이트웨이가
+ * 한 번 되묻는다. 여기는 그 둘로도 안 됐을 때의 마지막 한 번이다.
+ */
+export const RETRY_ONCE: ReadonlySet<Stage> = new Set(["research", "analyze", "plan"]);
+/** 두 번째 시도의 상한. 첫 번째와 같이 주면 최악 준비 시간이 배가 된다 */
+export const RETRY_LIMIT_MS = 90_000;
+/** 상류가 흔들린 직후에 바로 다시 치면 같은 것을 맞는다 */
+const RETRY_WAIT_MS = 1_500;
+
+/** 이 단계를 몇 번까지 해 보는가 */
+export function attemptsFor(id: Stage): number {
+  return RETRY_ONCE.has(id) ? 2 : 1;
+}
+
+/**
+ * 지금 실패한 것을 다시 해 볼 것인가.
+ *
+ * **시간이 모자라서 실패한 것은 다시 하지 않는다.** 같은 방식으로 또 기다리면
+ * 그만큼 더 늦어질 뿐이고, 오래 걸리던 것이 두 번째에 갑자기 빨라질 이유가
+ * 없다. 다시 해 볼 값어치가 있는 것은 상류가 한 번 흔들린 경우다.
+ */
+export function shouldRetry(id: Stage, attempt: number, timedOut: boolean): boolean {
+  if (timedOut) return false;
+  return attempt + 1 < attemptsFor(id);
+}
+
+/** 이번 시도에 줄 시간. 두 번째는 짧다 */
+export function budgetFor(attempt: number, limitMs: number): number {
+  return attempt === 0 ? limitMs : Math.min(limitMs, RETRY_LIMIT_MS);
+}
 
 function withTimeout<T>(task: Promise<T>, limitMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
@@ -232,28 +272,52 @@ export async function runStart(
     emit({ type: "stage", stage: id, status: "start" });
     const started = performance.now();
     const before = scoped;
-    // 취소의 **유일한** 출처는 단계 상한이다. 사람이 떠난 것은 취소가 아니다 —
-    // 준비는 끝까지 가서 세션 행에 쌓인다.
-    scoped = AbortSignal.timeout(limitMs);
+    const attempts = attemptsFor(id);
+
     try {
-      // `withTask` 안에서 일어난 모든 모델 왕복이 이 단계 이름으로 원장에 잡힌다.
-      const value = await withTimeout(withTask({ task: id, runId }, task), limitMs, id);
-      mark(id, "done", undefined, Math.round(performance.now() - started));
-      return value;
-    } catch (error) {
-      // 상한에 걸렸으면 그 단계만 죽고 파이프라인은 계속 간다 —
-      // 이 설계는 원래 한 단계 실패를 견디게 돼 있다.
-      const timedOut = isAbort(error);
-      mark(
-        id,
-        "error",
-        timedOut
-          ? `${Math.round(limitMs / 1000)}초 안에 끝나지 않아 끊었다`
-          : error instanceof Error
-            ? error.message
-            : String(error),
-        Math.round(performance.now() - started),
-      );
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const budget = budgetFor(attempt, limitMs);
+        // 취소의 **유일한** 출처는 단계 상한이다. 사람이 떠난 것은 취소가 아니다 —
+        // 준비는 끝까지 가서 세션 행에 쌓인다.
+        scoped = AbortSignal.timeout(budget);
+        try {
+          // `withTask` 안의 모든 모델 왕복이 이 단계 이름으로 원장에 잡힌다.
+          const value = await withTimeout(
+            withTask({ task: id, runId }, task),
+            budget,
+            id,
+          );
+          mark(
+            id,
+            "done",
+            attempt > 0 ? "한 번 다시 해서 됐다" : undefined,
+            Math.round(performance.now() - started),
+          );
+          return value;
+        } catch (error) {
+          const timedOut = isAbort(error);
+          const why = error instanceof Error ? error.message : String(error);
+          if (shouldRetry(id, attempt, timedOut)) {
+            ctx.log(`${STAGE_LABEL[id].title} 실패 — 한 번 다시 한다: ${why}`);
+            emit({ type: "stage", stage: id, status: "start" });
+            await new Promise((resolve) => setTimeout(resolve, RETRY_WAIT_MS));
+            continue;
+          }
+          // 상한에 걸렸으면 그 단계만 죽고 파이프라인은 계속 간다 —
+          // 이 설계는 원래 한 단계 실패를 견디게 돼 있다.
+          mark(
+            id,
+            "error",
+            timedOut
+              ? `${Math.round(budget / 1000)}초 안에 끝나지 않아 끊었다`
+              : attempt > 0
+                ? `두 번 시도했지만 실패: ${why}`
+                : why,
+            Math.round(performance.now() - started),
+          );
+          return null;
+        }
+      }
       return null;
     } finally {
       scoped = before;
