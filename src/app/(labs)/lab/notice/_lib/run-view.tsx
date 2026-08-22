@@ -246,6 +246,21 @@ export function RunView({
  * 붙어 가상 데스크톱을 그대로 스트리밍하고, 「직접 조작」을 켜면 클릭·키·스크롤이
  * 그 데스크톱의 X 서버로 들어간다. 캡챠가 뜨면 에이전트가 먼저 멈추고 이걸 켠다.
  */
+/** 에이전트가 얼마나 더 기다려 주는가. 남은 시간이 보여야 자리를 비운다 */
+function Countdown({ minutes }: { minutes: number }) {
+  const [left, setLeft] = useState(minutes * 60);
+  useEffect(() => {
+    const timer = setInterval(() => setLeft((n) => Math.max(0, n - 1)), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+  if (left === 0) return <> 대기 시간이 끝났습니다.</>;
+  return (
+    <span className="ml-1 font-mono tabular-nums opacity-80">
+      (남은 시간 {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")})
+    </span>
+  );
+}
+
 export function LiveScreen({
   frame,
   running,
@@ -338,9 +353,14 @@ export function LiveScreen({
       </div>
 
       {needHuman && (
-        <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-          <Hand className="size-3.5" />
-          {needHuman} 끝나면 「에이전트에게 돌려주기」를 누르세요.
+        <div className="flex items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+          <Hand className="mt-px size-3.5 shrink-0" />
+          <span>
+            {needHuman} 끝나면 「에이전트에게 돌려주기」를 누르세요.
+            {/* 언제까지인지 모르면 자리를 비울 수가 없다. 에이전트가 실제로
+                기다리는 시간(desktop.ts 의 waitWhileHeld)을 그대로 센다. */}
+            <Countdown minutes={14} />
+          </span>
         </div>
       )}
 

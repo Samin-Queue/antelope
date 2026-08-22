@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { auth } from "@/lib/auth";
 import { hasDb } from "@/lib/db";
-import { runBrowserAgent } from "@/app/(labs)/lab/notice/_lib/agent";
+import { NeedsHuman, runBrowserAgent } from "@/app/(labs)/lab/notice/_lib/agent";
 import { closeSession } from "@/app/(labs)/lab/notice/_lib/desktop";
 import {
   probeCaptcha,
@@ -492,7 +492,14 @@ export async function POST(req: Request) {
         );
         emit({ type: "done", summary: run.summary, steps: run.steps });
       } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
+        // 캡챠 앞에서 사람을 기다리다 포기한 것. 「실패」가 아니라 「사람이
+        // 필요했는데 못 만났다」로 말해야 사용자가 무엇을 할지 안다.
+        const text =
+          error instanceof NeedsHuman
+            ? `${error.message} 신청 페이지를 직접 열어 이어서 진행하세요.`
+            : error instanceof Error
+              ? error.message
+              : String(error);
         outcome = {
           summary: null,
           steps: trace.length,

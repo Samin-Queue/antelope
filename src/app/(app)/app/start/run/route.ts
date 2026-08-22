@@ -57,15 +57,16 @@ export async function POST(req: Request) {
 
   const encoder = new TextEncoder();
   /**
-   * 사용자가 떠나면 서버도 멈춘다.
+   * 탭을 닫아도 **준비는 끝까지 간다.**
    *
-   * 이게 없던 동안 탭을 닫아도 Studio job 두 건과 모델 십수 회가 끝까지 돌아
-   * 그대로 청구됐다. `enqueue` 만 실패할 뿐 실행은 계속됐기 때문이다.
+   * 준비는 길 때 몇 분씩 걸린다. 그동안 화면을 지키게 만들면 이 제품이 파는
+   * 「맡겨 두고 다른 일을 한다」가 성립하지 않는다. `enqueue` 만 실패할 뿐
+   * 실행 자체는 계속되므로(실측), 그 성질을 그대로 쓴다 — 결과는 요약 직후
+   * 만든 세션 행에 단계마다 덮어써지고, 사용자는 「지난 목표」에서 이어 받는다.
    *
-   * ⚠ **`/apply` 에는 붙이지 않는다.** 제출은 되돌릴 수 없다 — 반쯤 채운 폼을
-   * 남기고 끊는 것이 끝까지 가는 것보다 나쁘다.
+   * 취소는 **단계 상한**에서만 온다(`STAGE_TIMEOUT_MS`). 사람이 떠난 것은
+   * 취소가 아니다.
    */
-  const ctrl = new AbortController();
   const stream = new ReadableStream({
     async start(controller) {
       const emit = (event: StartEvent) => {
@@ -92,13 +93,8 @@ export async function POST(req: Request) {
       }, 15_000);
 
       try {
-        await runStart(input, emit, { userId, signal: ctrl.signal });
+        await runStart(input, emit, { userId });
       } catch (error) {
-        // 사용자가 떠난 것은 예외가 아니다. 스택을 남기면 로그가 그걸로 찬다.
-        if (ctrl.signal.aborted) {
-          console.log("[start/run] 클라이언트가 떠나 중단");
-          return;
-        }
         // 서버 로그에도 남긴다. 화면 문구만으로는 스택을 볼 수 없다.
         console.error("[start/run] 파이프라인 예외", error);
         emit({
@@ -115,7 +111,8 @@ export async function POST(req: Request) {
       }
     },
     cancel() {
-      ctrl.abort(new DOMException("클라이언트가 떠났다", "AbortError"));
+      // 멈추지 않는다. 남은 단계는 끝까지 돌고 세션 행에 쌓인다.
+      console.log("[start/run] 클라이언트가 떠났다 — 준비는 계속한다");
     },
   });
 

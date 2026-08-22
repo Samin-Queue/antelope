@@ -37,6 +37,40 @@ export async function createSession(
   }
 }
 
+/**
+ * 준비가 도는 동안 스냅샷을 덮어쓴다.
+ *
+ * **사용자가 탭을 닫아도 준비는 끝까지 간다.** 그런데 결과를 맨 끝에서 한 번만
+ * 쓰면, 그 사이에 실패하거나 서버가 재시작되면 아무것도 안 남는다 — 사용자
+ * 입장에서는 「긴 걸 시켜 놓고 나갔는데 흔적이 없다」가 된다.
+ *
+ * 단계가 끝날 때마다 갱신하면 지난 목표 목록에서 진행이 그대로 보이고,
+ * 도중에 죽어도 어디까지 갔는지가 남는다.
+ */
+export async function updateSession(
+  userId: string,
+  id: string,
+  snapshot: SessionSnapshot,
+): Promise<boolean> {
+  if (!hasDb()) return false;
+  try {
+    await getDb()
+      .update(schema.goals)
+      .set({
+        title: snapshot.title,
+        organization: snapshot.organization,
+        deadline: snapshot.deadline,
+        snapshot,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(schema.goals.id, id), eq(schema.goals.userId, userId)));
+    return true;
+  } catch (error) {
+    console.error("[session] update", error);
+    return false;
+  }
+}
+
 /** 마스터 테이블만 갈아끼운다. 사용자가 값을 채울 때마다 불린다. */
 export async function saveNeeds(
   userId: string,

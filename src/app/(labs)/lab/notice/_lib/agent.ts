@@ -29,6 +29,9 @@ import type { TraceEntry } from "./types";
  * URL 을 모른다는 게 가장 큰 차이다. 전환 여부는 창 제목과 화면 변화율로
  * 판정해서 모델에게 알린다 — 제출을 눌렀는데 화면이 그대로면 대개 검증 실패다.
  */
+/** 사람이 와야만 넘어갈 수 있는데 오지 않았다. 성공으로 보고하면 안 된다 */
+export class NeedsHuman extends Error {}
+
 export async function runBrowserAgent(opts: {
   sessionId: string;
   goal: string;
@@ -104,13 +107,36 @@ export async function runBrowserAgent(opts: {
     return found;
   };
 
-  /** 사람이 잡고 있으면 기다린다. 캡챠가 보이면 먼저 사람을 부른다 */
+  /** 사람이 끝내 안 와서 포기했다. 성공으로 보고하면 안 된다 */
+  let abandoned: string | null = null;
+  const seenAbandoned = (): string | null => abandoned;
+  /** 도구 예외로는 루프가 안 멈춘다. 끊는 것은 이 신호뿐이다 */
+  const stop = new AbortController();
+
+  /**
+   * 사람이 잡고 있으면 기다린다. 캡챠가 보이면 먼저 사람을 부른다.
+   *
+   * **캡챠는 우리가 풀지 않는다.** 사이트가 사람인지 확인하려고 둔 통제이고,
+   * 우회해서 낸 신청은 무효 처리될 때 손해가 사용자 쪽이다. X 서버로 직접
+   * 들어가므로 캡챠 iframe 안도 사람이 그대로 누를 수 있다 — 그게 이 모드의
+   * 존재 이유다.
+   */
   const guard = async (read?: ScreenRead) => {
     if (read && looksLikeCaptcha(read.text) && opts.onNeedHuman) {
       setHold(sessionId, true);
       opts.onNeedHuman("캡챠가 보입니다. 직접 풀어주세요.");
       await record("need:human", {}, "캡챠 — 사람을 기다린다");
-      await waitWhileHeld(sessionId);
+      const how = await waitWhileHeld(sessionId);
+      if (how === "timeout") {
+        // 조용히 다음 조작으로 넘어가면 캡챠 앞에서 헛돌다 끝난다.
+        // ⚠ throw 만으로는 안 멈춘다 — AI SDK 가 도구 예외를 `tool-error` 로
+        // 바꿔 모델에게 주고 루프를 계속한다. abort 로 끊는다.
+        setHold(sessionId, false);
+        abandoned = "캡챠를 풀 사람을 기다렸지만 오지 않았다.";
+        await record("need:human", { timeout: true }, "사람을 만나지 못했다");
+        stop.abort(new NeedsHuman(abandoned));
+        throw new NeedsHuman(abandoned);
+      }
       opts.onHumanDone?.();
     } else {
       await waitWhileHeld(sessionId);
@@ -329,6 +355,7 @@ export async function runBrowserAgent(opts: {
     model: opts.model ?? chatModel(),
     tools,
     stopWhen: stepCountIs(maxSteps),
+    abortSignal: stop.signal,
     timeout: { stepMs: 90_000 },
     /**
      * 지나간 화면을 버린다. 수동 모드는 OCR 줄 목록이 스냅샷이고, 그 안의
@@ -407,6 +434,11 @@ export async function runBrowserAgent(opts: {
       .filter(Boolean)
       .join("\n"),
   });
+
+  // 사람이 끝내 안 왔으면 **성공으로 보고하지 않는다.** 호출부가 이걸 보고
+  // 「접수 완료」 대신 「캡챠 앞에서 멈췄다」를 화면에 낸다.
+  const gaveUp = seenAbandoned();
+  if (gaveUp) throw new NeedsHuman(gaveUp);
 
   return {
     summary: result.text,

@@ -502,10 +502,21 @@ export function isHeld(id: string) {
   return sessions.get(id)?.held ?? false;
 }
 
-/** 에이전트가 다음 조작 전에 부른다. 사람이 놓아줄 때까지 기다린다. */
-export async function waitWhileHeld(id: string, timeoutMs = 10 * 60 * 1000) {
+/**
+ * 에이전트가 다음 조작 전에 부른다. 사람이 놓아줄 때까지 기다린다.
+ *
+ * 상한이 10분이었는데 그건 「화면을 보고 있다」를 전제한 값이다. 캡챠 알림을
+ * 받고 다른 방에서 돌아오는 시간까지 세면 짧다 — 세션 TTL(15분) 직전까지 준다.
+ * 놓아준 것과 시간이 다 된 것을 **구분해서** 돌려준다: 후자는 그 자리에서
+ * 「사람을 못 만났다」고 보고해야지, 조용히 다음 조작을 하면 안 된다.
+ */
+export async function waitWhileHeld(
+  id: string,
+  timeoutMs = 14 * 60 * 1000,
+): Promise<"released" | "timeout"> {
   const deadline = Date.now() + timeoutMs;
   while (isHeld(id) && Date.now() < deadline) await sleep(300);
+  return isHeld(id) ? "timeout" : "released";
 }
 
 /**

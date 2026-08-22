@@ -21,6 +21,7 @@ import { LiveScreen } from "@/app/(labs)/lab/notice/_lib/run-view";
 
 import { AgentCard, emptyCards, type Cards } from "./agent-grid";
 import { AskDialog, type AskItem } from "./ask-dialog";
+import { useCallMe } from "./call-me";
 import { NeedsForm, summarizeNeeds } from "./needs-form";
 import { RunStatus } from "./run-status";
 import { SteerBox } from "./steer-box";
@@ -175,6 +176,17 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   /** 신청 스트림도 같다. `done`·`error` 를 받았는지 */
   const applyTerminal = useRef(false);
   const applyTerminalOk = useRef(false);
+
+  /**
+   * 사람이 필요한 순간에 **부른다.**
+   *
+   * 캡챠(`need:human`)와 값 질문(`ask`) 둘 다다. 지금까지는 화면을 지키고
+   * 있어야 알았고, 안 보고 있으면 에이전트가 10~15분을 기다리다 그냥 끝났다.
+   */
+  useCallMe(
+    apply.needHuman ?? (ask ? `「${ask.label}」 값이 필요합니다` : null),
+    prepared?.title ?? "Antelope",
+  );
 
   /** 카드 하나를 고친다. 여러 단계가 한 카드로 모이므로 단계→카드로 옮긴다 */
   const patch = useCallback(

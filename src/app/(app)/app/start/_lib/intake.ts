@@ -37,10 +37,12 @@ export type Intake = {
 /**
  * 단계가 들고 다니는 것.
  *
- * `signal` 이 없던 동안 이 파이프라인에는 **취소가 없었다.** 사용자가 탭을
- * 닫아도 Studio 폴링과 Solar 호출이 끝까지 돌아 그대로 청구됐고,
- * `withTimeout` 은 `Promise.race` 라 240초 뒤에도 진 쪽이 계속 돌았다 —
- * 상한이 있었을 뿐 회수가 없었다.
+ * `signal` 은 **단계 상한**이다. `withTimeout` 은 `Promise.race` 라 240초가
+ * 지나도 진 쪽이 계속 돌았다 — 상한은 있고 회수가 없었다. 이걸 아래로 흘려야
+ * 상한이 실제로 일을 끊는다.
+ *
+ * ⚠ 사용자가 탭을 닫은 것은 **취소가 아니다.** 준비는 끝까지 가서 세션 행에
+ * 쌓이고, 사용자는 「지난 목표」에서 이어 받는다.
  */
 export type Ctx = { log: (text: string) => void; signal?: AbortSignal };
 

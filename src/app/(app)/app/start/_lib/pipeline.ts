@@ -2,7 +2,7 @@ import { isAbort } from "@/lib/ai/gateway";
 import { lanes } from "@/lib/ai/lanes";
 import { table } from "@/lib/ai/ledger";
 import { withTask } from "@/lib/ai/meter";
-import { matchEvidence } from "@/lib/grounding";
+import { matchEvidence, type Evidence } from "@/lib/grounding";
 
 import { analyze } from "./analyze";
 import type { IntakeFile } from "./fetch";
@@ -21,13 +21,15 @@ import { makePlan } from "./plan";
 import { prefill } from "./prefill";
 import { reconcileNeeds } from "./reconcile";
 import { research } from "./research";
-import { createSession } from "./session";
+import { createSession, updateSession } from "./session";
 import { judge, summarize } from "./summarize";
 import {
   APPLY_URL_KEY,
   type Artifact,
   type CardKey,
   type FileInfo,
+  type Need,
+  type Plan,
   type SessionSnapshot,
   type Stage,
   type StartEvent,
@@ -76,7 +78,7 @@ function withTimeout<T>(task: Promise<T>, limitMs: number, label: string): Promi
 export async function runStart(
   input: IntakeInput,
   emit: Emit,
-  opts: { userId: string | null; signal?: AbortSignal },
+  opts: { userId: string | null },
 ): Promise<void> {
   // 로그가 어느 카드의 것인지 말해야 카드마다 흘릴 수 있다. `stage()` 가
   // 실행 중인 단계를 여기에 남긴다.
@@ -88,7 +90,7 @@ export async function runStart(
    * 상한은 있고 회수는 없었다. `stage()` 가 「사용자 취소 + 단계 상한」을
    * 합성해 여기 꽂아 두면, 상한을 넘긴 호출도 실제로 끊긴다.
    */
-  let scoped: AbortSignal | undefined = opts.signal;
+  let scoped: AbortSignal | undefined;
   const ctx: Ctx = {
     log: (text) => emit({ type: "log", stage: current, text }),
     get signal() {
@@ -101,9 +103,10 @@ export async function runStart(
    * 두 단계가 **동시에** 돌면 `current` 하나로는 로그가 섞인다 — 계획이 쓴
    * 줄이 서류 카드에 뜨는 식이다. 병렬 구간에서는 이걸 쓴다.
    */
-  const ctxOf = (id: Stage, signal?: AbortSignal): Ctx => ({
+  const ctxOf = (id: Stage): Ctx => ({
     log: (text) => emit({ type: "log", stage: id, text }),
-    signal: signal ?? opts.signal,
+    // 병렬 구간은 자기 단계의 상한을 그대로 쓴다. `scoped` 는 그 시점의 것이다.
+    signal: scoped,
   });
 
   /**
@@ -180,29 +183,28 @@ export async function runStart(
     emit({ type: "stage", stage: id, status: "start" });
     const started = performance.now();
     const before = scoped;
-    scoped = AbortSignal.any(
-      [opts.signal, AbortSignal.timeout(limitMs)].filter(Boolean) as AbortSignal[],
-    );
+    // 취소의 **유일한** 출처는 단계 상한이다. 사람이 떠난 것은 취소가 아니다 —
+    // 준비는 끝까지 가서 세션 행에 쌓인다.
+    scoped = AbortSignal.timeout(limitMs);
     try {
       // `withTask` 안에서 일어난 모든 모델 왕복이 이 단계 이름으로 원장에 잡힌다.
       const value = await withTimeout(withTask({ task: id, runId }, task), limitMs, id);
       mark(id, "done", undefined, Math.round(performance.now() - started));
       return value;
     } catch (error) {
-      // 취소는 실패가 아니다. `error` 로 칠하면 사용자가 떠난 실행이 화면
-      // 기록에서 「망가진 실행」으로 남는다.
-      const cancelled = isAbort(error) || Boolean(opts.signal?.aborted);
+      // 상한에 걸렸으면 그 단계만 죽고 파이프라인은 계속 간다 —
+      // 이 설계는 원래 한 단계 실패를 견디게 돼 있다.
+      const timedOut = isAbort(error);
       mark(
         id,
-        cancelled ? "skip" : "error",
-        cancelled
-          ? "사용자가 떠나 중단했다"
+        "error",
+        timedOut
+          ? `${Math.round(limitMs / 1000)}초 안에 끝나지 않아 끊었다`
           : error instanceof Error
             ? error.message
             : String(error),
         Math.round(performance.now() - started),
       );
-      if (cancelled) throw error;
       return null;
     } finally {
       scoped = before;
@@ -261,6 +263,65 @@ export async function runStart(
   }
   emit({ type: "summary", markdown: summary.markdown, via: summary.via });
 
+  /**
+   * 세션을 **여기서** 만든다.
+   *
+   * 예전에는 맨 끝에서 한 번 만들었다. 사용자가 탭을 닫아도 준비는 끝까지
+   * 가지만(그게 의도다), 그 사이에 실패하거나 서버가 재시작되면 아무것도 안
+   * 남는다 — 「긴 걸 시켜 놓고 나갔는데 흔적이 없다」가 된다.
+   *
+   * 요약이 끝난 시점이 제목이 처음 생기는 자리다. 이후 단계마다 덮어쓰므로
+   * 지난 목표 목록에서 진행이 그대로 보인다.
+   */
+  /**
+   * 진행 중인 상태. 단계가 채워 나가고 `snapshotNow()` 가 그때그때 찍는다.
+   * `const` 로 두면 스냅샷을 맨 끝에서만 만들 수 있다.
+   */
+  let found: Awaited<ReturnType<typeof research>> | null = null;
+  let analysis: Awaited<ReturnType<typeof analyze>> | null = null;
+  let allFiles: IntakeFile[] = gathered.files;
+  let filled: Need[] = [];
+  let plan: Plan | null = null;
+  let artifacts: Artifact[] = [];
+  let evidence: Evidence[] = [];
+  let title =
+    gathered.files[0]?.name ?? gathered.pages[0]?.title ?? gathered.intent ?? "제목 미상";
+
+  let sessionId: string | null = null;
+  const snapshotNow = (): SessionSnapshot => ({
+    title,
+    organization: found?.organization ?? null,
+    deadline: found?.deadline ?? null,
+    applyUrl: found?.applyUrl ?? null,
+    summary: { markdown: summary.markdown, via: summary.via },
+    brief: analysis?.brief ?? null,
+    files: fileInfos(allFiles),
+    needs: filled,
+    plan,
+    artifacts,
+    stages,
+    evidence,
+  });
+
+  /** 지금까지의 진행을 DB 에 덮어쓴다. 실패해도 파이프라인은 계속 간다 */
+  const checkpoint = async () => {
+    if (!opts.userId) return;
+    try {
+      if (!sessionId) {
+        sessionId = await createSession(opts.userId, snapshotNow());
+        if (sessionId) {
+          emit({ type: "session", id: sessionId });
+          ctx.log(`세션 저장: ${sessionId} — 탭을 닫아도 여기서 이어진다`);
+        }
+        return;
+      }
+      await updateSession(opts.userId, sessionId, snapshotNow());
+    } catch (error) {
+      ctx.log(`세션 저장 실패: ${error instanceof Error ? error.message : error}`);
+    }
+  };
+  await checkpoint();
+
   // 3 — 판정. bad 면 여기서 끝난다.
   const verdict = await stage("judge", () => judge(summary, ctx.signal));
   if (!verdict) {
@@ -290,8 +351,8 @@ export async function runStart(
   }
 
   // 4 — 추가 조사
-  const found = await stage("research", () => research(gathered, summary, ctx));
-  const allFiles: IntakeFile[] = [...gathered.files, ...(found?.files ?? [])];
+  found = await stage("research", () => research(gathered, summary, ctx));
+  allFiles = [...gathered.files, ...(found?.files ?? [])];
   if (found?.files.length) emit({ type: "files", files: fileInfos(allFiles) });
   tell(
     "gather",
@@ -305,7 +366,7 @@ export async function runStart(
   );
 
   // 5 — 정밀 분석 (1·3단계가 모은 파일 전부)
-  const analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
+  analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
   if (analysis) emit({ type: "via", stage: "analyze", via: analysis.via });
   if (analysis?.brief) emit({ type: "brief", markdown: analysis.brief });
   tell(
@@ -349,7 +410,7 @@ export async function runStart(
    * 「왜 이걸 묻나」에 문장이 아니라 **좌표**로 답할 수 있게 된다. 못 찾은
    * 항목은 비워 둔다 — 그 사실이 화면에 그대로 보여야 한다.
    */
-  const evidence = analysis?.evidence ?? [];
+  evidence = analysis?.evidence ?? [];
   const withEvidence = evidence.length
     ? merged.map((need) => {
         const hits = matchEvidence(evidence, need.why ?? need.label);
@@ -364,7 +425,7 @@ export async function runStart(
   }
 
   // 6 — 선채움
-  const filled =
+  filled =
     (await stage("prefill", () => prefill(withEvidence, opts.userId, ctx))) ??
     withEvidence;
   const known = filled.filter((need) => need.value?.trim());
@@ -384,12 +445,16 @@ export async function runStart(
     ].join("\n"),
   );
 
-  const title =
+  title =
     (found?.title && found.title !== "제목 미상" ? found.title : null) ??
     analysis?.title ??
     gathered.files[0]?.name ??
     gathered.pages[0]?.title ??
     "제목 미상";
+
+  // 여기까지가 「마스터 테이블이 처음 완성되는 순간」이다. 서류를 만들기 전에
+  // 한 번 남긴다 — 문서 작성이 제일 오래 걸리고, 그동안 사용자는 대개 떠난다.
+  await checkpoint();
 
   /**
    * 7·8 — 계획과 서류를 **나란히** 세운다.
@@ -488,7 +553,9 @@ export async function runStart(
     return made;
   });
 
-  const [plan, artifacts] = await Promise.all([planTask, documentsTask]);
+  const [madePlan, madeArtifacts] = await Promise.all([planTask, documentsTask]);
+  plan = madePlan;
+  artifacts = madeArtifacts ?? [];
 
   if (plan) emit({ type: "plan", plan });
   tell(
@@ -517,30 +584,8 @@ export async function runStart(
       : "만든 서류가 없다. 발급받아야 하는 것뿐이거나 작성할 것이 없었다.",
   );
 
-  const snapshot: SessionSnapshot = {
-    title,
-    organization: found?.organization ?? null,
-    deadline: found?.deadline ?? null,
-    applyUrl: found?.applyUrl ?? null,
-    summary: { markdown: summary.markdown, via: summary.via },
-    brief: analysis?.brief ?? null,
-    files: fileInfos(allFiles),
-    needs: filled,
-    plan,
-    artifacts: artifacts ?? [],
-    stages,
-    evidence,
-  };
-
-  // 여기가 「세션이 시작됐다」의 자연스러운 지점이다 — 마스터 테이블이 처음
-  // 완성되는 순간. 신청 버튼을 눌러야 남기면 준비만 하고 떠난 세션이 사라진다.
-  if (opts.userId) {
-    const id = await createSession(opts.userId, snapshot);
-    if (id) {
-      emit({ type: "session", id });
-      ctx.log(`세션 저장: ${id}`);
-    }
-  }
+  const snapshot = snapshotNow();
+  await checkpoint();
 
   emit({
     type: "needs",

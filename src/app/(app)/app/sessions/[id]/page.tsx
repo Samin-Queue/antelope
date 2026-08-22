@@ -7,6 +7,8 @@ import { AppHeader } from "@/components/app/app-header";
 import { Badge } from "@/components/ui/badge";
 import {
   PLAN_OWNER_LABEL,
+  STAGES,
+  STAGE_LABEL as STEP_LABEL,
   type Need,
   type Plan,
   type SessionSnapshot,
@@ -16,6 +18,59 @@ import type { Notice } from "@/app/(labs)/lab/notice/_lib/schema";
 import { getGoal, OUTCOME_LABEL, STAGE_LABEL } from "../../_lib/goals";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * 준비가 어디까지 갔는가.
+ *
+ * 탭을 닫아도 준비는 끝까지 간다. 그러면 돌아온 사용자의 첫 질문이 「끝났나」다 —
+ * 스냅샷의 `stages` 가 그 답인데 여태 아무도 안 읽고 있었다.
+ */
+function Progress({ stages }: { stages: SessionSnapshot["stages"] }) {
+  const done = STAGES.filter((id) => stages[id] === "done").length;
+  const failed = STAGES.filter((id) => stages[id] === "error");
+  const running = STAGES.filter((id) => !stages[id]);
+
+  return (
+    <section>
+      <h2 className="flex flex-wrap items-baseline gap-2 text-sm font-medium">
+        준비 {done}/{STAGES.length}
+        {running.length > 0 ? (
+          <span className="text-xs font-normal text-muted-foreground">
+            아직 도는 중 — {STEP_LABEL[running[0]].title}
+          </span>
+        ) : (
+          <span className="text-xs font-normal text-muted-foreground">끝났다</span>
+        )}
+      </h2>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {STAGES.map((id) => {
+          const state = stages[id];
+          return (
+            <span
+              key={id}
+              title={STEP_LABEL[id].title}
+              className={cn(
+                "rounded-sm px-2 py-1 text-[11px]",
+                state === "done" && "bg-brand/10 text-brand",
+                state === "error" && "bg-destructive/10 text-destructive",
+                state === "skip" && "bg-muted text-muted-foreground line-through",
+                !state && "bg-muted/50 text-muted-foreground",
+              )}
+            >
+              {STEP_LABEL[id].title}
+            </span>
+          );
+        })}
+      </div>
+      {failed.length > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {failed.map((id) => STEP_LABEL[id].title).join(", ")} 단계는 실패했다. 나머지로
+          이어서 신청할 수 있다.
+        </p>
+      )}
+    </section>
+  );
+}
 
 const KIND_LABEL: Record<Need["kind"], string> = {
   text: "글자",
@@ -81,6 +136,8 @@ export default async function SessionPage({
             )}
           </div>
         </header>
+
+        {snapshot?.stages ? <Progress stages={snapshot.stages} /> : null}
 
         {snapshot?.plan?.steps?.length ? <PlanView plan={snapshot.plan} /> : null}
 
