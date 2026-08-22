@@ -12,7 +12,13 @@ import type { SessionSnapshot, StartEvent } from "../_lib/types";
 import { getGoal } from "../../_lib/goals";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 600;
+/**
+ * 자료를 대량으로 모으고 한 job 에 태우면 준비가 길어진다 — 2홉 수집 6분,
+ * Studio 분석 최대 15분이 단계 상한이다. 자체 호스팅 Node 서버(Railway)는
+ * 이 값을 강제하지 않지만, 서버리스로 옮길 때 여기가 먼저 끊는 자리라
+ * 실제 상한과 맞춰 둔다.
+ */
+export const maxDuration = 1800;
 
 /**
  * 1~5 단계. multipart 로 받아 SSE 로 흘린다.

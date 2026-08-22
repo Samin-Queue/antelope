@@ -15,6 +15,7 @@ import {
 import { BRIEF, CHECK } from "@/app/(labs)/lab/analysis/_lib/workflow";
 
 import type { IntakeFile } from "./fetch";
+import { harvestSummary } from "./harvest";
 import type { Ctx } from "./intake";
 import { clip } from "./llm";
 import { makeNeed } from "./needs";
@@ -113,12 +114,34 @@ const fieldSchema = z.object({
     .nullish(),
 });
 
+/**
+ * 자료가 많으면 단계 상한도 같이 늘려야 한다.
+ *
+ * 240초는 파일 한두 개 시절의 값이다. Document Parse 는 쪽수에 비례하므로
+ * 스무 개를 넣으면 **단계 상한이 Studio job 을 먼저 죽인다** — 그러면 화면에는
+ * 「시간 초과」만 남고 Solar 폴백으로 떨어져, 정확히 보여 주려던 경로가 사라진다.
+ *
+ * 64KB 당 1초로 잡는다. 실측(로컬)에서 1MB PDF 의 parse 가 12~18초였고 그
+ * 대략 두 배를 여유로 준 값이다. 15분에서 자른다 — 그보다 오래 걸리면 job 이
+ * 매달린 것이지 큰 것이 아니다.
+ */
+export function analyzeBudgetMs(bytes: number): number {
+  return Math.min(900_000, Math.max(240_000, Math.round(bytes / 65_536) * 1_000));
+}
+
 type Fields = z.infer<typeof fieldSchema>;
 
 export async function analyze(
   files: IntakeFile[],
   summary: Summary,
   ctx: Ctx,
+  /**
+   * 요약 이후에 읽어 온 본문(2홉 상세 페이지).
+   *
+   * 요약은 이걸 보기 전에 끝났다. 태울 파일이 없을 때 만드는 PDF 에 같이
+   * 넣지 않으면, 방금 읽어 온 내용이 어디에도 안 실린 채 버려진다.
+   */
+  extraText = "",
 ): Promise<Analysis> {
   const agentId = env.UPSTAGE_ANALYSIS_AGENT_ID;
 
@@ -133,7 +156,7 @@ export async function analyze(
    * 문장을 정돈해 둔 요약이다. Document Parse 가 평문을 안 받을 뿐이다.
    */
   const studioFiles =
-    files.length > 0 || !agentId ? files : await synthesize(summary, ctx);
+    files.length > 0 || !agentId ? files : await synthesize(summary, extraText, ctx);
 
   if (studioFiles.length > 0 && agentId) {
     try {
@@ -150,16 +173,35 @@ export async function analyze(
           .map((part) => [part.name, part.fileId!] as const),
       );
       const fresh = studioFiles.filter((file) => !known.has(file.name));
+      /**
+       * 무엇을 얼마나 넣는지 **한 줄로 남긴다.**
+       *
+       * 사용자가 파일을 하나도 안 넣은 실행에서 이 줄이 곧 「에이전트가 스스로
+       * 찾아 Studio 에 태웠다」의 증거다. 「파일 N개」만으로는 한 쪽짜리 안내문
+       * 하나와 200쪽 모집요강 열두 개가 같은 문장이 된다.
+       */
+      const bytes = studioFiles.reduce((sum, file) => sum + file.blob.size, 0);
       ctx.log(
-        `정보 분석 실행: 파일 ${studioFiles.length}개` +
-          (known.size ? ` (요약이 올린 ${known.size}개 재사용)` : ""),
+        `정보 분석 실행: ${harvestSummary(studioFiles)}` +
+          (known.size ? ` · 요약이 올린 ${known.size}개 재사용` : ""),
       );
+      ctx.log(`  넣는 파일: ${studioFiles.map((file) => file.name).join(", ")}`);
+      /**
+       * 상한을 **양에 맞춰 늘린다.**
+       *
+       * 240초는 파일 한두 개 시절의 값이다. parse 는 쪽수에 비례하므로 스무 개를
+       * 넣으면 고정 상한이 job 을 먼저 죽이고, 그러면 「Studio 실패 → Solar」로
+       * 떨어져 정확히 자랑하려던 경로가 사라진다. 파이프라인 단계 상한도 같이
+       * 파이프라인의 단계 상한도 **같은 함수**를 쓴다. 두 값이 갈리면 짧은
+       * 쪽이 먼저 끊어 Studio 가 준 이유를 지운다.
+       */
+      const timeoutMs = analyzeBudgetMs(bytes);
       const done = await runAgent({
         agentId,
         fileIds: [...known.values()],
         files: fresh.map((file) => ({ blob: file.blob, name: file.name })),
         include: "all",
-        timeoutMs: 240_000,
+        timeoutMs,
         signal: ctx.signal,
       });
       const outputs = stepOutputs(done);
@@ -307,9 +349,18 @@ function message(error: unknown): string {
  * 그냥 Solar 로 가던 입력이 통째로 죽는다.
  */
 const MIN_SYNTH_CHARS = 300;
+/** 한 번에 찍는 상한. 이보다 길면 뒤를 자른다 — PDF 렌더가 먼저 죽는다 */
+const MAX_SYNTH_CHARS = 120_000;
 
-async function synthesize(summary: Summary, ctx: Ctx): Promise<IntakeFile[]> {
-  const text = summary.markdown.trim();
+async function synthesize(
+  summary: Summary,
+  extraText: string,
+  ctx: Ctx,
+): Promise<IntakeFile[]> {
+  const text = [summary.markdown.trim(), extraText.trim()]
+    .filter(Boolean)
+    .join("\n\n---\n\n")
+    .slice(0, MAX_SYNTH_CHARS);
   if (text.length < MIN_SYNTH_CHARS) {
     ctx.log(`Studio 에 넘길 내용이 ${text.length}자뿐 — 요약에서 Solar 가 도출`);
     return [];

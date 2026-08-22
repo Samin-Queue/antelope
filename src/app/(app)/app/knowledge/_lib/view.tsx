@@ -65,14 +65,16 @@ export function KnowledgeView({
 
       {/* 셋을 한 줄로 늘어놓으면 사실 스무 개 아래로 파일이 밀려 안 보인다 */}
       <Tabs defaultValue="fact" className="gap-4">
-        <TabsList>
-          <TabsTrigger value="fact">
+        {/* 알약 대신 밑줄 — 목록 위에 얹히는 탭이라 배경 블록이 하나 더 생기면
+            그래프·큐레이터 상자와 층이 겹쳐 보인다. 준비 화면의 탭과 같은 모양이다 */}
+        <TabsList variant="line" className="w-full justify-start gap-4">
+          <TabsTrigger value="fact" className="h-8 flex-none px-0.5">
             사실 <Count value={facts.length} />
           </TabsTrigger>
-          <TabsTrigger value="narrative">
+          <TabsTrigger value="narrative" className="h-8 flex-none px-0.5">
             서술 <Count value={narratives.length} />
           </TabsTrigger>
-          <TabsTrigger value="file">
+          <TabsTrigger value="file" className="h-8 flex-none px-0.5">
             파일 <Count value={documents.length} />
           </TabsTrigger>
         </TabsList>

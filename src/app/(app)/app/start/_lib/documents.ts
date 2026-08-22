@@ -172,3 +172,13 @@ export async function listDocuments(userId: string): Promise<StoredDocument[]> {
     .where(eq(schema.userDocuments.userId, userId))
     .orderBy(desc(schema.userDocuments.updatedAt));
 }
+
+/** 보관해 둔 서류를 전부 지운다. 파일은 DB 안(base64)이라 지울 디스크가 없다 */
+export async function deleteAllDocuments(userId: string): Promise<number> {
+  if (!hasDb()) return 0;
+  const rows = await getDb()
+    .delete(schema.userDocuments)
+    .where(eq(schema.userDocuments.userId, userId))
+    .returning({ id: schema.userDocuments.id });
+  return rows.length;
+}

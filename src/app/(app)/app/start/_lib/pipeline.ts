@@ -6,7 +6,7 @@ import { table } from "@/lib/ai/ledger";
 import { withTask } from "@/lib/ai/meter";
 import { matchEvidence, type Evidence } from "@/lib/grounding";
 
-import { analyze } from "./analyze";
+import { analyze, analyzeBudgetMs } from "./analyze";
 import type { IntakeFile } from "./fetch";
 import {
   artifactDir,
@@ -16,6 +16,7 @@ import {
   recallArtifacts,
   writeDocument,
 } from "./file-agent";
+import { harvestSummary } from "./harvest";
 import { intake, type Ctx, type Intake, type IntakeInput } from "./intake";
 import { narrate, type NarrationTurn } from "./narrator";
 import { mergeNeeds } from "./needs";
@@ -446,7 +447,10 @@ export async function runStart(
   // 2 — 요약. 재개면 스냅샷에 있는 것을 그대로 쓴다.
   const summary: Summary | null = restored
     ? { markdown: restored.summary!.markdown, via: restored.summary!.via, parts: [] }
-    : await stage("summarize", () => summarize(gathered, ctx));
+    : // 파일마다 Studio job 이 하나씩 돈다. 1단계 예산(`INTAKE_BUDGET`)이
+      // 6개라 레인 3개로 두 번에 나눠 도는데, 240초는 그 두 번을 못 담는다 —
+      // 요약은 재시도 목록에 없어서 여기서 끊기면 실행이 통째로 끝난다.
+      await stage("summarize", () => summarize(gathered, ctx), 420_000);
   if (restored) reuse("summarize");
   if (!summary) {
     emit({ type: "error", error: "요약에 실패했습니다." });
@@ -553,6 +557,7 @@ export async function runStart(
     reuse("research");
     found = {
       files: [],
+      pages: [],
       applyUrl: restored.applyUrl,
       applyPage: null,
       needs: [],
@@ -561,7 +566,9 @@ export async function runStart(
       deadline: restored.deadline,
     };
   } else {
-    found = await stage("research", () => research(gathered, summary, ctx));
+    // 2홉을 판다 — 상세 페이지 여덟 개를 열고 그 안의 첨부까지 받는다.
+    // 240초는 1홉 시절의 값이라 여기서 먼저 끊기면 수집이 반만 된 채 넘어간다.
+    found = await stage("research", () => research(gathered, summary, ctx), 360_000);
   }
   allFiles = [...gathered.files, ...(found?.files ?? [])];
   if (found?.files.length) emit({ type: "files", files: fileInfos(allFiles) });
@@ -572,6 +579,10 @@ export async function runStart(
       `주관: ${found?.organization ?? "확인 안 됨"} · 마감: ${found?.deadline ?? "확인 안 됨"}`,
       `신청 URL: ${found?.applyUrl ?? "못 찾음 — 사람에게 물어야 한다"}`,
       `새로 받은 자료 ${found?.files.length ?? 0}개: ${(found?.files ?? []).map((f) => f.name).join(", ") || "없음"}`,
+      // 「몇 개를 얼마나」가 증거다. 사람이 파일을 하나도 안 넣은 실행에서
+      // 이 줄이 곧 「에이전트가 스스로 찾아냈다」의 근거가 된다.
+      `Studio 에 넣을 자료 합계: ${harvestSummary(allFiles)}`,
+      `추가로 연 상세 페이지 ${found?.pages.length ?? 0}개`,
       `신청 페이지에서 뽑은 입력 항목 ${found?.needs.length ?? 0}개`,
     ].join("\n"),
   );
@@ -591,7 +602,24 @@ export async function runStart(
       verdict: null,
     };
   } else {
-    analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
+    /**
+     * 2홉에서 연 상세 페이지 본문도 넘긴다.
+     *
+     * 요약(2단계)은 이 페이지들을 보기 **전에** 끝났다. 첨부가 하나도 없는
+     * 공고는 그 본문이 유일한 내용인데, 안 넘기면 Studio 에 태울 것이 없어
+     * 「읽을 파일이 없다」로 떨어진다 — 정작 방금 읽어 온 것이 있는데도.
+     */
+    const extra = (found?.pages ?? [])
+      .map((page) => `## ${page.title || page.url}\n\n${page.text}`)
+      .join("\n\n");
+    const bytes = allFiles.reduce((sum, file) => sum + file.blob.size, 0);
+    analysis = await stage(
+      "analyze",
+      () => analyze(allFiles, summary, ctx, extra),
+      // Studio 상한(analyze.ts)과 **같은 식**으로 잰다. 여기가 더 짧으면 Studio 가
+      // 준 이유 대신 「시간 초과」만 남아 원인을 알 수 없다.
+      analyzeBudgetMs(bytes),
+    );
   }
   if (analysis) emit({ type: "via", stage: "analyze", via: analysis.via });
   if (analysis?.brief) emit({ type: "brief", markdown: analysis.brief });

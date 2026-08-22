@@ -1,14 +1,14 @@
 import { existsSync } from "node:fs";
 import { chromium } from "playwright";
 
-import { demoSites } from "@/app/demo/_lib/sites";
+import { demoSites, noticePath } from "@/app/demo/_lib/sites";
 
 export const runtime = "nodejs";
 
 const SYSTEM_CHROMIUM = "/usr/bin/chromium";
 
-function detailUrl(slug: string): string {
-  return `http://localhost:${process.env.PORT ?? "3000"}/demo/${slug}`;
+function origin(): string {
+  return `http://localhost:${process.env.PORT ?? "3000"}`;
 }
 
 export async function GET(
@@ -30,7 +30,8 @@ export async function GET(
   const page = await browser.newPage();
   let pdf: Uint8Array;
   try {
-    await page.goto(detailUrl(site.slug), { waitUntil: "networkidle" });
+    // v4 는 루트가 공지 목록이라 공고 상세 경로를 레지스트리에서 받는다.
+    await page.goto(`${origin()}${noticePath(site)}`, { waitUntil: "networkidle" });
     pdf = await page.pdf({
       format: "A4",
       printBackground: true,

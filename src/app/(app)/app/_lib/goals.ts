@@ -104,3 +104,30 @@ export async function updateGoal(
     // 소유자까지 걸어야 남의 목표를 id 만으로 고칠 수 없다.
     .where(and(eq(schema.goals.id, id), eq(schema.goals.userId, userId)));
 }
+
+/**
+ * 세션 하나를 지운다.
+ *
+ * 소유자까지 걸어야 남의 세션을 id 만으로 지울 수 없다 — `updateGoal` 과 같은
+ * 이유다. 지운 뒤 몇 줄이 지워졌는지 돌려주므로, 없는 id 와 남의 id 를
+ * 호출부가 같은 「못 찾음」으로 묶을 수 있다. 남의 것이 존재한다는 사실 자체를
+ * 알려 줄 이유가 없다.
+ */
+export async function deleteGoal(userId: string, id: string): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .delete(schema.goals)
+    .where(and(eq(schema.goals.id, id), eq(schema.goals.userId, userId)))
+    .returning({ id: schema.goals.id });
+  return rows.length > 0;
+}
+
+/** 이 사용자의 세션을 전부 지운다. 설정의 초기화가 부른다 */
+export async function deleteAllGoals(userId: string): Promise<number> {
+  const db = getDb();
+  const rows = await db
+    .delete(schema.goals)
+    .where(eq(schema.goals.userId, userId))
+    .returning({ id: schema.goals.id });
+  return rows.length;
+}

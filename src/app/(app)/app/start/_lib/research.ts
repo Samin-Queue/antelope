@@ -4,7 +4,8 @@ import { dropped, isAbort, runObject } from "@/lib/ai/gateway";
 import { isoDate, noPlaceholder, uniqueBy } from "@/lib/ai/verify";
 
 import { drill, urlsIn, type IntakeFile, type Link, type Page } from "./fetch";
-import { MAX_FILES, type Ctx, type Intake } from "./intake";
+import { harvest, HARVEST_BUDGET, harvestSummary } from "./harvest";
+import { type Ctx, type Intake } from "./intake";
 import { clip } from "./llm";
 import { makeNeed, NEED_RULES, normalizeKey } from "./needs";
 import type { Summary } from "./summarize";
@@ -21,6 +22,8 @@ import { APPLY_URL_KEY, type Need } from "./types";
  */
 export type Research = {
   files: IntakeFile[];
+  /** 2홉째에 새로 연 상세 페이지. 요약이 이 본문도 읽어야 정보가 안 샌다 */
+  pages: Page[];
   applyUrl: string | null;
   applyPage: Page | null;
   needs: Need[];
@@ -43,24 +46,53 @@ export async function research(
   const title =
     picked.title || intake.files[0]?.name || intake.pages[0]?.title || "제목 미상";
 
-  // 첨부 — 1단계가 이미 받은 것은 빼고 받는다.
-  const files: IntakeFile[] = [];
+  /**
+   * 자료 수집 — **여기가 2홉을 판다.**
+   *
+   * 요약을 손에 쥔 시점이라 「이 공고가 무엇인지」를 안다. 그래야 상세 페이지를
+   * 열어도 무관한 공고를 안 끌어온다(1단계는 그걸 몰라서 1홉에서 멈춘다).
+   *
+   * 예전에는 모델이 고른 첨부 **3개**를 받고 끝이었다. 수백 쪽을 한 job 에 받는
+   * 인프라를 놓고 세 개만 넣던 것이고, 링크가 목록 페이지면 그 셋도 0개였다.
+   */
+  const found = await harvest(
+    {
+      seeds: intake.pages,
+      intent: intake.intent,
+      have: intake.files,
+      depth: 2,
+      budget: HARVEST_BUDGET,
+    },
+    ctx,
+  );
+  const files: IntakeFile[] = [...found.files];
+  const pages: Page[] = found.pages;
+  for (const line of found.skipped) ctx.log(`건너뜀: ${line}`);
+
+  /**
+   * 모델이 요약 본문에서 집어낸 첨부는 **따로 받는다.**
+   *
+   * `harvest` 는 페이지의 `<a href>` 만 본다. 요약 안에 평문으로 적힌 다운로드
+   * 주소는 거기 없다 — 「붙임 1. 공고문(http://…/file.hwp)」처럼 본문에 박혀 있는
+   * 경우가 실제로 있다.
+   */
+  const already = new Set([
+    ...intake.files.map((file) => file.url),
+    ...files.map((file) => file.url),
+  ]);
   for (const url of picked.attachments) {
-    if (intake.files.length + files.length >= MAX_FILES) {
-      ctx.log(`파일 상한 ${MAX_FILES}개 — 나머지 첨부는 건너뜀`);
-      break;
-    }
-    if (intake.files.some((file) => file.url === url)) continue;
+    if (already.has(url)) continue;
     try {
       const result = await drill(url, "crawl");
       if (result.kind === "file") {
         files.push(result.file);
-        ctx.log(`관련 파일 저장: ${result.file.name}`);
+        ctx.log(`요약 본문의 첨부: ${result.file.name}`);
       }
     } catch (error) {
       ctx.log(`첨부 실패: ${message(error)}`);
     }
   }
+  ctx.log(`수집 합계: ${harvestSummary([...intake.files, ...files])}`);
 
   // 신청 페이지 — 실제로 열어 폼이 무엇을 묻는지 본다.
   let applyUrl = picked.applyUrl;
@@ -112,6 +144,7 @@ export async function research(
 
   return {
     files,
+    pages,
     applyUrl,
     applyPage,
     needs,

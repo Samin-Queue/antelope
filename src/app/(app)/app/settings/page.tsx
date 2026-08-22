@@ -1,9 +1,13 @@
 import { googleConnections } from "@/lib/google";
 import { currentSession } from "@/lib/session";
 import { AppHeader } from "@/components/app/app-header";
+import { listMemories } from "@/app/(labs)/lab/notice/_lib/memory";
 import { oidcReady } from "@/app/(labs)/lab/relay/_lib/oidc";
 import { identitiesOf } from "@/app/(labs)/lab/relay/_lib/store";
 
+import { listGoals } from "../_lib/goals";
+import { listDocuments } from "../start/_lib/documents";
+import { DangerZone } from "./_lib/danger-zone";
 import { GoogleConnections } from "./_lib/google-connections";
 import { RelayConnections } from "./_lib/relay-connections";
 
@@ -14,6 +18,14 @@ export default async function SettingsPage() {
   const session = await currentSession();
   const connections = session ? await googleConnections() : [];
   const relayLinks = session ? await identitiesOf(session.user.id) : [];
+  // 무엇이 몇 개 지워지는지 미리 보여주려고 센다. 「전부」는 숫자가 아니다.
+  const [goals, memories, documents] = session
+    ? await Promise.all([
+        listGoals(session.user.id),
+        listMemories(session.user.id),
+        listDocuments(session.user.id),
+      ])
+    : [[], [], []];
 
   return (
     <>
@@ -47,6 +59,16 @@ export default async function SettingsPage() {
             </header>
             <RelayConnections links={relayLinks} configured={oidcReady()} />
           </section>
+        )}
+
+        {session && (
+          <DangerZone
+            counts={{
+              goals: goals.length,
+              memories: memories.length,
+              documents: documents.length,
+            }}
+          />
         )}
       </div>
     </>

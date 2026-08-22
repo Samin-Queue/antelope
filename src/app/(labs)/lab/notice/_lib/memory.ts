@@ -349,3 +349,19 @@ export async function forgetMemory(userId: string, id: string): Promise<void> {
     .delete(schema.memories)
     .where(and(eq(schema.memories.userId, userId), eq(schema.memories.id, id)));
 }
+
+/**
+ * 이 사용자의 기억을 전부 지운다.
+ *
+ * 개별 삭제(`forgetMemory`)와 달리 되돌릴 방법이 없다 — 임베딩까지 같이
+ * 사라지고 다시 만들려면 원문이 있어야 한다. 화면에서 몇 개가 지워지는지
+ * 먼저 보여 주라고 지운 수를 돌려준다.
+ */
+export async function forgetAllMemories(userId: string): Promise<number> {
+  const db = getDb();
+  const rows = await db
+    .delete(schema.memories)
+    .where(eq(schema.memories.userId, userId))
+    .returning({ id: schema.memories.id });
+  return rows.length;
+}

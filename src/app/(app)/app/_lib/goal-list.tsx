@@ -3,6 +3,7 @@ import { ArrowRight, CalendarDays } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 
+import { DeleteGoalButton } from "./delete-goal";
 import { OUTCOME_LABEL, STAGE_LABEL, type Goal, type GoalOutcome } from "./goals";
 
 const STAGE_TONE: Record<Goal["stage"], "default" | "secondary" | "outline"> = {
@@ -39,12 +40,14 @@ export function GoalList({ goals }: { goals: Goal[] }) {
   return (
     <ul className="space-y-2">
       {goals.map((goal) => (
-        <li key={goal.id}>
+        // 삭제 버튼을 `<Link>` **안**에 두지 않는다. 중첩 인터랙티브라
+        // 클릭이 링크에도 먹어, 지우려다 그 세션이 열린다.
+        <li key={goal.id} className="relative">
           <Link
             href={`/app/sessions/${goal.id}`}
             className="block rounded-xl border border-border bg-card px-4 py-3.5 transition-colors hover:border-brand/40"
           >
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 pr-8">
               <Badge variant={STAGE_TONE[goal.stage]}>{STAGE_LABEL[goal.stage]}</Badge>
               <span className="text-sm font-medium">{goal.title}</span>
               {goal.outcome && (
@@ -71,6 +74,9 @@ export function GoalList({ goals }: { goals: Goal[] }) {
               </span>
             </div>
           </Link>
+          <div className="absolute top-2.5 right-2.5">
+            <DeleteGoalButton id={goal.id} title={goal.title} />
+          </div>
         </li>
       ))}
     </ul>
