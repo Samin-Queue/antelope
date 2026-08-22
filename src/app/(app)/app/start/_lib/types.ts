@@ -241,6 +241,15 @@ export type StartEvent =
       applyUrl: string | null;
       needs: Need[];
     }
+  /**
+   * 준비가 끝났다. **모든 종료 경로가 이걸 보낸다** — 성공이든, 요약이 bad
+   * 라 멈췄든, 판정이 실패했든.
+   *
+   * 이게 없으면 「서버가 스스로 끝냈다」와 「연결이 끊겼다」가 화면에서
+   * 구분되지 않는다. 실제로 `judge` 실패와 `bad` 판정이 아무 이벤트도 없이
+   * 조용히 스트림을 닫고 있었고, 화면에는 「연결이 끊겨 중단됐다」만 떴다.
+   */
+  | { type: "end"; reason: "ready" | "stopped"; detail?: string }
   | { type: "error"; error: string };
 
 export type ApplyEvent =

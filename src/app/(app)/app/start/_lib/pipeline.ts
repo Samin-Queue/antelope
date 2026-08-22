@@ -180,12 +180,27 @@ export async function runStart(
 
   // 3 — 판정. bad 면 여기서 끝난다.
   const verdict = await stage("judge", () => judge(summary));
-  if (!verdict) return;
+  if (!verdict) {
+    // 예전엔 여기서 아무 말 없이 스트림이 닫혔다. 화면에는 「연결이 끊겨
+    // 중단됐다」만 뜨고, 서버가 스스로 끝낸 것인지 연결이 죽은 것인지
+    // 구분할 수 없었다. 끝낼 때는 왜 끝내는지 말한다.
+    emit({
+      type: "end",
+      reason: "stopped",
+      detail: "읽을 만한 공고인지 판정하지 못했습니다.",
+    });
+    return;
+  }
   emit({ type: "verdict", verdict: verdict.verdict, reason: verdict.reason });
   if (verdict.verdict === "bad") {
     for (const id of ["research", "analyze", "prefill"] as const) {
       mark(id, "skip", "요약이 bad 로 판정됨");
     }
+    emit({
+      type: "end",
+      reason: "stopped",
+      detail: `공고로 읽을 내용이 부족합니다 — ${verdict.reason}`,
+    });
     return;
   }
 
@@ -375,6 +390,7 @@ export async function runStart(
     applyUrl: snapshot.applyUrl,
     needs: filled,
   });
+  emit({ type: "end", reason: "ready" });
 }
 
 /**

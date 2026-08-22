@@ -84,6 +84,8 @@ export async function POST(req: Request) {
       try {
         await runStart(input, emit, { userId });
       } catch (error) {
+        // 서버 로그에도 남긴다. 화면 문구만으로는 스택을 볼 수 없다.
+        console.error("[start/run] 파이프라인 예외", error);
         emit({
           type: "error",
           error: error instanceof Error ? error.message : String(error),

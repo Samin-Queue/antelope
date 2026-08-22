@@ -143,6 +143,16 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     if (!pinned.current) setPanel(card);
   }, []);
   const startedRef = useRef(false);
+  /**
+   * 서버가 스스로 끝냈다는 신호(`end`·`error`)를 받았는가.
+   *
+   * 이게 없이 스트림이 닫혔다면 중간에 잘린 것이다. 두 경우를 화면에서
+   * 구분하지 못해서 「연결이 끊겨 중단됐다」 하나가 서버의 정상 종료까지
+   * 덮고 있었다.
+   */
+  const terminal = useRef(false);
+  /** 신청 스트림도 같다. `done`·`error` 를 받았는지 */
+  const applyTerminal = useRef(false);
 
   /** 카드 하나를 고친다. 여러 단계가 한 카드로 모이므로 단계→카드로 옮긴다 */
   const patch = useCallback(
@@ -258,17 +268,35 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           patch("data", { action: "입력 항목 보기" });
           break;
         }
+        case "end":
+          terminal.current = true;
+          if (event.reason === "stopped") setError(event.detail ?? "준비를 멈췄습니다.");
+          break;
         case "error":
+          terminal.current = true;
           setError(event.error);
           break;
       }
     })
-      .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
+      .then((info) => {
+        // 서버는 어떤 경로로 끝나든 `end` 나 `error` 를 보낸다. 그게 없었다면
+        // 스트림이 중간에 잘린 것이다 — 침묵 길이가 그걸 갈라 준다. 하트비트가
+        // 15초마다 오므로 그보다 한참 길면 연결이 죽은 쪽이다.
+        if (terminal.current) return;
+        const cut = `서버가 종료 이벤트 없이 연결을 닫았다 — 마지막 수신 후 ${Math.round(info.silentMs / 1000)}초, 받은 이벤트 ${info.events}개`;
+        setError((prev) => prev ?? cut);
+        settleCards(cut);
+      })
+      .catch((cause) => {
+        const text = cause instanceof Error ? cause.message : String(cause);
+        setError(text);
+        settleCards(`스트림 예외 — ${text}`);
+      })
       .finally(() => {
         setPreparing(false);
         settleCards("연결이 끊겨 중단됐다");
       });
-  }, [initial, patch, patchStage, follow]);
+  }, [initial, patch, patchStage, follow, settleCards]);
 
   // 빈 항목이 없으면 사람을 거치지 않는다. 있으면 다이얼로그를 띄운다.
   const autoRef = useRef(false);
@@ -286,6 +314,9 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         ),
       );
     } else {
+      // 준비가 끝나는 순간 한 번만 여는 일회성 전환이다. 렌더에서 유도할 수 있는
+      // 값이 아니고(사용자가 닫을 수 있다), `autoRef` 가 반복을 막는다.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNeedsOpen(true);
     }
     // startApply 는 매 렌더 새로 만들어진다. prepared 가 올 때 한 번만 돈다.
@@ -325,6 +356,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
       }).catch(() => {});
     }
 
+    // 재시도할 수 있으므로 매번 초기화한다.
+    applyTerminal.current = false;
     setApply({
       status: "running",
       mode: null,
@@ -337,7 +370,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     });
 
     try {
-      await readStream<ApplyEvent>(
+      const info = await readStream<ApplyEvent>(
         "/app/start/apply",
         JSON.stringify({
           applyUrl,
@@ -414,25 +447,29 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
               setApply((prev) => ({ ...prev, needHuman: null }));
               break;
             case "done":
+              applyTerminal.current = true;
               setApply((prev) => ({ ...prev, status: "done", summary: event.summary }));
               break;
             case "error":
+              applyTerminal.current = true;
               setApply((prev) => ({ ...prev, status: "error", error: event.error }));
               break;
           }
         },
         { "Content-Type": "application/json" },
       );
+      // `done` 도 `error` 도 없이 끝났다 — 스트림이 중간에 잘렸다는 뜻이다.
+      // 무엇이 잘랐는지는 침묵 길이가 말해 준다(하트비트가 15초마다 온다).
+      if (!applyTerminal.current) {
+        const cut = `서버가 종료 이벤트 없이 연결을 닫았다 — 마지막 수신 후 ${Math.round(info.silentMs / 1000)}초, 받은 이벤트 ${info.events}개`;
+        setApply((prev) => ({ ...prev, status: "error", error: cut }));
+        settleCards(cut);
+      }
     } catch (cause) {
-      setApply((prev) => ({
-        ...prev,
-        status: "error",
-        error: cause instanceof Error ? cause.message : String(cause),
-      }));
+      const text = cause instanceof Error ? cause.message : String(cause);
+      setApply((prev) => ({ ...prev, status: "error", error: `스트림 예외 — ${text}` }));
+      settleCards(`스트림 예외 — ${text}`);
     } finally {
-      // 스트림이 `done` 도 `error` 도 없이 끝날 수 있다 — maxDuration 초과로
-      // 플랫폼이 끊거나 연결이 죽은 경우다. 그대로 두면 「신청 중」에서 영원히
-      // 멈춘다. 아직 running 이면 여기서 내린다.
       setApply((prev) =>
         prev.status === "running"
           ? { ...prev, status: "error", error: "연결이 끊겨 신청이 중단됐다." }
@@ -858,16 +895,25 @@ async function readStream<T>(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // 스트림이 어떻게 끝났는지 말해 주기 위한 것. 서버가 15초마다 하트비트를
+  // 흘리므로, 침묵이 그보다 한참 길면 연결이 죽은 쪽이다.
+  let last = Date.now();
+  let events = 0;
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    last = Date.now();
     buffer += decoder.decode(value, { stream: true });
     const chunks = buffer.split("\n\n");
     buffer = chunks.pop() ?? "";
     for (const chunk of chunks) {
       const line = chunk.trim();
-      if (line.startsWith("data: ")) onEvent(JSON.parse(line.slice(6)) as T);
+      if (line.startsWith("data: ")) {
+        events += 1;
+        onEvent(JSON.parse(line.slice(6)) as T);
+      }
     }
   }
+  return { silentMs: Date.now() - last, events };
 }
