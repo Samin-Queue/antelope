@@ -7,6 +7,8 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
+import { AssistantToggle } from "./assistant-panel";
+
 /** 앱 상단 바. 현재 위치와 우측 액션만 — 사이드바 토글은 사이드바 자기 머리에 있다. */
 export function AppHeader({
   trail,
@@ -34,6 +36,8 @@ export function AppHeader({
       <div className="ml-auto flex items-center gap-1">
         {actions}
         <ThemeToggle />
+        {/* 오른쪽 끝 — 열리는 열이 바로 이 옆이다 */}
+        <AssistantToggle />
       </div>
     </header>
   );

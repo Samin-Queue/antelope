@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Combination } from "@/components/brand";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { site } from "@/content/site";
 
 export function SiteFooter() {
@@ -40,6 +41,9 @@ export function SiteFooter() {
           <span>{site.team} · JunctionX Korea 2026 · 포항 · 8월 21–23일</span>
           {/* 구글 OAuth 심사가 공개 URL 로 된 약관·방침을 요구한다 */}
           <nav className="flex items-center gap-4">
+            {/* 테마 전환은 한 번 정하면 다시 안 만지는 설정이다. 내비 맨 앞이
+                아니라 페이지 끝, 약관 옆에 둔다 */}
+            <ThemeToggle />
             <Link href="/terms" className="hover:text-foreground">
               이용약관
             </Link>

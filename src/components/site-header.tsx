@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import { currentSession } from "@/lib/session";
 import { Combination } from "@/components/brand";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/user-menu";
 import { site } from "@/content/site";
@@ -34,12 +33,15 @@ export async function SiteHeader({ marketing = false }: { marketing?: boolean })
         )}
 
         <div className="ml-auto flex items-center gap-1">
-          {!marketing && (
-            <Button render={<Link href="/app" />} variant="ghost" size="sm">
-              워크스페이스
+          {marketing && (
+            <Button
+              render={<Link href={site.engineCta.href} />}
+              variant="secondary"
+              size="sm"
+            >
+              {site.engineCta.label}
             </Button>
           )}
-          <ThemeToggle />
           {session ? (
             <>
               {/* 로그인해 있으면 랜딩에서 할 일은 하나다 — 앱으로 들어가는 것.

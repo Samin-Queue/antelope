@@ -12,7 +12,7 @@ export default function PlaygroundPage() {
   return (
     <>
       <AppHeader
-        trail={["도구", "플레이그라운드"]}
+        trail={["개발자 도구", "플레이그라운드"]}
         actions={
           "error" in info ? (
             <Badge variant="destructive">키 미설정</Badge>

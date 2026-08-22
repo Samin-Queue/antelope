@@ -2,6 +2,7 @@ import Link from "next/link";
 import { FlaskConical } from "lucide-react";
 
 import { SiteHeader } from "@/components/site-header";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
  * 실험 전용 레이아웃. 프로덕션 화면과 눈으로 구분되어야
@@ -21,6 +22,8 @@ export default function LabsLayout({ children }: { children: React.ReactNode }) 
           >
             전체 실험 보기
           </Link>
+          {/* 실험 화면에는 푸터가 없다. 테마 전환이 갈 데가 여기뿐이다 */}
+          <ThemeToggle className="ml-auto" />
         </div>
       </div>
       <main className="flex-1">{children}</main>

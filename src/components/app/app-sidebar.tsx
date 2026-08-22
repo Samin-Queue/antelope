@@ -184,7 +184,7 @@ export function AppSidebar({
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>도구</SidebarGroupLabel>
+          <SidebarGroupLabel>개발자 도구</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-1">
               {TOOLS.map((item) => (

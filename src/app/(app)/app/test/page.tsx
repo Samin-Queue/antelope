@@ -16,7 +16,7 @@ export const metadata = { title: "테스트" };
 export default function TestPage() {
   return (
     <>
-      <AppHeader trail={["도구", "테스트"]} />
+      <AppHeader trail={["개발자 도구", "테스트"]} />
       <div className="mx-auto w-full max-w-5xl px-6 py-10 sm:py-16">
         <div className="max-w-2xl">
           <Badge variant="secondary" className="gap-1.5">

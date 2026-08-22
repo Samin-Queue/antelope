@@ -21,6 +21,13 @@ export const site = {
 
   cta: { label: "무료로 시작하기", href: "/app" },
   secondaryCta: { label: "동작 방식 보기", href: "#steps" },
+  /**
+   * 헤더 우측의 페이지 이동.
+   *
+   * `nav` 에 두면 안 된다 — 나머지는 전부 같은 문서 안의 앵커라 눌러도 화면이
+   * 바뀌지 않는데, 이것만 다른 페이지로 떠난다.
+   */
+  engineCta: { label: "엔진 소개", href: "/engine" },
 
   /** 상단 공지 필 */
   announcement: {
@@ -34,8 +41,6 @@ export const site = {
     { label: "특징", href: "#features" },
     { label: "지식 베이스", href: "#memory" },
     { label: "기술", href: "#pipeline" },
-    { label: "엔진", href: "/engine" },
-    { label: "소개", href: "#about" },
   ],
 
   /**
@@ -225,7 +230,11 @@ export const site = {
   },
 
   /**
-   * 서비스 소개 — 구글 OAuth 브랜딩 심사가 홈페이지에서 확인하는 것들.
+   * 앱 이름·목적·스코프 용도.
+   *
+   * ⚠ 화면에서 「서비스 소개」 섹션을 걷어낸 뒤로 이 값을 쓰는 곳은 랜딩의
+   * JSON-LD 뿐이다. 심사는 **보이는 본문 텍스트**를 보므로 이대로는 브랜딩
+   * 심사를 통과할 수 없다 — Publish 할 때 섹션을 되살린다.
    *
    * 심사가 세 가지를 본다. 앱 이름이 동의 화면과 **글자 그대로** 같은지,
    * 앱이 무엇을 하는지, 요청한 구글 권한을 어디에 쓰는지.

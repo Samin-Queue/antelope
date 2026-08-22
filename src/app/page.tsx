@@ -1,4 +1,3 @@
-import { About } from "@/components/sections/about";
 import { Comparison } from "@/components/sections/comparison";
 import { Cta } from "@/components/sections/cta";
 import { Features } from "@/components/sections/features";
@@ -11,8 +10,11 @@ import { SiteHeader } from "@/components/site-header";
 import { site } from "@/content/site";
 
 /**
- * 구글 심사·검색엔진이 앱 이름과 목적을 구조화된 형태로도 읽게 한다.
- * 화면의 `<About />` 과 같은 사실을 말해야 한다 — 한쪽만 고치지 않는다.
+ * 구글 심사·검색엔진이 앱 이름과 목적을 구조화된 형태로 읽게 한다.
+ *
+ * ⚠ 화면의 「서비스 소개」 섹션은 걷어냈다. 그래서 앱 이름·목적·스코프 용도가
+ * 본문 텍스트로 남아 있는 곳은 `/privacy` 뿐이다 — 구글 OAuth 브랜딩 심사는
+ * 홈페이지 본문에서 그것을 찾으므로, Publish 를 시도하려면 되살려야 한다.
  */
 const jsonLd = {
   "@context": "https://schema.org",
@@ -47,7 +49,6 @@ export default function HomePage() {
         <Comparison />
         <Pipeline />
         <Cta />
-        <About />
       </main>
       <SiteFooter />
     </>
