@@ -26,6 +26,7 @@ import {
   STAGE_LABEL,
   STAGES,
   type ApplyEvent,
+  type Artifact,
   type FileInfo,
   type Need,
   type Plan,
@@ -86,6 +87,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [summary, setSummary] = useState<{ markdown: string; via: string } | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [verdict, setVerdict] = useState<{
     verdict: "good" | "bad";
     reason: string;
@@ -136,6 +138,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         setVerdict({ verdict: event.verdict, reason: event.reason });
       } else if (event.type === "plan") {
         setPlan(event.plan);
+      } else if (event.type === "artifacts") {
+        setArtifacts(event.artifacts);
       } else if (event.type === "session") {
         setSessionId(event.id);
       } else if (event.type === "needs") {
@@ -237,6 +241,12 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
                   .map((step) => step.title),
               }
             : undefined,
+          // 만들어 둔 파일. 브라우저가 업로드 칸에 그대로 넣는다.
+          artifacts: artifacts.map((item) => ({
+            label: item.label,
+            filename: item.filename,
+            path: item.path,
+          })),
         }),
         (event) => {
           if (event.type === "mode") {
@@ -397,6 +407,29 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
                 </article>
               </details>
             )}
+          </section>
+        )}
+
+        {artifacts.length > 0 && (
+          <section className="rounded-2xl border border-border bg-card p-6">
+            <Badge variant="secondary">작성한 서류 {artifacts.length}</Badge>
+            <ul className="mt-4 space-y-1.5">
+              {artifacts.map((item) => (
+                <li
+                  key={item.needKey}
+                  className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm"
+                >
+                  <span className="truncate">{item.filename}</span>
+                  <span className="text-xs text-muted-foreground">{item.label}</span>
+                  <span className="ml-auto font-mono text-xs text-muted-foreground">
+                    {(item.bytes / 1024).toFixed(0)}KB
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs text-muted-foreground">
+              근거가 없는 항목은 「확인 필요」로 남겨 뒀다. 제출 전에 열어 보라.
+            </p>
           </section>
         )}
 

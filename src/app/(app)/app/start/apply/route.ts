@@ -27,6 +27,20 @@ const body = z.object({
       human: z.array(z.string().max(300)).max(8).optional(),
     })
     .optional(),
+  /**
+   * 파일 에이전트가 만들어 둔 파일. `path` 는 컨테이너 안 경로라 같은
+   * 인스턴스에서만 유효하다 — 없으면 업로드 칸을 건너뛴다.
+   */
+  artifacts: z
+    .array(
+      z.object({
+        label: z.string().max(120),
+        filename: z.string().max(200),
+        path: z.string().max(500),
+      }),
+    )
+    .max(6)
+    .optional(),
 });
 
 /** 신청이 끝난 뒤 화면을 이만큼 더 남긴다. 접수 완료 화면을 사람이 봐야 한다 */
@@ -51,7 +65,7 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const { applyUrl, title, facts, plan } = parsed.data;
+  const { applyUrl, title, facts, plan, artifacts } = parsed.data;
   const sessionId = `start-${Date.now()}`;
   const goal = `「${title}」 신청서를 작성하고 제출까지 완료하라. 회원가입·로그인이 필요하면 주어진 사실로 진행한다.`;
 
@@ -88,6 +102,7 @@ export async function POST(req: Request) {
             goal,
             facts,
             plan,
+            artifacts,
             maxSteps: 60,
             allowSubmit: true,
             onStep: step,

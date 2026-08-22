@@ -109,6 +109,11 @@ export async function runPlaywrightAgent(opts: {
    * 거꾸로 선다. `human` 은 브라우저가 손대면 안 되는 일이다.
    */
   plan?: { browser?: string[]; human?: string[] };
+  /**
+   * 파일 에이전트가 만들어 둔 제출용 파일. 업로드 칸에 이걸 넣는다.
+   * 없으면 예전처럼 「사람이 올려야 한다」로 건너뛴다.
+   */
+  artifacts?: Array<{ label: string; filename: string; path: string }>;
   startUrl: string;
   maxSteps?: number;
   model?: LanguageModel;
@@ -116,7 +121,15 @@ export async function runPlaywrightAgent(opts: {
   onStep?: (entry: TraceEntry) => void;
   onFrame?: (image: string, url: string) => void;
 }): Promise<PlaywrightRun> {
-  const { goal, facts = {}, plan, startUrl, maxSteps = 40, allowSubmit = false } = opts;
+  const {
+    goal,
+    facts = {},
+    plan,
+    artifacts = [],
+    startUrl,
+    maxSteps = 40,
+    allowSubmit = false,
+  } = opts;
 
   let browser: Browser | null = null;
   const trace: TraceEntry[] = [];
@@ -220,7 +233,9 @@ export async function runPlaywrightAgent(opts: {
           await guard();
           const { el, locator } = locate(ref);
           if (el.type === "file") {
-            const message = `"${el.label}" 는 파일 업로드 칸이라 채울 수 없다. 사람이 올려야 한다 — 건너뛴다.`;
+            const message = artifacts.length
+              ? `"${el.label}" 는 파일 업로드 칸이다. fill 이 아니라 **upload** 로 넣는다.`
+              : `"${el.label}" 는 파일 업로드 칸이라 채울 수 없다. 사람이 올려야 한다 — 건너뛴다.`;
             await record("fill", { ref, skipped: true }, message);
             return message;
           }
@@ -262,6 +277,40 @@ export async function runPlaywrightAgent(opts: {
           return message;
         },
       }),
+      upload: tool({
+        description:
+          "파일 업로드 칸에 준비된 파일을 넣는다. file 은 「준비된 파일」 목록의 이름 그대로 쓴다.",
+        inputSchema: z.object({ ref: z.string(), file: z.string() }),
+        execute: async ({ ref, file }) => {
+          await guard();
+          const { el, locator } = locate(ref);
+          if (el.type !== "file") {
+            const message = `"${el.label}" 는 파일 칸이 아니다. fill 을 쓴다.`;
+            await record("upload", { ref, file }, message);
+            return message;
+          }
+          // 이름이 조금 어긋나도 붙는다 — 모델이 라벨과 파일명을 섞어 부른다.
+          const picked =
+            artifacts.find((item) => item.filename === file) ??
+            artifacts.find((item) => item.label === file) ??
+            artifacts.find(
+              (item) => item.filename.includes(file) || file.includes(item.label),
+            );
+          if (!picked) {
+            const message = artifacts.length
+              ? `"${file}" 라는 준비된 파일이 없다. 있는 것: ${artifacts.map((i) => i.filename).join(", ")}`
+              : "준비된 파일이 없다. 이 칸은 건너뛰고 마지막에 보고한다.";
+            await record("upload", { ref, file }, message);
+            return message;
+          }
+          await locator.setInputFiles(picked.path, { timeout: 15_000 });
+          const message = `"${el.label}" 에 ${picked.filename} 을 올렸다.`;
+          await record("upload", { ref, file: picked.filename }, message);
+          await frame();
+          return message;
+        },
+      }),
+
       select: tool({
         description:
           "드롭다운에서 항목을 고른다. option 은 read 가 보여준 선택지 글자다.",
@@ -301,8 +350,8 @@ export async function runPlaywrightAgent(opts: {
       model: opts.model ?? chatModel(),
       tools,
       stopWhen: stepCountIs(maxSteps),
-      system: systemPrompt(allowSubmit),
-      prompt: promptFor(goal, startUrl, facts, plan),
+      system: systemPrompt(allowSubmit, artifacts.length > 0),
+      prompt: promptFor(goal, startUrl, facts, plan, artifacts),
     });
 
     return {
@@ -338,7 +387,7 @@ async function settle(page: Page, extraMs = 700) {
   await page.waitForTimeout(extraMs);
 }
 
-function systemPrompt(allowSubmit: boolean): string {
+function systemPrompt(allowSubmit: boolean, hasArtifacts: boolean): string {
   return [
     "너는 웹 신청서를 대신 채우는 에이전트다. 페이지의 요소 목록을 보고 조작한다.",
     "",
@@ -352,7 +401,9 @@ function systemPrompt(allowSubmit: boolean): string {
     "- 조작 전에 반드시 read 를 먼저 호출한다. ref 는 직전 read 에 있던 것만 쓴다.",
     "- 날짜는 `2024-03-15` 형태로 fill 한다. 화면 표기(mm/dd/yyyy 등)로 바꾸지 않는다.",
     "- `[선택됨]` 인 체크박스·라디오는 다시 누르지 않는다. 같은 그룹에서 하나만 고른다.",
-    "- 파일 업로드 칸은 채울 수 없다. 건너뛰고 마지막에 무엇이 남았는지 보고한다.",
+    hasArtifacts
+      ? "- **파일 업로드 칸에는 upload 를 쓴다.** 「준비된 파일」 목록에 있는 이름을 그대로 넘긴다. 목록에 없는 서류(발급받아야 하는 것)는 건너뛰고 마지막에 보고한다."
+      : "- 파일 업로드 칸은 채울 수 없다. 건너뛰고 마지막에 무엇이 남았는지 보고한다.",
     "- 여러 단계로 나뉜 폼은 한 단계를 다 채우고 「다음」을 눌러 넘어간다. 남은 단계가 있으면 끝난 게 아니다.",
     "- 값이 없는 항목은 비워 둔다. 지어내지 않는다.",
     "- **계획서가 주어지면 그 순서를 따른다.** 계획에 없는 곳으로 가지 않는다.",
@@ -370,6 +421,7 @@ function promptFor(
   startUrl: string,
   facts: Record<string, string>,
   plan?: { browser?: string[]; human?: string[] },
+  artifacts: Array<{ label: string; filename: string }> = [],
 ): string {
   return [
     `목표: ${goal}`,
@@ -386,6 +438,13 @@ function promptFor(
           "",
           "사람이 직접 해야 하는 것 (너는 하지 않는다):",
           ...plan.human.map((line) => `  - ${line}`),
+        ].join("\n")
+      : "",
+    artifacts.length
+      ? [
+          "",
+          "준비된 파일 (upload 로 올린다):",
+          ...artifacts.map((item) => `  ${item.filename}  — ${item.label}`),
         ].join("\n")
       : "",
     Object.keys(facts).length

@@ -94,6 +94,29 @@ export default async function SessionPage({
           <LegacyNotice notice={notice} />
         )}
 
+        {snapshot?.artifacts?.length ? (
+          <section>
+            <h2 className="text-sm font-medium">
+              작성한 서류 {snapshot.artifacts.length}
+            </h2>
+            <ul className="mt-3 space-y-1.5">
+              {snapshot.artifacts.map((item) => (
+                <li
+                  key={item.needKey}
+                  className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm"
+                >
+                  <FileText className="size-3.5 shrink-0 text-brand" />
+                  <span className="truncate">{item.filename}</span>
+                  <span className="text-xs text-muted-foreground">{item.label}</span>
+                  <span className="ml-auto font-mono text-xs text-muted-foreground">
+                    {(item.bytes / 1024).toFixed(0)}KB
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         {snapshot?.files?.length ? (
           <section>
             <h2 className="text-sm font-medium">모아 온 자료 {snapshot.files.length}</h2>

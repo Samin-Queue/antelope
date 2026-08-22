@@ -5,9 +5,16 @@
  * pipeline 을 import 하면 브라우저 에이전트(node:child_process)가 번들에 끌려 들어간다.
  */
 
-/** 1~5 단계. 화면의 진행 레일이 이 순서로 그린다 */
+/** 준비 단계. 화면의 진행 레일이 이 순서로 그린다 */
 export type Stage =
-  "intake" | "summarize" | "judge" | "research" | "analyze" | "prefill" | "plan";
+  | "intake"
+  | "summarize"
+  | "judge"
+  | "research"
+  | "analyze"
+  | "prefill"
+  | "plan"
+  | "documents";
 
 export const STAGES: Stage[] = [
   "intake",
@@ -17,6 +24,7 @@ export const STAGES: Stage[] = [
   "analyze",
   "prefill",
   "plan",
+  "documents",
 ];
 
 export const STAGE_LABEL: Record<Stage, { title: string; agent: string }> = {
@@ -27,6 +35,7 @@ export const STAGE_LABEL: Record<Stage, { title: string; agent: string }> = {
   analyze: { title: "양식 분석", agent: "정보 분석 에이전트" },
   prefill: { title: "지식베이스 선채움", agent: "memories" },
   plan: { title: "진행 계획", agent: "계획 에이전트" },
+  documents: { title: "서류 작성", agent: "파일 에이전트" },
 };
 
 export type NeedKind =
@@ -85,6 +94,24 @@ export const PLAN_OWNER_LABEL: Record<PlanStep["owner"], string> = {
   user: "직접",
 };
 
+/**
+ * 파일 에이전트가 만든 제출용 파일.
+ *
+ * `path` 는 **컨테이너 안 임시 경로**다. 재시작하면 사라지므로 오래 기대지
+ * 않는다 — 없으면 다시 만든다.
+ */
+export type Artifact = {
+  /** 이 파일이 채우는 마스터 테이블 항목 */
+  needKey: string;
+  label: string;
+  filename: string;
+  mime: string;
+  bytes: number;
+  path: string;
+  /** 어떤 값으로 채웠는지 — 마스터 테이블 key 목록 */
+  usedKeys: string[];
+};
+
 export type FileInfo = {
   name: string;
   origin: "upload" | "url" | "crawl";
@@ -110,6 +137,8 @@ export type SessionSnapshot = {
   needs: Need[];
   /** 진행 계획. 브라우저 에이전트가 들고 다닐 순서표 */
   plan: Plan | null;
+  /** 파일 에이전트가 만든 제출용 파일 */
+  artifacts: Artifact[];
   /** 어디까지 갔는지. 다시 열었을 때 레일을 그대로 그린다 */
   stages: Partial<Record<Stage, "done" | "error" | "skip">>;
 };
@@ -127,6 +156,7 @@ export type StartEvent =
   /** 정보 분석 의 신청 준비 문서 */
   | { type: "brief"; markdown: string }
   | { type: "plan"; plan: Plan }
+  | { type: "artifacts"; artifacts: Artifact[] }
   | { type: "verdict"; verdict: "good" | "bad"; reason: string }
   /** 세션이 DB 에 만들어졌다. 이후 갱신은 이 id 로 한다 */
   | { type: "session"; id: string }

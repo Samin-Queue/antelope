@@ -1,5 +1,6 @@
 import { analyze } from "./analyze";
 import type { IntakeFile } from "./fetch";
+import { artifactDir, planDocuments, writeDocument } from "./file-agent";
 import { intake, type Ctx, type IntakeInput } from "./intake";
 import { mergeNeeds } from "./needs";
 import { makePlan } from "./plan";
@@ -10,6 +11,7 @@ import { createSession } from "./session";
 import { judge, summarize } from "./summarize";
 import {
   APPLY_URL_KEY,
+  type Artifact,
   type FileInfo,
   type SessionSnapshot,
   type Stage,
@@ -34,6 +36,8 @@ export async function runStart(
   opts: { userId: string | null },
 ): Promise<void> {
   const ctx: Ctx = { log: (text) => emit({ type: "log", text }) };
+  // 이번 실행이 만든 파일을 담을 곳. 세션 id 는 아직 없다(맨 끝에 만든다).
+  const runId = crypto.randomUUID();
 
   // 세션에 그대로 실린다 — 다시 열었을 때 진행 레일을 같은 모양으로 그린다.
   const stages: SessionSnapshot["stages"] = {};
@@ -153,6 +157,39 @@ export async function runStart(
   );
   if (plan) emit({ type: "plan", plan });
 
+  // 8 — 서류 작성. 발급 서류는 손대지 않는다 — 만들면 위조다.
+  const artifacts = await stage("documents", async () => {
+    const brief = analysis?.brief ?? summary.markdown;
+    const { jobs } = await planDocuments(filled, brief, ctx);
+    if (jobs.length === 0) return [];
+    const dir = artifactDir(runId);
+    const made: Artifact[] = [];
+    for (const job of jobs) {
+      try {
+        made.push(
+          await writeDocument(
+            job,
+            {
+              title,
+              organization: found?.organization ?? null,
+              brief,
+              needs: filled,
+            },
+            dir,
+            ctx,
+          ),
+        );
+      } catch (error) {
+        // 한 문서가 실패해도 나머지는 만든다.
+        ctx.log(
+          `${job.label} 작성 실패: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+    return made;
+  });
+  if (artifacts?.length) emit({ type: "artifacts", artifacts });
+
   const snapshot: SessionSnapshot = {
     title,
     organization: found?.organization ?? null,
@@ -163,6 +200,7 @@ export async function runStart(
     files: fileInfos(allFiles),
     needs: filled,
     plan,
+    artifacts: artifacts ?? [],
     stages,
   };
 
