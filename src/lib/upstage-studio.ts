@@ -1,4 +1,4 @@
-import { required } from "@/lib/env";
+import { env, required } from "@/lib/env";
 
 /**
  * Upstage Studio 에이전트 클라이언트 (/v2).
@@ -11,8 +11,17 @@ import { required } from "@/lib/env";
  */
 const BASE = "https://api.upstage.ai/v2";
 
+/**
+ * Studio 는 별도 키를 쓸 수 있다.
+ *
+ * ⚠ Agent·Config 는 **키를 소유한 계정에 묶인다.** 여기 쓰는 키로 만들지 않은
+ * 에이전트는 `GET /v2/agents` 에서 안 보이거나, 보이더라도 job 을 만들 때
+ * `403 No access to file` 로 죽는다 — 오류가 파일 쪽으로 나와 원인을 엉뚱한
+ * 데서 찾게 된다. 키를 바꾸면 `pnpm studio:provision` 을 다시 돌린다.
+ */
 function authHeader(): Record<string, string> {
-  return { Authorization: `Bearer ${required("UPSTAGE_API_KEY")}` };
+  const key = env.UPSTAGE_STUDIO_API_KEY || required("UPSTAGE_API_KEY");
+  return { Authorization: `Bearer ${key}` };
 }
 
 export type StudioFile = { id: string; bytes?: number; filename?: string };
