@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 
 import { isAbort } from "@/lib/ai/gateway";
-import { lanes } from "@/lib/ai/lanes";
 import { table } from "@/lib/ai/ledger";
 import { withTask } from "@/lib/ai/meter";
 import { matchEvidence, type Evidence } from "@/lib/grounding";
@@ -812,37 +811,46 @@ export async function runStart(
           );
           const made: Artifact[] = [...recalled, ...filledIn];
           if (jobs.length === 0) return made;
-          // 문서끼리 서로를 참조하지 않는다. 직렬로 쓰면 편수만큼 곱해질 뿐이다.
+          /**
+           * 문서끼리 서로를 참조하지 않는다. 직렬로 쓰면 편수만큼 곱해질 뿐이다.
+           *
+           * ⚠ 여기서 `lanes.batch` 로 감싸지 않는다. 상한은 **안쪽이 이미 건다** —
+           * `writeDocument` 의 `runText` 가 batch 레인, `pdfCopy` 가 browser 레인.
+           * 바깥에서 같은 레인을 한 번 더 잡으면 자기 자신을 기다리는 데드락이다:
+           * 두 편이 바깥 슬롯 둘(limit 2)을 쥔 채 `recallNarratives` 에서 양보하고,
+           * 그 뒤 안쪽 `runText` 가 같은 레인의 빈 자리를 영영 기다린다. 2편부터
+           * 결정적으로 걸리고, 한 번 걸리면 프로세스가 죽을 때까지 그 레인을 쓰는
+           * 모든 실행이 멈춘다 — 실측: 「작성 2」에서 15분 무응답,
+           * `/api/health` 는 `batch: inFlight 2 · waiting 2` 에 모델 호출 0.
+           */
           const written = await Promise.all(
-            jobs.map((job) =>
-              lanes.batch(async () => {
-                try {
-                  const { artifact, markdown } = await writeDocument(
-                    job,
-                    {
-                      title,
-                      organization: found?.organization ?? null,
-                      brief,
-                      needs: filled,
-                      // 이게 없으면 서술형 기억(`memories.embedding`)이 한 번도 안 쓰인다.
-                      userId: opts.userId,
-                    },
-                    dir,
-                    ctx,
-                  );
-                  // 신청 페이지가 어떤 형식을 받는지는 여기서 알 수 없다. PDF 를 한 벌 더 둔다.
-                  const copy = await pdfCopy(artifact, markdown, job.title, dir, ctx);
-                  return copy ? [artifact, copy] : [artifact];
-                } catch (error) {
-                  if (isAbort(error)) throw error;
-                  // 한 문서가 실패해도 나머지는 만든다.
-                  ctx.log(
-                    `${job.label} 작성 실패: ${error instanceof Error ? error.message : error}`,
-                  );
-                  return [] as Artifact[];
-                }
-              }),
-            ),
+            jobs.map(async (job) => {
+              try {
+                const { artifact, markdown } = await writeDocument(
+                  job,
+                  {
+                    title,
+                    organization: found?.organization ?? null,
+                    brief,
+                    needs: filled,
+                    // 이게 없으면 서술형 기억(`memories.embedding`)이 한 번도 안 쓰인다.
+                    userId: opts.userId,
+                  },
+                  dir,
+                  ctx,
+                );
+                // 신청 페이지가 어떤 형식을 받는지는 여기서 알 수 없다. PDF 를 한 벌 더 둔다.
+                const copy = await pdfCopy(artifact, markdown, job.title, dir, ctx);
+                return copy ? [artifact, copy] : [artifact];
+              } catch (error) {
+                if (isAbort(error)) throw error;
+                // 한 문서가 실패해도 나머지는 만든다.
+                ctx.log(
+                  `${job.label} 작성 실패: ${error instanceof Error ? error.message : error}`,
+                );
+                return [] as Artifact[];
+              }
+            }),
           );
           made.push(...written.flat());
           return made;

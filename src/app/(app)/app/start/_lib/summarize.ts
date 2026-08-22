@@ -68,16 +68,19 @@ export async function summarize(intake: Intake, ctx: Ctx): Promise<Summary> {
         return { name, markdown: "", via: "fetch", chars: page.text.length };
       }
       ctx.log(`페이지 요약 (Solar): ${name}`);
-      return lanes.interactive(async () => ({
+      // ⚠ `lanes.interactive` 로 감싸지 않는다. `solarSummary` → `runText` 가 이미
+      // 그 레인을 잡는다 — 바깥에서 한 번 더 잡으면 같은 레인을 안팎에서 기다리는
+      // 데드락이다(`pipeline.ts` 의 서류 작성이 batch 레인에서 실제로 걸렸다).
+      return {
         name,
         markdown: await solarSummary(page.text, `웹페이지 「${name}」`, ctx.signal),
         via: "solar",
         chars: page.text.length,
-      }));
+      };
     }),
     ...(intake.sourceText && intake.sourceText.length >= 20
       ? [
-          lanes.interactive(async (): Promise<SummaryPart> => {
+          (async (): Promise<SummaryPart> => {
             ctx.log("입력한 문장 요약 (Solar)");
             return {
               name: "입력한 내용",
@@ -89,7 +92,7 @@ export async function summarize(intake: Intake, ctx: Ctx): Promise<Summary> {
               via: "solar",
               chars: intake.sourceText!.length,
             };
-          }),
+          })(),
         ]
       : []),
   ]);
