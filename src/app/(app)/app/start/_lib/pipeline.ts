@@ -39,6 +39,34 @@ import {
  */
 type Emit = (event: StartEvent) => void;
 
+/**
+ * 단계 하나가 매달릴 수 있는 최대 시간.
+ *
+ * Studio job 은 자기 상한(180초)이 있지만 Solar 직접 호출에는 없었다. 외부가
+ * 응답을 안 주면 `await` 가 영원히 안 풀리고, SSE 는 열린 채라 화면의 카드가
+ * 계속 돈다 — 「간헐적 무한로딩」의 정체다. 상한을 두면 그 단계만 실패하고
+ * 파이프라인은 계속 간다. 이 설계는 원래 한 단계 실패를 견디게 돼 있다.
+ *
+ * Studio 상한보다 넉넉히 잡는다. 여기서 먼저 끊으면 Studio 가 준 이유 대신
+ * 「시간 초과」만 남아 원인을 알 수 없다.
+ */
+const STAGE_TIMEOUT_MS = 240_000;
+
+function withTimeout<T>(task: Promise<T>, limitMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const alarm = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(`${label} 이(가) ${Math.round(limitMs / 1000)}초 안에 끝나지 않았다`),
+        ),
+      limitMs,
+    );
+  });
+  // 이긴 쪽이 누구든 타이머는 끈다. 안 끄면 요청이 끝나도 프로세스가 남는다.
+  return Promise.race([task, alarm]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
 export async function runStart(
   input: IntakeInput,
   emit: Emit,
@@ -47,14 +75,7 @@ export async function runStart(
   // 로그가 어느 카드의 것인지 말해야 카드마다 흘릴 수 있다. `stage()` 가
   // 실행 중인 단계를 여기에 남긴다.
   let current: Stage = "intake";
-  const ctx: Ctx = {
-    log: (text) => {
-      // 서버 콘솔에도 남긴다. 클라이언트는 이 이벤트를 그리지 않고, 사용자가
-      // 떠나면 아무도 받지 않는다 — 진단이 통째로 사라지는 자리였다.
-      console.log(`[start:${current}] ${text}`);
-      emit({ type: "log", stage: current, text });
-    },
-  };
+  const ctx: Ctx = { log: (text) => emit({ type: "log", stage: current, text }) };
 
   /**
    * 서술자의 기억.
@@ -88,11 +109,15 @@ export async function runStart(
     emit({ type: "stage", stage: id, status, detail });
   };
 
-  const stage = async <T>(id: Stage, task: () => Promise<T>): Promise<T | null> => {
+  const stage = async <T>(
+    id: Stage,
+    task: () => Promise<T>,
+    limitMs = STAGE_TIMEOUT_MS,
+  ): Promise<T | null> => {
     current = id;
     emit({ type: "stage", stage: id, status: "start" });
     try {
-      const value = await task();
+      const value = await withTimeout(task(), limitMs, id);
       mark(id, "done");
       return value;
     } catch (error) {
@@ -161,15 +186,6 @@ export async function runStart(
     for (const id of ["research", "analyze", "prefill"] as const) {
       mark(id, "skip", "요약이 bad 로 판정됨");
     }
-    // 여기서 말하지 않으면 화면이 「준비를 마쳤습니다」로 끝난다 — 아무것도
-    // 준비되지 않았는데. 왜 멈췄는지가 사용자가 다음에 할 일을 정한다.
-    await tell(
-      "goal",
-      [
-        "읽은 것이 신청할 수 있는 공고가 아니라고 판정했다. 여기서 멈춘다.",
-        `판정 이유: ${verdict.reason}`,
-      ].join("\n"),
-    );
     return;
   }
 
@@ -209,10 +225,19 @@ export async function runStart(
   // 병합 — 신청 링크를 묻는 항목은 맨 앞, 그다음 정보 분석, 그다음 research.
   const researchNeeds = found?.needs ?? [];
   const applyNeed = researchNeeds.find((need) => need.key === APPLY_URL_KEY);
-  const reconciled = await reconcileNeeds(
-    analysis?.needs ?? [],
-    researchNeeds.filter((need) => need.key !== APPLY_URL_KEY),
-  );
+  // 단계 밖이라 `stage()` 의 보호를 못 받는다. 모델 호출이므로 여기도 상한을
+  // 건다 — 매달리면 카드는 하나도 안 도는데 화면만 멈춰 더 헷갈린다.
+  const reconciled = await withTimeout(
+    reconcileNeeds(
+      analysis?.needs ?? [],
+      researchNeeds.filter((need) => need.key !== APPLY_URL_KEY),
+    ),
+    STAGE_TIMEOUT_MS,
+    "항목 병합",
+  ).catch((error) => {
+    ctx.log(`항목 병합 실패: ${error instanceof Error ? error.message : error}`);
+    return [...(analysis?.needs ?? []), ...researchNeeds];
+  });
   const merged = mergeNeeds(applyNeed ? [applyNeed] : [], reconciled);
   ctx.log(`입력 항목 ${merged.length}개로 병합`);
 
@@ -288,13 +313,7 @@ export async function runStart(
       try {
         const { artifact, markdown } = await writeDocument(
           job,
-          {
-            title,
-            organization: found?.organization ?? null,
-            brief,
-            needs: filled,
-            userId: opts.userId,
-          },
+          { title, organization: found?.organization ?? null, brief, needs: filled },
           dir,
           ctx,
         );

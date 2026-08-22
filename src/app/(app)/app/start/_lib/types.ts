@@ -25,6 +25,17 @@ export type Stage =
   | "plan"
   | "documents";
 
+export const STAGES: Stage[] = [
+  "intake",
+  "summarize",
+  "judge",
+  "research",
+  "analyze",
+  "prefill",
+  "plan",
+  "documents",
+];
+
 /** 브라우저까지 포함한 전체 어휘. 두 스트림이 이걸로 말한다 */
 export type AgentKey = Stage | "browser";
 
@@ -69,6 +80,18 @@ export const CARD_OF: Record<AgentKey, CardKey> = {
   prefill: "data",
   documents: "file",
   browser: "browser",
+};
+
+export const STAGE_LABEL: Record<AgentKey, { title: string; agent: string }> = {
+  intake: { title: "입력 정리", agent: "solar-mini" },
+  summarize: { title: "유효성 검사", agent: "Studio" },
+  judge: { title: "착수 판정", agent: "solar-mini" },
+  research: { title: "자료 조사", agent: "solar-pro4" },
+  analyze: { title: "정보 분석", agent: "Studio" },
+  prefill: { title: "데이터", agent: "지식베이스" },
+  plan: { title: "계획", agent: "solar-pro4" },
+  documents: { title: "파일", agent: "파일 에이전트" },
+  browser: { title: "브라우저", agent: "실제 사이트 조작" },
 };
 
 export type NeedKind =
@@ -241,8 +264,6 @@ export type ApplyEvent =
   /** 값이 없어 사용자에게 묻는다. 답이 올 때까지 브라우저는 멈춰 기다린다 */
   | { type: "ask"; id: string; label: string; why: string; kind: NeedKind }
   | { type: "answered"; id: string; label: string }
-  /** 사용자가 끼워 넣은 지시가 **실제로 에이전트에 전달됐다**. 보낸 순간이 아니라 닿은 순간이다 */
-  | { type: "steered"; text: string }
   /**
    * 오케스트레이터가 도는 동안. 단계 사이 공백이 여기다 — 이걸 안 보내면
    * 아무 칸도 안 켜진 채로 몇 초가 흐르고, 화면이 사실보다 조용해진다.

@@ -56,6 +56,7 @@ type ApplyState = {
   mode: { mode: "auto" | "manual"; reason: string } | null;
   sessionId: string | null;
   frame: { image: string; url: string } | null;
+  steps: string[];
   needHuman: string | null;
   summary: string | null;
   error: string | null;
@@ -105,7 +106,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     mode: null,
     sessionId: null,
     frame: null,
-
+    steps: [],
     needHuman: null,
     summary: null,
     error: null,
@@ -147,6 +148,30 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     (agent: AgentKey, next: Partial<Cards[CardKey]>) => patch(CARD_OF[agent], next),
     [patch],
   );
+
+  /**
+   * 스트림이 끝났는데 아직 도는 카드가 있으면 내린다.
+   *
+   * **스피너가 스트림보다 오래 살면 안 된다.** 스트림은 여러 이유로 끝난다 —
+   * 서버 예외, `maxDuration` 초과로 플랫폼이 끊는 것, 네트워크 끊김. 어느
+   * 쪽이든 지금까지는 화면이 똑같이 「도는 중」으로 남았고, 사용자는 멈춘 것과
+   * 도는 것을 구분할 수 없었다. 정상 종료였다면 도는 카드가 없으므로 이 루프는
+   * 아무것도 안 한다.
+   */
+  const settleCards = useCallback((why: string) => {
+    setOrchestrating(false);
+    setCards((prev) => {
+      const next = { ...prev };
+      let touched = false;
+      for (const key of Object.keys(next) as CardKey[]) {
+        if (next[key].status === "running") {
+          next[key] = { ...next[key], status: "error", headline: why };
+          touched = true;
+        }
+      }
+      return touched ? next : prev;
+    });
+  }, []);
 
   // 준비 — 컴포저 입력으로 한 번만 시작한다.
   useEffect(() => {
@@ -190,7 +215,6 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           patch("analyze", { action: "분석 자료 보기" });
           break;
         case "via":
-          patchStage(event.stage, { via: event.via });
           break;
         case "verdict":
           break;
@@ -233,7 +257,10 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
       }
     })
       .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
-      .finally(() => setPreparing(false));
+      .finally(() => {
+        setPreparing(false);
+        settleCards("연결이 끊겨 중단됐다");
+      });
   }, [initial, patch, patchStage, follow]);
 
   // 빈 항목이 없으면 사람을 거치지 않는다. 있으면 다이얼로그를 띄운다.
@@ -296,6 +323,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
       mode: null,
       sessionId: null,
       frame: null,
+      steps: [],
       needHuman: null,
       summary: null,
       error: null,
@@ -312,7 +340,6 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           needs: filled,
           brief,
           narration: narration.current.slice(-12),
-          sessionId,
           organization: target.organization,
           deadline: target.deadline,
           plan: plan
@@ -356,9 +383,6 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
             case "ask":
               setAsk({ id: event.id, label: event.label, why: event.why });
               break;
-            case "steered":
-              patch("browser", { headline: `지시 반영: ${event.text}`.slice(0, 40) });
-              break;
             case "answered":
               setAsk((prev) => (prev?.id === event.id ? null : prev));
               break;
@@ -369,8 +393,10 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
               }));
               break;
             case "step": {
-              // 서술이 아직 안 왔을 때도 무엇을 하는지는 보여야 한다.
               const label = TOOL_LABEL[event.tool] ?? event.tool;
+              const line = `${label} ${event.detail}`;
+              setApply((prev) => ({ ...prev, steps: [...prev.steps, line].slice(-60) }));
+              // 서술이 아직 안 왔을 때도 무엇을 하는지는 보여야 한다.
               patch("browser", { headline: `${label} ${event.detail}`.slice(0, 40) });
               break;
             }
@@ -396,6 +422,16 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         status: "error",
         error: cause instanceof Error ? cause.message : String(cause),
       }));
+    } finally {
+      // 스트림이 `done` 도 `error` 도 없이 끝날 수 있다 — maxDuration 초과로
+      // 플랫폼이 끊거나 연결이 죽은 경우다. 그대로 두면 「신청 중」에서 영원히
+      // 멈춘다. 아직 running 이면 여기서 내린다.
+      setApply((prev) =>
+        prev.status === "running"
+          ? { ...prev, status: "error", error: "연결이 끊겨 신청이 중단됐다." }
+          : prev,
+      );
+      settleCards("연결이 끊겨 중단됐다");
     }
   }
 
@@ -423,9 +459,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   };
 
   const steer = (text: string, mode: "now" | "next") => {
-    // 「전달됨」이라고 쓰지 않는다. 실제로 닿는 것은 조작 하나가 끝난 뒤이고,
-    // 그때 서버가 `steered` 를 보낸다. 여기서는 대기 중이라고만 적는다.
-    patch("browser", { headline: `지시 대기: ${text}`.slice(0, 40) });
+    patch("browser", { headline: `지시 전달: ${text}`.slice(0, 40) });
     void fetch("/app/start/steer", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

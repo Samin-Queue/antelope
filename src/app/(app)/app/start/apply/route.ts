@@ -1,8 +1,5 @@
-import { headers } from "next/headers";
 import { z } from "zod";
 
-import { auth } from "@/lib/auth";
-import { hasDb } from "@/lib/db";
 import { runBrowserAgent } from "@/app/(labs)/lab/notice/_lib/agent";
 import { closeSession } from "@/app/(labs)/lab/notice/_lib/desktop";
 import {
@@ -13,8 +10,7 @@ import {
 import { artifactDir, writeDocument } from "../_lib/file-agent";
 import { narrate, type NarrationTurn } from "../_lib/narrator";
 import { makePlan } from "../_lib/plan";
-import { ask, closeRun, openRun, takeSteer } from "../_lib/run-registry";
-import { saveApplyResult } from "../_lib/session";
+import { ask, closeRun, openRun } from "../_lib/run-registry";
 import type { AgentKey, ApplyEvent, CardKey, Need, Plan } from "../_lib/types";
 
 export const dynamic = "force-dynamic";
@@ -79,8 +75,6 @@ const body = z.object({
     .transform((list) => list?.slice(0, 12) ?? undefined),
   /** 사용자가 이 실행에 개입할 때 쓰는 id. 클라이언트가 만들어 보낸다 */
   runId: z.string().min(8).max(64),
-  /** 이 신청이 속한 세션(goals.id). 결과를 여기에 남긴다 */
-  sessionId: z.string().uuid().nullish(),
   /** 되부르기에 필요한 재료 — 마스터 테이블과 준비 문서 */
   needs: z
     .array(z.record(z.string(), z.unknown()))
@@ -179,12 +173,6 @@ export async function POST(req: Request) {
   const plan = parsed.data.plan ?? undefined;
   const title = parsed.data.title?.trim() || "제목 미상";
   const history = (parsed.data.narration ?? []) as NarrationTurn[];
-  const goalId = parsed.data.sessionId ?? null;
-  // 스트림이 시작되기 전에 읽는다 — `headers()` 는 요청 스코프 안에서만 유효하다.
-  const userId =
-    goalId && hasDb()
-      ? ((await auth.api.getSession({ headers: await headers() }))?.user.id ?? null)
-      : null;
   const artifacts = [...(parsed.data.artifacts ?? [])];
   const needs = (parsed.data.needs ?? []) as unknown as Need[];
   const sessionId = `start-${Date.now()}`;
@@ -200,6 +188,19 @@ export async function POST(req: Request) {
           /* 클라이언트가 떠났다 */
         }
       };
+      /**
+       * 하트비트. SSE 주석이라 클라이언트 파서가 무시한다.
+       * 브라우저가 한 스텝에 오래 매달리면 그동안 이벤트가 안 나가는데,
+       * 그 침묵을 프록시가 idle 로 보고 끊으면 화면이 멈춘 채 남는다.
+       */
+      const beat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(`: ping\n\n`));
+        } catch {
+          /* 닫혔다 */
+        }
+      }, 15_000);
+
       const step = (entry: { tool: string; input: unknown; url?: string }) =>
         emit({
           type: "step",
@@ -340,22 +341,6 @@ export async function POST(req: Request) {
       };
 
       let usedDesktop = false;
-      /** 어떤 경로로 끝났든 한 번은 남긴다 */
-      let recorded = false;
-      const record = async (result: {
-        summary: string | null;
-        steps: number;
-        mode: "auto" | "manual" | null;
-        error?: string;
-      }) => {
-        if (recorded || !userId || !goalId) return;
-        recorded = true;
-        await saveApplyResult(userId, goalId, {
-          ...result,
-          finishedAt: new Date().toISOString(),
-        });
-      };
-
       try {
         await tell(
           "browser",
@@ -384,13 +369,6 @@ export async function POST(req: Request) {
             allowSubmit: true,
             onStep: step,
             onFrame: (image, url) => emit({ type: "frame", image, title: url }),
-            takeSteer: () => {
-              const pending = takeSteer(runId);
-              for (const text of pending) {
-                emit({ type: "steered", text });
-              }
-              return pending;
-            },
           });
 
           if (!run.captcha) {
@@ -398,7 +376,6 @@ export async function POST(req: Request) {
               "browser",
               `신청을 마쳤다. ${run.steps}번 조작했다. ${run.summary}`,
             );
-            await record({ summary: run.summary, steps: run.steps, mode: "auto" });
             emit({ type: "done", summary: run.summary, steps: run.steps });
             return;
           }
@@ -430,28 +407,19 @@ export async function POST(req: Request) {
           onFrame: (image, pageTitle) => emit({ type: "frame", image, title: pageTitle }),
           onNeedHuman: (reason) => emit({ type: "need:human", reason }),
           onHumanDone: () => emit({ type: "human:done" }),
-          takeSteer: () => {
-            const pending = takeSteer(runId);
-            for (const text of pending) emit({ type: "steered", text });
-            return pending;
-          },
         });
         await tell(
           "browser",
           `직접 조작 모드로 신청을 마쳤다. ${run.steps}번 조작했다. ${run.summary}`,
         );
-        await record({ summary: run.summary, steps: run.steps, mode: "manual" });
         emit({ type: "done", summary: run.summary, steps: run.steps });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await record({
-          summary: null,
-          steps: 0,
-          mode: usedDesktop ? "manual" : "auto",
-          error: message,
+        emit({
+          type: "error",
+          error: error instanceof Error ? error.message : String(error),
         });
-        emit({ type: "error", error: message });
       } finally {
+        clearInterval(beat);
         try {
           controller.close();
         } catch {

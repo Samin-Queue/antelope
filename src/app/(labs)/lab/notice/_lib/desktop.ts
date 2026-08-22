@@ -498,7 +498,7 @@ export function setHold(id: string, held: boolean) {
   if (session) session.held = held;
 }
 
-function isHeld(id: string) {
+export function isHeld(id: string) {
   return sessions.get(id)?.held ?? false;
 }
 

@@ -65,6 +65,22 @@ export async function POST(req: Request) {
           /* 클라이언트가 떠났다 */
         }
       };
+
+      /**
+       * 하트비트. SSE 주석이라 클라이언트 파서가 무시한다.
+       *
+       * Studio job 폴링은 최대 180초 동안 이벤트를 하나도 안 보낸다. 그 침묵을
+       * 프록시가 idle 로 보고 끊으면 클라이언트는 `done` 도 못 받고 멈춘 채
+       * 남는다 — 카드가 영원히 도는 「간헐적 무한로딩」의 다른 한 축이다.
+       */
+      const beat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(`: ping\n\n`));
+        } catch {
+          /* 닫혔다 */
+        }
+      }, 15_000);
+
       try {
         await runStart(input, emit, { userId });
       } catch (error) {
@@ -73,6 +89,7 @@ export async function POST(req: Request) {
           error: error instanceof Error ? error.message : String(error),
         });
       } finally {
+        clearInterval(beat);
         try {
           controller.close();
         } catch {

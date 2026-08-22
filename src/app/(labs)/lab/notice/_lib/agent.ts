@@ -53,8 +53,6 @@ export async function runBrowserAgent(opts: {
   /** 캡챠처럼 사람이 필요할 때. 돌아오면 사람이 끝낸 것이다 */
   onNeedHuman?: (reason: string) => void;
   onHumanDone?: () => void;
-  /** 사용자가 도중에 끼워 넣은 지시. 조작 하나가 끝난 자리에 꽂는다 */
-  takeSteer?: () => string[];
   /**
    * 최종 제출까지 누른다. 기본은 직전에서 멈춘다 — 되돌릴 수 없는 조작은
    * 사람이 허락한 경우에만 한다.
@@ -310,28 +308,14 @@ export async function runBrowserAgent(opts: {
    * 브라우저 조작을 한 줄로 세운다. 모델은 도구를 병렬로 부르는데, 같은 순간에
    * 들어간 조작은 서로를 덮어쓴다 — Playwright 쪽에서 실측한 문제라 여기도 같다.
    */
-  /** 도구 결과에 사용자 지시를 얹는다. 자동 모드(`playwright-agent`)와 같은 통로다 */
-  const withSteer = (output: unknown): unknown => {
-    const pending = opts.takeSteer?.() ?? [];
-    if (pending.length === 0 || typeof output !== "string") return output;
-    return [
-      output,
-      "",
-      "[사용자가 방금 지시했다 — 이어지는 조작에 반영하라]",
-      ...pending.map((line) => `  ${line}`),
-    ].join("\n");
-  };
-
   let chain: Promise<unknown> = Promise.resolve();
   for (const entry of Object.values(tools)) {
     const original = entry.execute as (...args: unknown[]) => Promise<unknown>;
     entry.execute = ((...args: unknown[]) => {
-      const next = chain
-        .then(
-          () => original(...args),
-          () => original(...args),
-        )
-        .then(withSteer);
+      const next = chain.then(
+        () => original(...args),
+        () => original(...args),
+      );
       chain = next.then(
         () => undefined,
         () => undefined,

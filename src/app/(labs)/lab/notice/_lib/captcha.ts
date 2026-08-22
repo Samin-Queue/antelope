@@ -80,3 +80,8 @@ export async function findCaptcha(page: Page): Promise<CaptchaCheck> {
     return { found: false, reason: null };
   }
 }
+
+/** OCR 로 읽은 화면 글자에서 찾는다. 수동 모드는 DOM 이 없다 */
+export function looksLikeCaptchaText(text: string): boolean {
+  return VENDOR_TEXT.test(text) || /captcha/i.test(text);
+}
