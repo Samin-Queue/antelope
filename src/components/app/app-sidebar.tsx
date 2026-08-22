@@ -118,18 +118,17 @@ export function AppSidebar({
           <SidebarGroupContent>
             <SidebarMenu className="gap-1">
               {/* 이 제품에서 사용자가 처음 누를 것. 나머지 메뉴와 같은 무게로
-                  두면 어디서 시작하는지가 안 보인다 — 그래서 버튼이다.
+                  두면 어디서 시작하는지가 안 보인다 — 그래서 버튼이고, 사이드바에서
+                  유일하게 브랜드색을 쓴다. 다른 메뉴에는 색이 없으니 여기만 보인다.
 
-                  ⚠ `bg-primary` 를 쓰지 않는다. 이 레포의 `--primary` 는 브랜드
-                  퍼플이라(globals.css) 사이드바가 통째로 보라색이 된다. 여기서
-                  원하는 건 shadcn 기본 버튼색 — 라이트 검정·다크 흰색이고,
-                  그건 foreground/background 를 뒤집은 것이다. */}
+                  아이콘은 이따금 한 바퀴 돈다(`spin-whoosh`). 늘 도는 스피너는
+                  「작업 중」으로 읽히므로 돌고 나서 쉰다. */}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   render={<Link href="/app" />}
-                  className="justify-center bg-foreground text-background hover:bg-foreground/90 hover:text-background active:bg-foreground/90 active:text-background"
+                  className="justify-center bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
                 >
-                  <Astroid />
+                  <Astroid className="animate-spin-whoosh" />
                   <span className="font-medium">세션 시작하기</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
