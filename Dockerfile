@@ -49,6 +49,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Next standalone traces Playwright's JavaScript but misses its runtime data asset
 # (`playwright-core/browsers.json`), loaded through an external dynamic import.
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/playwright-core ./node_modules/playwright-core
+# 같은 이유로 @rhwp/core 의 `.wasm` 도 트레이싱에서 빠진다. hwp·hwpx 를 만들려면
+# 이 바이너리가 있어야 하고, 없으면 문서 생성이 PDF 로 조용히 떨어진다.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@rhwp ./node_modules/@rhwp
+# hwp 렌더러는 번들에 들어가지 않는 별도 스크립트다 — 원본 그대로 있어야 한다.
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/render-hwp.mjs ./scripts/render-hwp.mjs
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]

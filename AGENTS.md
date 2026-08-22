@@ -120,6 +120,25 @@ LLM_PROVIDER=azure      # AZURE_BASE_URL + AZURE_API_KEY
 - **인증이 `api-key` 헤더다** (Bearer 아님). 어댑터가 두 헤더를 모두 보낸다.
 - `LLM_MODEL` 에는 모델 id 가 아니라 **배포(deployment) 이름**을 넣는다.
 
+### @rhwp/core(WASM) 도 번들링할 수 없다 — 별도 프로세스로 돌린다
+
+hwp·hwpx 를 쓸 수 있는 오픈 구현이지만, 패키지에 `.wasm` 이 딸려 있어
+Turbopack 이 자기 로더로 감싸려다 **빌드를 깬다**:
+`Module not found: Can't resolve './rhwp_bg.js'`.
+
+세 가지를 다 시도했고 전부 실패했다.
+
+| 시도                                     | 결과                              |
+| ---------------------------------------- | --------------------------------- |
+| `serverExternalPackages: ["@rhwp/core"]` | wasm 로더가 먼저 붙어 그대로 실패 |
+| `createRequire(...)("@rhwp/core")`       | 리터럴이라 정적 분석에 잡힘       |
+| 이름을 런타임 조합해 `import(변수)`      | `Can't resolve <dynamic>`         |
+
+**답은 번들러가 그 파일을 아예 안 보게 하는 것이다.** `scripts/render-hwp.mjs`
+가 stdin 으로 줄 목록을 받아 파일로 쓰고, 서버는 `execFile("node", …)` 로
+부른다. Dockerfile 이 `node_modules/@rhwp` 와 그 스크립트를 따로 복사한다 —
+둘 중 하나라도 빠지면 hwp 생성이 조용히 PDF 로 떨어진다.
+
 ### Playwright 는 번들링할 수 없다
 
 두 곳을 지켜야 한다. 어기면 `Module not found: async_hooks` 로 **빌드 전체가 깨진다**.

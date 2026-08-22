@@ -100,6 +100,9 @@ export const PLAN_OWNER_LABEL: Record<PlanStep["owner"], string> = {
  * `path` 는 **컨테이너 안 임시 경로**다. 재시작하면 사라지므로 오래 기대지
  * 않는다 — 없으면 다시 만든다.
  */
+/** 제출 파일 형식. 공고가 요구한 것을 따른다 */
+export type DocFormat = "pdf" | "hwp" | "hwpx" | "docx" | "xlsx";
+
 export type Artifact = {
   /** 이 파일이 채우는 마스터 테이블 항목 */
   needKey: string;
