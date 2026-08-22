@@ -141,6 +141,12 @@ export type StartEvent =
   | { type: "error"; error: string };
 
 export type ApplyEvent =
+  /**
+   * 어느 브라우저로 도는가.
+   *   auto   — Playwright. DOM 을 직접 읽어 빠르고 정확하다. 캡챠가 없을 때
+   *   manual — Xvfb + xdotool. 느리지만 캡챠를 사람이 직접 풀 수 있다
+   */
+  | { type: "mode"; mode: "auto" | "manual"; reason: string }
   | { type: "session"; sessionId: string }
   | { type: "step"; tool: string; detail: string; title: string }
   | { type: "frame"; image: string; title: string }

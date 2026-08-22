@@ -54,6 +54,8 @@ type Prepared = {
 
 type ApplyState = {
   status: "idle" | "running" | "done" | "error";
+  /** 어느 브라우저가 도는지. 사람이 개입할 수 있는지가 여기서 갈린다 */
+  mode: { mode: "auto" | "manual"; reason: string } | null;
   sessionId: string | null;
   frame: { image: string; url: string } | null;
   steps: string[];
@@ -93,6 +95,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   const [preparing, setPreparing] = useState(true);
   const [apply, setApply] = useState<ApplyState>({
     status: "idle",
+    mode: null,
     sessionId: null,
     frame: null,
     steps: [],
@@ -167,6 +170,9 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         ),
       );
     }
+    // startApply 는 렌더마다 새로 만들어진다. 의존성에 넣으면 매 렌더 재실행되고,
+    // autoRef 가 막더라도 의도가 흐려진다. prepared 가 정해질 때 한 번만 돈다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prepared]);
 
   async function startApply(target: Prepared, values: Record<string, string>) {
@@ -202,6 +208,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
 
     setApply({
       status: "running",
+      mode: null,
       sessionId: null,
       frame: null,
       steps: [],
@@ -215,7 +222,12 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         "/app/start/apply",
         JSON.stringify({ applyUrl, title: target.title, facts }),
         (event) => {
-          if (event.type === "session") {
+          if (event.type === "mode") {
+            setApply((prev) => ({
+              ...prev,
+              mode: { mode: event.mode, reason: event.reason },
+            }));
+          } else if (event.type === "session") {
             setApply((prev) => ({ ...prev, sessionId: event.sessionId }));
           } else if (event.type === "frame") {
             setApply((prev) => ({
@@ -397,7 +409,12 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           <section className="space-y-4">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-medium">자동 신청</h2>
-              {missingCount === 0 && (
+              {apply.mode && (
+                <Badge variant={apply.mode.mode === "auto" ? "default" : "secondary"}>
+                  {apply.mode.mode === "auto" ? "자동 · Playwright" : "직접 조작 · 캡챠"}
+                </Badge>
+              )}
+              {missingCount === 0 && !apply.mode && (
                 <span className="text-xs text-muted-foreground">
                   입력할 게 없어 바로 진행했다
                 </span>
@@ -406,6 +423,9 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
                 <Loader2 className="ml-auto size-4 animate-spin text-brand" />
               )}
             </div>
+            {apply.mode && (
+              <p className="text-xs text-muted-foreground">{apply.mode.reason}</p>
+            )}
             <LiveScreen
               frame={apply.frame}
               running={apply.status === "running"}
