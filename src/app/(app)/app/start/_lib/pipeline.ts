@@ -47,7 +47,14 @@ export async function runStart(
   // 로그가 어느 카드의 것인지 말해야 카드마다 흘릴 수 있다. `stage()` 가
   // 실행 중인 단계를 여기에 남긴다.
   let current: Stage = "intake";
-  const ctx: Ctx = { log: (text) => emit({ type: "log", stage: current, text }) };
+  const ctx: Ctx = {
+    log: (text) => {
+      // 서버 콘솔에도 남긴다. 클라이언트는 이 이벤트를 그리지 않고, 사용자가
+      // 떠나면 아무도 받지 않는다 — 진단이 통째로 사라지는 자리였다.
+      console.log(`[start:${current}] ${text}`);
+      emit({ type: "log", stage: current, text });
+    },
+  };
 
   /**
    * 서술자의 기억.
@@ -154,6 +161,15 @@ export async function runStart(
     for (const id of ["research", "analyze", "prefill"] as const) {
       mark(id, "skip", "요약이 bad 로 판정됨");
     }
+    // 여기서 말하지 않으면 화면이 「준비를 마쳤습니다」로 끝난다 — 아무것도
+    // 준비되지 않았는데. 왜 멈췄는지가 사용자가 다음에 할 일을 정한다.
+    await tell(
+      "goal",
+      [
+        "읽은 것이 신청할 수 있는 공고가 아니라고 판정했다. 여기서 멈춘다.",
+        `판정 이유: ${verdict.reason}`,
+      ].join("\n"),
+    );
     return;
   }
 
@@ -272,7 +288,13 @@ export async function runStart(
       try {
         const { artifact, markdown } = await writeDocument(
           job,
-          { title, organization: found?.organization ?? null, brief, needs: filled },
+          {
+            title,
+            organization: found?.organization ?? null,
+            brief,
+            needs: filled,
+            userId: opts.userId,
+          },
           dir,
           ctx,
         );

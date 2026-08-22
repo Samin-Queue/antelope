@@ -159,6 +159,14 @@ export async function runPlaywrightAgent(opts: {
   allowSubmit?: boolean;
   onStep?: (entry: TraceEntry) => void;
   onFrame?: (image: string, url: string) => void;
+  /**
+   * 사용자가 도중에 끼워 넣은 지시를 꺼내 온다.
+   *
+   * 조작 **하나가 끝난 자리**에 꽂는다. 프롬프트에 처음부터 넣을 수 없는 말이고
+   * (아직 존재하지 않는다), 도는 중간을 끊으면 반쯤 채운 폼이 남는다.
+   * 도구 결과 문자열이 곧 모델이 다음에 읽는 것이라 여기가 유일한 통로다.
+   */
+  takeSteer?: () => string[];
 }): Promise<PlaywrightRun> {
   const {
     goal,
@@ -169,6 +177,7 @@ export async function runPlaywrightAgent(opts: {
     startUrl,
     maxSteps = 40,
     allowSubmit = false,
+    takeSteer,
   } = opts;
 
   let browser: Browser | null = null;
@@ -577,14 +586,33 @@ export async function runPlaywrightAgent(opts: {
      * 도구마다 감싸지 않고 정의 뒤에 한 번에 두른다. 새 도구를 더해도
      * 직렬화를 잊을 자리가 없다.
      */
+    /**
+     * 사용자가 끼워 넣은 지시를 결과에 얹는다.
+     *
+     * 도구가 돌려주는 문자열이 모델이 다음에 읽는 전부다. 여기에 붙이면
+     * 조작 하나가 끝난 자리에서 정확히 한 번 전달되고, 반쯤 채운 폼이 남지 않는다.
+     */
+    const withSteer = (output: unknown): unknown => {
+      const pending = takeSteer?.() ?? [];
+      if (pending.length === 0 || typeof output !== "string") return output;
+      return [
+        output,
+        "",
+        "[사용자가 방금 지시했다 — 이어지는 조작에 반영하라]",
+        ...pending.map((line) => `  ${line}`),
+      ].join("\n");
+    };
+
     let chain: Promise<unknown> = Promise.resolve();
     for (const entry of Object.values(tools)) {
       const original = entry.execute as (...args: unknown[]) => Promise<unknown>;
       entry.execute = ((...args: unknown[]) => {
-        const next = chain.then(
-          () => original(...args),
-          () => original(...args),
-        );
+        const next = chain
+          .then(
+            () => original(...args),
+            () => original(...args),
+          )
+          .then(withSteer);
         chain = next.then(
           () => undefined,
           () => undefined,

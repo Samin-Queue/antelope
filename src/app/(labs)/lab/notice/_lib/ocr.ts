@@ -148,7 +148,7 @@ async function tesseractWords(png: Buffer): Promise<Word[]> {
  * 단어를 줄로 묶는다. 같은 높이에서 가까운 단어는 한 덩어리다.
  * "온라인 신청하기" 가 두 ref 로 갈라지면 모델이 어느 쪽을 눌러야 할지 헤맨다.
  */
-export function groupLines(words: Word[]): TextRef[] {
+function groupLines(words: Word[]): TextRef[] {
   // 1) 행 군집 — 세로 중심이 글자 높이의 절반 안에 들면 같은 행이다.
   //    y 로만 정렬하면 같은 행의 단어가 1px 차이로 뒤섞여 왼쪽 단어가 나중에 온다.
   const byY = [...words].sort((a, b) => a.y + a.h / 2 - (b.y + b.h / 2));

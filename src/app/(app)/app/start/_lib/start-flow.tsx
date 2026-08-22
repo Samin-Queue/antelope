@@ -56,7 +56,6 @@ type ApplyState = {
   mode: { mode: "auto" | "manual"; reason: string } | null;
   sessionId: string | null;
   frame: { image: string; url: string } | null;
-  steps: string[];
   needHuman: string | null;
   summary: string | null;
   error: string | null;
@@ -106,7 +105,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     mode: null,
     sessionId: null,
     frame: null,
-    steps: [],
+
     needHuman: null,
     summary: null,
     error: null,
@@ -191,6 +190,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           patch("analyze", { action: "분석 자료 보기" });
           break;
         case "via":
+          patchStage(event.stage, { via: event.via });
           break;
         case "verdict":
           break;
@@ -296,7 +296,6 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
       mode: null,
       sessionId: null,
       frame: null,
-      steps: [],
       needHuman: null,
       summary: null,
       error: null,
@@ -313,6 +312,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           needs: filled,
           brief,
           narration: narration.current.slice(-12),
+          sessionId,
           organization: target.organization,
           deadline: target.deadline,
           plan: plan
@@ -356,6 +356,9 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
             case "ask":
               setAsk({ id: event.id, label: event.label, why: event.why });
               break;
+            case "steered":
+              patch("browser", { headline: `지시 반영: ${event.text}`.slice(0, 40) });
+              break;
             case "answered":
               setAsk((prev) => (prev?.id === event.id ? null : prev));
               break;
@@ -366,10 +369,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
               }));
               break;
             case "step": {
-              const label = TOOL_LABEL[event.tool] ?? event.tool;
-              const line = `${label} ${event.detail}`;
-              setApply((prev) => ({ ...prev, steps: [...prev.steps, line].slice(-60) }));
               // 서술이 아직 안 왔을 때도 무엇을 하는지는 보여야 한다.
+              const label = TOOL_LABEL[event.tool] ?? event.tool;
               patch("browser", { headline: `${label} ${event.detail}`.slice(0, 40) });
               break;
             }
@@ -422,7 +423,9 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   };
 
   const steer = (text: string, mode: "now" | "next") => {
-    patch("browser", { headline: `지시 전달: ${text}`.slice(0, 40) });
+    // 「전달됨」이라고 쓰지 않는다. 실제로 닿는 것은 조작 하나가 끝난 뒤이고,
+    // 그때 서버가 `steered` 를 보낸다. 여기서는 대기 중이라고만 적는다.
+    patch("browser", { headline: `지시 대기: ${text}`.slice(0, 40) });
     void fetch("/app/start/steer", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

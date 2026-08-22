@@ -62,12 +62,20 @@ export function RunStatus({
   );
 }
 
-/** 다 끝났을 때. 마지막으로 무엇을 했는지까지 말한다 */
+/**
+ * 다 끝났을 때. 마지막으로 무엇을 했는지까지 말한다.
+ *
+ * **건너뛴 칸을 먼저 본다.** 신청할 수 없는 문서라고 판정되면 뒤 단계가 통째로
+ * skip 인데, 앞 칸 몇 개가 done 이라는 이유로 「준비를 마쳤습니다」가 뜨면
+ * 화면이 거짓말을 한다.
+ */
 function finished(cards: Cards): string {
   if (cards.browser.status === "done") return "신청까지 마쳤습니다";
   const errored = CARDS.filter((key) => cards[key].status === "error");
   if (errored.length > 0) return `${CARD_LABEL[errored[0]]}에서 막혔습니다`;
-  if (CARDS.some((key) => cards[key].status === "done")) return "준비를 마쳤습니다";
+  if (CARDS.some((key) => cards[key].status === "skip")) return "여기서 멈췄습니다";
+  if (cards.data.status === "done") return "준비를 마쳤습니다";
+  if (CARDS.some((key) => cards[key].status === "done")) return "준비하는 중입니다";
   return "시작할 준비가 되었습니다";
 }
 

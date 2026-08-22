@@ -64,3 +64,39 @@ export async function saveNeeds(
     return false;
   }
 }
+
+/**
+ * 신청 결과를 남긴다.
+ *
+ * **사용자가 화면을 닫아도 서버는 계속 돈다** (실측: 클라이언트가 끊기면
+ * `enqueue` 만 실패하고 실행 자체는 끝까지 간다). 그래서 결과를 여기 안 쓰면
+ * 에이전트가 신청서를 제출해 놓고 아무 데도 기록하지 않는 상태가 된다 —
+ * 사용자는 자기 이름으로 접수됐는지조차 알 수 없다.
+ */
+export async function saveApplyResult(
+  userId: string,
+  id: string,
+  result: {
+    summary: string | null;
+    steps: number;
+    mode: "auto" | "manual" | null;
+    finishedAt: string;
+    error?: string;
+  },
+): Promise<boolean> {
+  if (!hasDb()) return false;
+  try {
+    await getDb()
+      .update(schema.goals)
+      .set({
+        result,
+        stage: result.error ? "working" : "waiting",
+        updatedAt: new Date(),
+      })
+      .where(and(eq(schema.goals.id, id), eq(schema.goals.userId, userId)));
+    return true;
+  } catch (error) {
+    console.error("[session] saveApplyResult", error);
+    return false;
+  }
+}

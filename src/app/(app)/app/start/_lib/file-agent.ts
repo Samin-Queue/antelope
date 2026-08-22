@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { generateObject, generateText } from "ai";
 import { z } from "zod";
 
+import { recallNarratives } from "@/app/(labs)/lab/notice/_lib/memory";
+
 import { documentBytes, documentKey, recallDocuments } from "./documents";
 import type { IntakeFile } from "./fetch";
 import type { Ctx } from "./intake";
@@ -165,13 +167,35 @@ export async function planDocuments(
 /** 문서 하나를 써서 PDF 로 만든다. */
 export async function writeDocument(
   job: DocumentJob,
-  context: { title: string; organization: string | null; brief: string; needs: Need[] },
+  context: {
+    title: string;
+    organization: string | null;
+    brief: string;
+    needs: Need[];
+    userId?: string | null;
+  },
   dir: string,
   ctx: Ctx,
 ): Promise<{ artifact: Artifact; markdown: string }> {
   const known = context.needs.filter(
     (need) => need.value?.trim() && need.kind !== "file",
   );
+
+  /**
+   * 서술형 기억.
+   *
+   * 마스터 테이블은 「상시근로자 수: 12」 같은 값만 담는다. 사업계획서가 필요한
+   * 것은 그런 값이 아니라 「무엇을 해왔는가」다 — 그건 `memories.embedding`
+   * (서술 검색용 벡터)에 있고, 여기서 꺼내지 않으면 그 벡터는 쓰이지 않는다.
+   */
+  const recalled = context.userId
+    ? await recallNarratives(
+        context.userId,
+        [job.title, ...job.sections].join(" "),
+        5,
+      ).catch(() => [])
+    : [];
+  if (recalled.length) ctx.log(`서술형 기억 ${recalled.length}개를 근거로 쓴다`);
 
   const { text } = await generateText({
     model: bigModel(),
@@ -195,6 +219,11 @@ export async function writeDocument(
       "",
       "신청자 정보 (이 값만 사실이다):",
       ...known.map((need) => `  ${need.label}: ${need.value}`),
+      recalled.length ? "" : null,
+      recalled.length
+        ? "지난 신청에서 사용자가 쓴 서술 (그대로 인용하지 말고 근거로 쓴다):"
+        : "",
+      ...recalled.map((item) => `  ${item.label}: ${item.value}`),
       "",
       "--- 공고 준비 문서 ---",
       clip(context.brief, 10_000),

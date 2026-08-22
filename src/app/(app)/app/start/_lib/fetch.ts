@@ -152,7 +152,7 @@ function decodeEntities(text: string): string {
 }
 
 /** a[href] 목록. 상대 경로는 페이지 기준으로 푼다. 같은 URL 은 한 번만 */
-export function extractLinks(html: string, base: string): Link[] {
+function extractLinks(html: string, base: string): Link[] {
   const seen = new Set<string>();
   const links: Link[] = [];
   const pattern = /<a\b[^>]*href\s*=\s*["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;

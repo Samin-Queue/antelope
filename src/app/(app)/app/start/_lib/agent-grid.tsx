@@ -25,6 +25,11 @@ export type CardState = {
   body?: string;
   /** 눌러서 볼 산출물이 있으면 그 이름 */
   action?: string;
+  /**
+   * 이 칸이 실제로 무엇으로 돌았는지 — `Studio 유효성 검사` / `Solar 직접 호출`.
+   * 고정 라벨을 붙이면 Studio 가 죽고 Solar 로 떨어진 날 카드가 거짓말을 한다.
+   */
+  via?: string;
 };
 
 export type Cards = Record<CardKey, CardState>;
@@ -67,7 +72,7 @@ export function AgentCard({
         "flex min-h-40 flex-col rounded-2xl border bg-card p-5 transition-colors",
         running ? "border-brand" : "border-border",
         state.status === "error" && "border-destructive/60",
-        state.status === "idle" && "opacity-50",
+        (state.status === "idle" || state.status === "skip") && "opacity-50",
         className,
       )}
     >
@@ -84,13 +89,24 @@ export function AgentCard({
               running ? "text-brand" : "text-muted-foreground",
             )}
           >
-            {state.headline ?? (state.status === "idle" ? "대기" : "…")}
+            {state.headline ??
+              (state.status === "idle"
+                ? "대기"
+                : state.status === "skip"
+                  ? "건너뜀"
+                  : "…")}
           </p>
 
           {state.body && (
             // 4줄에서 자른다. 카드가 늘면 격자가 어긋나고, 전문은 오른쪽에 있다.
             <p className="mt-3 line-clamp-4 text-sm leading-relaxed text-muted-foreground">
               {state.body}
+            </p>
+          )}
+
+          {state.via && (
+            <p className="mt-2 font-mono text-[11px] text-muted-foreground/70">
+              {state.via}
             </p>
           )}
 
