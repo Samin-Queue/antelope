@@ -31,11 +31,20 @@ export function SiteFooter() {
           </nav>
         </div>
 
-        <div className="mt-14 flex flex-col gap-2 border-t border-border/60 pt-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-14 flex flex-col gap-3 border-t border-border/60 pt-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <span>{site.team} · JunctionX Korea 2026 · 포항 · 8월 21–23일</span>
-          <Link href={site.repo} className="hover:text-foreground">
-            GitHub
-          </Link>
+          {/* 구글 OAuth 심사가 공개 URL 로 된 약관·방침을 요구한다 */}
+          <nav className="flex items-center gap-4">
+            <Link href="/terms" className="hover:text-foreground">
+              이용약관
+            </Link>
+            <Link href="/privacy" className="hover:text-foreground">
+              개인정보처리방침
+            </Link>
+            <Link href={site.repo} className="hover:text-foreground">
+              GitHub
+            </Link>
+          </nav>
         </div>
       </div>
     </footer>
