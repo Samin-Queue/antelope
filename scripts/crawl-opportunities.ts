@@ -6,6 +6,8 @@ import { z } from "zod";
 import { getDb, schema } from "@/lib/db";
 import { required } from "@/lib/env";
 
+import { competitionOpportunities } from "./competition-opportunities";
+
 type Opportunity = {
   readonly category: string;
   readonly source: string;
@@ -246,16 +248,17 @@ export async function crawlOpportunities(closeDb = false): Promise<void> {
 
   const browser = await chromium.launch(crawlerBrowserOptions());
   try {
-    const sources = await Promise.all([
-      fetchJobOpportunities(),
-      fetchExamOpportunities(),
+    const [sources, competitions] = await Promise.all([
+      Promise.all([fetchJobOpportunities(), fetchExamOpportunities()]),
+      competitionOpportunities(),
     ]);
     console.info("[crawler] API 응답", {
       job: sources[0].length,
       exam: sources[1].length,
+      competition: competitions.length,
     });
 
-    for (const opportunity of sources.flat()) {
+    for (const opportunity of [...sources.flat(), ...competitions]) {
       try {
         await saveOpportunity(browser, run.id, opportunity);
       } catch (error: unknown) {

@@ -44,6 +44,7 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 \
 RUN groupadd --system --gid 1001 nodejs \
  && useradd --system --uid 1001 --gid nodejs nextjs
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/competition_data.csv ./competition_data.csv
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Next standalone traces Playwright's JavaScript but misses its runtime data asset
