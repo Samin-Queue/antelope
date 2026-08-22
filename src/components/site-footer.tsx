@@ -10,6 +10,11 @@ export function SiteFooter() {
         <div className="grid gap-12 lg:grid-cols-[1fr_2fr]">
           <div className="space-y-4">
             <Combination className="h-9 w-auto" />
+            {/* 로고는 SVG 라 크롤러가 이름을 못 읽는다. 구글 OAuth 심사가 동의
+                화면의 앱 이름을 홈페이지에서 찾으므로 텍스트로도 남긴다 */}
+            <p className="text-sm font-medium">
+              {site.name} · {site.tagline}
+            </p>
             <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">
               {site.description}
             </p>

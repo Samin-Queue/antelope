@@ -16,6 +16,8 @@ export const site = {
   description:
     "공고문 하나 던져 놓으면 자격이 되는지 따져 보고, 낼 서류를 정리하고, 신청 사이트에 들어가 지원서까지 씁니다. 한 번 답한 정보는 다음 공고에서 다시 묻지 않습니다.",
   repo: "https://github.com/Samin-Queue/antelope",
+  /** 배포 원본(canonical). 구글 OAuth 동의 화면의 홈페이지 URL 과 같아야 한다. */
+  url: "https://antelope.up.railway.app",
 
   cta: { label: "무료로 시작하기", href: "/app" },
   secondaryCta: { label: "동작 방식 보기", href: "#steps" },
@@ -32,6 +34,7 @@ export const site = {
     { label: "특징", href: "#features" },
     { label: "지식 베이스", href: "#memory" },
     { label: "기술", href: "#pipeline" },
+    { label: "소개", href: "#about" },
   ],
 
   /**
@@ -218,6 +221,57 @@ export const site = {
       },
     ],
     note: "분류 결과에 따라 갈라지기 때문에, 문서가 어떤 종류든 요청마다 에이전트를 새로 만들 필요가 없습니다.",
+  },
+
+  /**
+   * 서비스 소개 — 구글 OAuth 브랜딩 심사가 홈페이지에서 확인하는 것들.
+   *
+   * 심사가 세 가지를 본다. 앱 이름이 동의 화면과 **글자 그대로** 같은지,
+   * 앱이 무엇을 하는지, 요청한 구글 권한을 어디에 쓰는지.
+   *
+   * ⚠ 헤더·푸터 로고는 SVG 라 심사자가 이름을 텍스트로 읽지 못한다. 히어로의
+   *   「Antelope로」도 조사가 붙어 정확히 일치하지 않는다. 그래서 여기서 이름을
+   *   맨 텍스트로 한 번 더 적는다 — 이 값을 고치려면 Google Cloud Console 의
+   *   앱 이름도 같이 고쳐야 한다.
+   * ⚠ 심사자는 한국어를 읽지 않는다. 영문을 나란히 둔다.
+   */
+  about: {
+    eyebrow: "서비스 소개 · About",
+    /** OAuth 동의 화면의 앱 이름과 글자 그대로 같다. 조사를 붙이지 않는다 */
+    name: "Antelope",
+    purpose:
+      "Antelope 는 신청을 대신 해 주는 어플라이 컨시어지입니다. 공고문 PDF·HWP·캡쳐 이미지나 신청 페이지 링크를 넣으면 공고를 끝까지 읽어 자격 요건과 제출 서류, 마감일과 평가 배점을 뽑아냅니다. 그다음 이용자가 그 공고에 해당되는지 판정하고, 신청 사이트를 직접 열어 지원서를 채웁니다. 최종 제출 버튼 앞에서는 반드시 멈춰 이용자를 부릅니다. 한 번 답한 정보는 계정에 남아 다음 공고에서 다시 묻지 않습니다.",
+    purposeEn:
+      "Antelope is an application concierge. Give it a public notice — a PDF, an HWP file, a screenshot, or just a link — and it reads the notice end to end, extracts the eligibility requirements, required documents, deadline, and scoring criteria, then judges whether you qualify. It opens the agency's application website and fills in the form for you, always stopping before the final submit button so the last decision is yours. Anything you answer once is saved to your account and reused for the next application, so you are never asked for it twice.",
+    scopes: {
+      headline: "구글 계정 권한을 어디에 쓰나요 · How we use Google account data",
+      sub: "로그인에는 이메일·이름·프로필 사진만 씁니다. 아래 두 권한은 「설정 · 연동」 화면에서 이용자가 직접 눌러 동의한 경우에만 요청하고, 언제든 해제할 수 있습니다.",
+      subEn:
+        "Signing in uses only your email, name, and profile picture. The two permissions below are requested only when you explicitly connect them on the Settings page, and you can disconnect them at any time.",
+      items: [
+        {
+          scope: "auth/calendar",
+          title: "구글 캘린더",
+          body: "공고 마감일 주변에 이미 잡혀 있는 일정을 읽어 충돌을 알려 주고, 이용자가 요청하면 마감일을 일정으로 등록합니다.",
+          bodyEn:
+            "Reads events around an application deadline to warn you about conflicts, and adds the deadline to your calendar when you ask.",
+        },
+        {
+          scope: "auth/gmail.modify",
+          title: "Gmail",
+          body: "접수 확인 메일을 찾아 신청 진행 상태를 갱신하고, 이용자가 요청한 메일을 대신 발송합니다.",
+          bodyEn:
+            "Finds confirmation emails from the agency to update the status of an application you submitted, and sends email on your behalf when you ask.",
+        },
+      ],
+      note: "구글에서 받은 데이터는 위 기능을 제공하는 목적으로만 씁니다. 광고에 쓰거나 제3자에게 팔지 않으며, Google API Services User Data Policy 의 Limited Use 요건을 준수합니다.",
+      noteEn:
+        "Antelope's use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements.",
+    },
+    links: [
+      { label: "개인정보처리방침 · Privacy Policy", href: "/privacy" },
+      { label: "이용약관 · Terms of Service", href: "/terms" },
+    ],
   },
 
   /** 최종 CTA */
