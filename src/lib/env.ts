@@ -59,6 +59,15 @@ const schema = z.object({
   EXAM_CRAWLING_API_KEY: z.string().optional(),
 
   /**
+   * 네이버 검색 API. **없어도 웹 검색은 돈다** — `src/lib/search.ts` 가 키 없이
+   * `search.naver.com` HTML 을 긁는 레인을 함께 갖고 있다. 키를 넣으면 규격
+   * 응답으로 바뀌어 마크업 변경에 안 흔들린다. 둘 중 하나만 있으면 인증이
+   * 안 되므로 **함께** 본다.
+   */
+  NAVER_CLIENT_ID: z.string().optional(),
+  NAVER_CLIENT_SECRET: z.string().optional(),
+
+  /**
    * 킬스위치. 데모 당일 회귀를 배포 변수 하나로 5분 안에 되돌린다.
    *
    * ⚠ `env` 는 import 시점에 한 번만 parse 된다 — 런타임 토글은 안 된다.

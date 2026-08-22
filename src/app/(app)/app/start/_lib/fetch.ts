@@ -113,7 +113,15 @@ function filenameOf(url: string, disposition: string, contentType: string): stri
     }
   }
   const plain = disposition.match(/filename="?([^";]+)"?/i);
-  if (plain) return plain[1].trim();
+  /**
+   * ⚠ `filename=` 에 **퍼센트 인코딩된 값**을 넣는 사이트가 있다.
+   *
+   * 규격상으로는 `filename*=UTF-8''…` 가 그 자리인데, 국내 공고 사이트는
+   * 그냥 `filename="(%EB%B6%99%EC%9E%841)공고문.pdf"` 로 보낸다(실측:
+   * bizinfo.go.kr). 그대로 두면 파일 목록과 Studio 로그에 그 글자가 그대로
+   * 나가고, 사람이 무슨 파일인지 알아볼 수 없다.
+   */
+  if (plain) return maybeDecode(plain[1].trim());
   const tail = decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "");
   if (tail && /\.\w{2,5}$/.test(tail)) return tail;
   const ext = /pdf/i.test(contentType)
@@ -124,6 +132,16 @@ function filenameOf(url: string, disposition: string, contentType: string): stri
         ? "docx"
         : "bin";
   return `${tail || "document"}.${ext}`;
+}
+
+/** 퍼센트 인코딩처럼 보일 때만 푼다. `100%_달성.pdf` 를 깨뜨리지 않는다 */
+function maybeDecode(name: string): string {
+  if (!/%[0-9A-Fa-f]{2}/.test(name)) return name;
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
 }
 
 function titleOf(html: string): string {

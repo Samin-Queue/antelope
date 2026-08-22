@@ -357,7 +357,37 @@ async function synthesize(
   extraText: string,
   ctx: Ctx,
 ): Promise<IntakeFile[]> {
-  const text = [summary.markdown.trim(), extraText.trim()]
+  /**
+   * ⚠ **길이는 게이트가 될 수 없다.**
+   *
+   * 예전에는 `summary.markdown` 이 300자를 넘기만 하면 PDF 로 찍어 Studio 에
+   * 태웠다. 실측: 사용자가 친 76자 한 줄이 Solar 요약을 거치며 923자가 되고,
+   * 그 923자의 실질은 전부 「정보 없음 / 원문 확인 필요」였다. 그걸 PDF 로
+   * 만들어 Document Parse 를 내고, 「신청 자격: 정보 없음」을 파싱했다.
+   *
+   * 재는 것은 길이가 아니라 **출처**다. 파일·페이지에서 온 요약이 하나도
+   * 없으면 태울 원문이 없는 것이다. `parts` 가 비어 있는 경우(재개 실행은
+   * 스냅샷에 요약 문자열만 남는다)는 판단할 근거가 없으므로 막지 않는다 —
+   * 아는 실패만 막고, 모르는 것을 실패로 단정하지 않는다.
+   */
+  const sourced = summary.parts.filter(
+    (part) => part.kind !== "text" && part.markdown.trim(),
+  );
+  if (summary.parts.length > 0 && sourced.length === 0 && !extraText.trim()) {
+    ctx.log("파일·페이지에서 읽은 원문이 없다 — Studio 에 태우지 않는다");
+    return [];
+  }
+
+  /**
+   * 태울 것은 **원문에서 온 요약**이다.
+   *
+   * `summary.markdown` 은 사용자 문장 요약까지 합친 것이라, 그대로 찍으면
+   * 「제가 신청을 준비해 달라고 했습니다」가 공고문 자리에 들어간다.
+   */
+  const body = sourced.length
+    ? sourced.map((part) => `## ${part.name}\n\n${part.markdown}`).join("\n\n---\n\n")
+    : summary.markdown.trim();
+  const text = [body.trim(), extraText.trim()]
     .filter(Boolean)
     .join("\n\n---\n\n")
     .slice(0, MAX_SYNTH_CHARS);

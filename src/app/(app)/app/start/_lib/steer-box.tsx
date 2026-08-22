@@ -22,6 +22,7 @@ export function SteerBox({
   mode,
   onSend,
   onRetry,
+  retryPlaceholder,
 }: {
   /**
    * 같은 상자가 세 상태를 갖는다.
@@ -35,6 +36,14 @@ export function SteerBox({
   mode: "live" | "retry" | "off";
   onSend: (text: string, mode: "now" | "next") => void;
   onRetry: (text: string) => void;
+  /**
+   * 멈춘 이유가 구체적일 때 그 질문을 안내문으로 쓴다.
+   *
+   * 기본 문구(「공고 내용을 붙여넣거나…」)는 어떤 실패에도 맞는 대신 어떤
+   * 실패에도 안 맞는다. 판정이 「검색으로는 특정하지 못했다」고 말했으면
+   * 그 말이 입력칸에 있어야 사용자가 무엇을 줄지 안다.
+   */
+  retryPlaceholder?: string;
 }) {
   const [text, setText] = useState("");
   const retry = mode === "retry";
@@ -61,7 +70,8 @@ export function SteerBox({
         }}
         placeholder={
           retry
-            ? "공고 내용을 붙여넣거나 링크를 넣으면 이어서 진행합니다"
+            ? (retryPlaceholder ??
+              "공고 내용을 붙여넣거나 링크를 넣으면 이어서 진행합니다")
             : disabled
               ? "준비나 신청이 도는 동안 지시할 수 있습니다"
               : "에이전트에게 지시 — 예: 주소는 본사로 써줘"

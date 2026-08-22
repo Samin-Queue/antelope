@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { parseDocument } from "@/lib/upstage";
 import { findStep, runAgent, stepOutputs, uploadFile } from "@/lib/upstage-studio";
 
+import type { Discovery } from "./discover";
 import type { IntakeFile } from "./fetch";
 import type { Ctx, Intake } from "./intake";
 import { clip } from "./llm";
@@ -24,6 +25,14 @@ export type SummaryPart = {
   name: string;
   markdown: string;
   via: string;
+  /**
+   * 이 요약의 바탕이 **무엇이었는가.**
+   *
+   * `text` 는 사용자가 직접 쓴 문장이다 — 공고 원문이 아니다. 이름 문자열
+   * (「입력한 내용」)로 구분하던 것을 필드로 올린 이유는, 그 구분이 착수
+   * 판정과 Studio 게이트 **두 곳**의 분기 조건이기 때문이다.
+   */
+  kind: "file" | "page" | "text";
   /** 요약의 바탕이 된 원문 길이. 0 이면 본문을 못 읽은 것이다 */
   chars: number;
   error?: string;
@@ -65,7 +74,13 @@ export async function summarize(intake: Intake, ctx: Ctx): Promise<Summary> {
       const name = page.title || page.url;
       if (page.text.length < 20) {
         ctx.log(`페이지 본문이 비어 있음: ${name}`);
-        return { name, markdown: "", via: "fetch", chars: page.text.length };
+        return {
+          name,
+          markdown: "",
+          via: "fetch",
+          kind: "page",
+          chars: page.text.length,
+        };
       }
       ctx.log(`페이지 요약 (Solar): ${name}`);
       // ⚠ `lanes.interactive` 로 감싸지 않는다. `solarSummary` → `runText` 가 이미
@@ -75,6 +90,7 @@ export async function summarize(intake: Intake, ctx: Ctx): Promise<Summary> {
         name,
         markdown: await solarSummary(page.text, `웹페이지 「${name}」`, ctx.signal),
         via: "solar",
+        kind: "page",
         chars: page.text.length,
       };
     }),
@@ -90,6 +106,7 @@ export async function summarize(intake: Intake, ctx: Ctx): Promise<Summary> {
                 ctx.signal,
               ),
               via: "solar",
+              kind: "text",
               chars: intake.sourceText!.length,
             };
           })(),
@@ -140,6 +157,7 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
           name: file.name,
           markdown,
           via: "validation",
+          kind: "file",
           chars: parsedText.length,
           fileId,
           parsed: parsedText || undefined,
@@ -168,6 +186,7 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
         name: file.name,
         markdown: "",
         via: "document-parse",
+        kind: "file",
         chars: text.length,
         fileId,
       };
@@ -175,6 +194,7 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
     return {
       name: file.name,
       markdown: await solarSummary(text, `파일 「${file.name}」`, ctx.signal),
+      kind: "file",
       via,
       chars: text.length,
       fileId,
@@ -187,6 +207,7 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
       name: file.name,
       markdown: "",
       via: "none",
+      kind: "file",
       chars: 0,
       error: message(error),
       fileId,
@@ -231,11 +252,38 @@ function unquote(text: string): string {
 const verdictSchema = z.object({
   verdict: z.enum(["good", "bad"]).nullish(),
   reason: z.string().nullish(),
+  question: z.string().nullish(),
 });
 
-export type Verdict = { verdict: "good" | "bad"; reason: string };
+/** bad 인데 물을 말이 없으면 이걸 쓴다. 화면이 이유만 띄우고 끝나면 안 된다 */
+const DEFAULT_QUESTION = "공고문 파일을 올리거나, 공고가 실린 페이지 링크를 넣어 주세요.";
 
-export async function judge(summary: Summary, signal?: AbortSignal): Promise<Verdict> {
+export type Verdict = {
+  verdict: "good" | "bad";
+  reason: string;
+  /**
+   * 무엇이 없어서 못 하는가 — 청사진 [3] 착수 판정의 `missing`.
+   *
+   * 「못 한다」만 말하면 사용자는 다음에 무엇을 해야 할지 모른다. 계약에
+   * `missing: string[]` 이 있었는데 코드에는 없어서, 화면에는 이유 한 줄만
+   * 나가고 있었다.
+   */
+  missing: string[];
+  /**
+   * 사용자에게 던질 **한 문장** — 청사진 [3] 의 `question`.
+   *
+   * `missing` 이 「무엇이 없는가」라면 이건 「그래서 무엇을 해 달라」다. 둘을
+   * 나눠 두는 이유는 화면이 쓰는 자리가 다르기 때문이다 — 목록은 카드에,
+   * 질문은 입력칸 안내문에 들어간다.
+   */
+  question: string;
+};
+
+export async function judge(
+  summary: Summary,
+  opts: { discovered?: Discovery | null; signal?: AbortSignal } = {},
+): Promise<Verdict> {
+  const signal = opts.signal;
   const readable = summary.parts.filter(
     (part) => part.markdown.trim() && part.chars >= 20,
   );
@@ -246,6 +294,34 @@ export async function judge(summary: Summary, signal?: AbortSignal): Promise<Ver
       reason: failed
         ? `파일을 읽지 못했다: ${failed.error}`
         : "본문이 비어 있거나 텍스트를 가져오지 못했다.",
+      missing: ["읽을 수 있는 공고문 파일 또는 공고 페이지 링크"],
+      question: failed
+        ? "그 파일을 읽지 못했습니다. 다른 형식으로 올리거나, 공고 페이지 링크를 넣어 주세요."
+        : DEFAULT_QUESTION,
+    };
+  }
+
+  /**
+   * 읽은 것이 **사용자 문장뿐이면 여기서 멈춘다.**
+   *
+   * 규칙으로 답할 수 있는 것을 모델에게 묻지 않는다 — 브라우저의
+   * `checkValidity()` 에 물어 케이스별 프롬프트를 없앤 것과 같은 판단이다.
+   * 아래 모델 판정은 요약 **텍스트**만 보므로 원문이 0바이트였다는 사실이
+   * 판정자에게 도달하지 않는다. 실측: 76자 입력이 「정보 없음」으로 채운
+   * 923자 요약이 되고, 그 요약에 `good` 이 떨어졌다.
+   */
+  const sources = readable.filter((part) => part.kind !== "text");
+  if (sources.length === 0) {
+    const searched = opts.discovered;
+    return {
+      verdict: "bad",
+      reason: searched
+        ? `공고 원문을 찾지 못했다. ${searched.queries.map((query) => `「${query}」`).join(" ")} 로 ${searched.hits.length}건을 봤지만 이 공고로 확신할 수 있는 페이지가 없었다.`
+        : "읽은 것이 입력한 문장뿐이다 — 공고 원문을 한 글자도 읽지 않았다.",
+      missing: ["공고문 파일 (PDF·HWP·이미지)", "또는 공고가 실린 페이지 링크"],
+      question: searched
+        ? "검색으로는 이 공고를 특정하지 못했습니다. 공고 페이지 링크나 공고문 파일을 주시면 이어서 진행합니다."
+        : DEFAULT_QUESTION,
     };
   }
 
@@ -265,11 +341,17 @@ export async function judge(summary: Summary, signal?: AbortSignal): Promise<Ver
           "- 원문을 읽지 못했다고 적혀 있다",
           "그 외에는 전부 good 이다. 공고가 아닌 것 같다는 이유로 bad 를 주지 않는다.",
           "reason 은 한 문장.",
+          "question 은 **bad 일 때만** 채운다 — 사용자에게 무엇을 더 달라고 할지 한 문장. good 이면 빈 문자열.",
         ],
         prompt: clip(summary.markdown, 12_000),
         normalize: (raw): Verdict => ({
           verdict: raw.verdict ?? "good",
           reason: raw.reason?.trim() || "읽을 수 있는 요약이다.",
+          // 여기까지 왔다는 것은 원문을 읽었다는 뜻이다. 모델이 bad 를 줬어도
+          // 무엇이 없는지는 규칙이 답할 수 없으므로 비워 둔다.
+          missing: [],
+          // bad 인데 물을 말이 비면 화면이 이유만 띄우고 끝난다.
+          question: raw.verdict === "bad" ? raw.question?.trim() || DEFAULT_QUESTION : "",
         }),
       },
     );
@@ -280,6 +362,8 @@ export async function judge(summary: Summary, signal?: AbortSignal): Promise<Ver
     return {
       verdict: "good",
       reason: `판정 모델 실패, 요약이 있어 진행: ${message(error)}`,
+      missing: [],
+      question: "",
     };
   }
 }

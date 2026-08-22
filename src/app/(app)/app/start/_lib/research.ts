@@ -39,21 +39,20 @@ export async function research(
   summary: Summary,
   ctx: Ctx,
 ): Promise<Research> {
-  const candidates = collectCandidates(intake, summary);
-  ctx.log(`링크 후보 ${candidates.length}개`);
-
-  const picked = await pickLinks(intake.intent, summary.markdown, candidates, ctx);
-  const title =
-    picked.title || intake.files[0]?.name || intake.pages[0]?.title || "제목 미상";
-
   /**
-   * 자료 수집 — **여기가 2홉을 판다.**
+   * 자료 수집 — **여기가 2홉을 판다. 그리고 링크를 고르기 전에 돈다.**
    *
    * 요약을 손에 쥔 시점이라 「이 공고가 무엇인지」를 안다. 그래야 상세 페이지를
    * 열어도 무관한 공고를 안 끌어온다(1단계는 그걸 몰라서 1홉에서 멈춘다).
    *
    * 예전에는 모델이 고른 첨부 **3개**를 받고 끝이었다. 수백 쪽을 한 job 에 받는
    * 인프라를 놓고 세 개만 넣던 것이고, 링크가 목록 페이지면 그 셋도 0개였다.
+   *
+   * ⚠ **순서가 결함이었다.** 예전에는 `pickLinks` 가 여기보다 **먼저** 돌았다.
+   * 후보는 시드 페이지의 `<a>`(=`intake.links`)뿐이었으므로, 목록 → 상세로 한
+   * 홉 더 들어가야 보이는 「신청하기」는 모델에게 보여준 적이 없다. 사용자가
+   * 던진 링크가 게시판 목록이면 `applyUrl` 이 **항상** null 이었고, 매번 같은
+   * 「신청 페이지 링크」를 사람에게 물었다.
    */
   const found = await harvest(
     {
@@ -68,6 +67,13 @@ export async function research(
   const files: IntakeFile[] = [...found.files];
   const pages: Page[] = found.pages;
   for (const line of found.skipped) ctx.log(`건너뜀: ${line}`);
+
+  const candidates = collectCandidates(intake, summary, pages);
+  ctx.log(`링크 후보 ${candidates.length}개 (2홉 상세 페이지 ${pages.length}개 포함)`);
+
+  const picked = await pickLinks(intake.intent, summary.markdown, candidates, ctx);
+  const title =
+    picked.title || intake.files[0]?.name || intake.pages[0]?.title || "제목 미상";
 
   /**
    * 모델이 요약 본문에서 집어낸 첨부는 **따로 받는다.**
@@ -154,8 +160,24 @@ export async function research(
   };
 }
 
-/** 후보 링크. 신청·첨부처럼 보이는 것을 앞에 두고 60개로 자른다 */
-function collectCandidates(intake: Intake, summary: Summary): Link[] {
+/** 후보 링크 상한. 프롬프트에 그대로 실리므로 무한정 늘릴 수 없다 */
+const MAX_CANDIDATES = 60;
+/**
+ * 요약 본문에서 뽑은 URL 의 몫.
+ *
+ * 예전에는 이것들을 **전부 앞에** 넣고 나머지를 60개까지 채웠다. 요약이 긴
+ * 공고는 본문 URL 만으로 상한을 다 써서, 앵커 글자가 「신청하기」인 진짜 후보가
+ * 목록 밖으로 밀려났다. 앵커 글자가 없는 평문 URL 은 애초에 순위를 매길 수
+ * 없으므로 몫을 정해 자른다.
+ */
+const SUMMARY_URL_SHARE = 12;
+
+/** 후보 링크. 신청·첨부처럼 보이는 것을 앞에 둔다 */
+export function collectCandidates(
+  intake: Intake,
+  summary: Summary,
+  extra: Page[],
+): Link[] {
   const seen = new Set<string>();
   const out: Link[] = [];
   const push = (link: Link) => {
@@ -163,18 +185,30 @@ function collectCandidates(intake: Intake, summary: Summary): Link[] {
     seen.add(link.url);
     out.push(link);
   };
-  for (const url of urlsIn(`${summary.markdown}\n${intake.sourceText ?? ""}`)) {
+  for (const url of urlsIn(`${summary.markdown}\n${intake.sourceText ?? ""}`).slice(
+    0,
+    SUMMARY_URL_SHARE,
+  )) {
     push({ url, text: "(요약 본문)", isDocument: false });
   }
-  const ranked = [...intake.links].sort(
+  /**
+   * 2홉에서 연 상세 페이지의 링크도 후보다. **신청 URL 은 거의 여기 있다** —
+   * 목록 페이지에는 「신청하기」가 없고 상세 페이지에 있다.
+   */
+  const ranked = [...intake.links, ...extra.flatMap((page) => page.links)].sort(
     (a, b) => score(b) - score(a) || a.url.length - b.url.length,
   );
   for (const link of ranked) push(link);
-  return out.slice(0, 60);
+  return out.slice(0, MAX_CANDIDATES);
 }
 
+/** 앵커 글자가 비어 있는 사이트가 흔하다. 주소도 같이 본다 */
 function score(link: Link): number {
-  return (APPLY_HINT.test(link.text) ? 2 : 0) + (link.isDocument ? 1 : 0);
+  return (
+    (APPLY_HINT.test(link.text) ? 2 : 0) +
+    (APPLY_HINT.test(link.url) ? 1 : 0) +
+    (link.isDocument ? 1 : 0)
+  );
 }
 
 const pickSchema = z.object({

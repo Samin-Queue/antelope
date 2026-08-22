@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { isAbort, runObject } from "@/lib/ai/gateway";
 
+import { discover, type Discovery } from "./discover";
 import { drill, urlsIn, type IntakeFile, type Link, type Page } from "./fetch";
 import { harvest, INTAKE_BUDGET } from "./harvest";
 import { clip } from "./llm";
@@ -26,6 +27,14 @@ export type Intake = {
   links: Link[];
   /** 사용자가 직접 쓴 문장 (링크만 있던 게 아니면) */
   sourceText: string | null;
+  /**
+   * 웹 검색으로 공고를 찾아본 결과. 링크·파일이 하나도 없을 때만 돈다.
+   *
+   * `null` 은 「검색이 필요 없었다」이고, `urls: []` 는 「찾아봤는데 없었다」다.
+   * 둘을 구분해야 착수 판정이 사람에게 무엇을 물을지 정할 수 있다 — 검색까지
+   * 하고도 못 찾은 것과 애초에 안 찾아본 것은 다른 상황이다.
+   */
+  discovered: Discovery | null;
   /**
    * 가져오지 못한 링크와 이유.
    *
@@ -111,6 +120,43 @@ export async function intake(input: IntakeInput, ctx: Ctx): Promise<Intake> {
     ctx.log(`링크 ${urls.length - MAX_URLS}개는 건너뜀 (최대 ${MAX_URLS})`);
 
   /**
+   * 읽을 것이 하나도 없으면 **찾아본다.**
+   *
+   * 청사진 [4]의 첫 항목이 웹 검색인데 구현이 빠져 있었다. 그래서 공고 제목만
+   * 붙여넣은 입력은 원문 0바이트로 흘러갔고, 그 위에서 만들어진 요약은 모델의
+   * 사전지식이었다. 검색을 여기 두는 이유는 요약보다 **앞**이어야 하기
+   * 때문이다 — 시드가 없으면 요약할 것이 사용자 문장뿐이다.
+   *
+   * 검색 대상은 `sourceText`(사용자가 쓴 문장)뿐이다. 링크만 주고 그 링크가
+   * 죽은 경우에 URL 문자열을 검색해 봐야 같은 죽은 페이지가 나온다.
+   */
+  let discovered: Discovery | null = null;
+  if (files.length === 0 && pages.length === 0 && sourceText) {
+    ctx.log("링크도 파일도 없다 — 공고를 검색한다");
+    discovered = await discover(sourceText, ctx);
+    for (const url of discovered.urls) {
+      try {
+        const result = await drill(url, "url");
+        if (result.kind === "file") {
+          files.push(result.file);
+          ctx.log(
+            `검색으로 찾은 파일: ${result.file.name} (${formatBytes(result.file.blob.size)})`,
+          );
+        } else {
+          pages.push(result.page);
+          ctx.log(
+            `검색으로 찾은 페이지: ${result.page.title || url} · 본문 ${result.page.text.length.toLocaleString()}자 · 링크 ${result.page.links.length}개`,
+          );
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        failures.push({ url, reason });
+        ctx.log(`검색 결과 열기 실패: ${url} — ${reason}`);
+      }
+    }
+  }
+
+  /**
    * 페이지에 달린 첨부를 받는다. 공고문 원본은 대개 첨부에 있다.
    *
    * **여기서는 1홉만 판다.** 아직 요약도 없어서 「이 공고가 무엇인지」를 모르고,
@@ -127,7 +173,7 @@ export async function intake(input: IntakeInput, ctx: Ctx): Promise<Intake> {
     for (const line of found.skipped) ctx.log(`건너뜀: ${line}`);
   }
 
-  return { intent, files, pages, links, sourceText, failures };
+  return { intent, files, pages, links, sourceText, discovered, failures };
 }
 
 const readSchema = z.object({

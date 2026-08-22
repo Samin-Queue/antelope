@@ -296,7 +296,20 @@ export type StartEvent =
    * 구분되지 않는다. 실제로 `judge` 실패와 `bad` 판정이 아무 이벤트도 없이
    * 조용히 스트림을 닫고 있었고, 화면에는 「연결이 끊겨 중단됐다」만 떴다.
    */
-  | { type: "end"; reason: "ready" | "stopped"; detail?: string }
+  | {
+      type: "end";
+      reason: "ready" | "stopped";
+      detail?: string;
+      /**
+       * 되묻기 — 청사진 [3] 의 `question`·`missing`.
+       *
+       * 이게 있으면 화면은 빨간 에러 배너가 아니라 **질문**을 띄운다. 「멈췄다」
+       * 와 「이걸 주면 이어서 한다」는 사용자에게 전혀 다른 상황인데, 둘 다
+       * 같은 배너로 나가고 있었다.
+       */
+      question?: string;
+      missing?: string[];
+    }
   | { type: "error"; error: string };
 
 export type ApplyEvent =

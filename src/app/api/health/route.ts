@@ -4,6 +4,7 @@ import { laneGauges } from "@/lib/ai/lanes";
 import { summary } from "@/lib/ai/ledger";
 import { hasDb } from "@/lib/db";
 import { llmInfo } from "@/lib/llm";
+import { searchProviders } from "@/lib/search";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,11 @@ export async function GET() {
     commit: process.env.RAILWAY_GIT_COMMIT_SHA ?? null,
     db: hasDb() ? "configured" : "missing",
     llm: llmInfo(),
+    /**
+     * 공고를 찾는 레인. 비면 「제목만 준 입력」이 되살아나지 못한다 —
+     * 그때 화면에는 「원문을 못 찾았다」만 뜨므로 여기서 구분한다.
+     */
+    search: searchProviders(),
     /**
      * 최근 10분의 모델 왕복.
      *

@@ -190,6 +190,17 @@ export function StartFlow({ initial }: { initial: StartInput }) {
     ),
   );
   const [error, setError] = useState<string | null>(null);
+  /**
+   * 되묻기 — 청사진 [3] 의 `question`·`missing`.
+   *
+   * 「멈췄다」와 「이것만 주면 이어서 한다」는 사용자에게 전혀 다른 상황인데,
+   * 둘 다 빨간 배너 하나로 나가고 있었다. 이게 채워지면 배너 대신 질문을
+   * 띄우고 입력칸 안내문도 그 질문으로 바꾼다.
+   */
+  const [needMore, setNeedMore] = useState<{
+    question: string;
+    missing: string[];
+  } | null>(null);
   const [preparing, setPreparing] = useState(!saved);
   const [ask, setAsk] = useState<AskItem | null>(null);
   const [apply, setApply] = useState<ApplyState>({
@@ -345,6 +356,7 @@ export function StartFlow({ initial }: { initial: StartInput }) {
       terminal.current = false;
       terminalOk.current = false;
       setError(null);
+      setNeedMore(null);
       setDiagnostics([]);
       setCards(emptyCards());
       setPreparing(true);
@@ -471,8 +483,16 @@ export function StartFlow({ initial }: { initial: StartInput }) {
           case "end":
             terminal.current = true;
             terminalOk.current = event.reason === "ready";
-            if (event.reason === "stopped")
+            if (event.reason === "stopped") {
               setError(event.detail ?? "준비를 멈췄습니다.");
+              // 물을 말이 있으면 질문으로 띄운다. 이유는 그 아래 그대로 남는다 —
+              // 「무엇을 해 달라」와 「왜 멈췄나」는 둘 다 필요하다.
+              if (event.question)
+                setNeedMore({
+                  question: event.question,
+                  missing: event.missing ?? [],
+                });
+            }
             break;
           case "error":
             terminal.current = true;
@@ -895,7 +915,28 @@ export function StartFlow({ initial }: { initial: StartInput }) {
             }
             onSend={steer}
             onRetry={startRun}
+            retryPlaceholder={needMore?.question}
           />
+
+          {/*
+            되묻기가 먼저다. 「이것만 주면 이어서 한다」를 빨간 배너 아래에
+            숨기면 사용자는 실패로 읽고 화면을 버린다.
+          */}
+          {needMore && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+              <p className="font-medium">{needMore.question}</p>
+              {needMore.missing.length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-muted-foreground">
+                  {needMore.missing.map((item) => (
+                    <li key={item}>· {item}</li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                위 입력칸에 링크를 넣거나 내용을 붙여넣으면 이어서 진행합니다.
+              </p>
+            </div>
+          )}
 
           {(apply.error || error) && (
             <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words text-destructive">

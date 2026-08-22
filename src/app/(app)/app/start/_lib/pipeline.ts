@@ -388,7 +388,15 @@ export async function runStart(
 
   // 1 — 입력 정리. 재개면 원본이 없다 — 이후 단계는 요약으로 돈다.
   const gathered: Intake = restored
-    ? { intent: "", files: [], pages: [], links: [], sourceText: null, failures: [] }
+    ? {
+        intent: "",
+        files: [],
+        pages: [],
+        links: [],
+        sourceText: null,
+        discovered: null,
+        failures: [],
+      }
     : ((await stage("intake", () => intake(input, ctx))) as Intake);
   if (restored) reuse("intake");
   if (!gathered) {
@@ -412,11 +420,21 @@ export async function runStart(
       "error",
       gathered.failures.length ? "링크를 가져오지 못함" : "읽을 내용 없음",
     );
+    /**
+     * 여기도 **되묻기**다 — 청사진 [3] 은 「무엇이 없어서 못 하는지 지목해서
+     * 되묻는다」이고, 그 상황이 판정 전에도 생긴다. `error` 로 보내면 화면이
+     * 빨간 배너를 띄우고 끝나서, 링크 하나만 더 주면 될 일이 「실패」로 보인다.
+     */
     emit({
-      type: "error",
-      error: why
-        ? `링크를 가져오지 못했습니다.\n${why}\n\n페이지를 저장해 파일로 올리거나, 공고 내용을 붙여넣어 주세요.`
+      type: "end",
+      reason: "stopped",
+      detail: why
+        ? `링크를 가져오지 못했습니다.\n${why}`
         : "읽을 수 있는 파일·페이지·문장이 없습니다.",
+      question: why
+        ? "그 페이지를 저장해 파일로 올리거나, 공고 내용을 붙여넣어 주세요."
+        : "공고문 파일을 올리거나, 공고가 실린 페이지 링크를 넣어 주세요.",
+      missing: ["공고문 파일 (PDF·HWP·이미지)", "또는 공고가 실린 페이지 링크"],
     });
     return;
   }
@@ -523,8 +541,10 @@ export async function runStart(
 
   // 3 — 판정. bad 면 여기서 끝난다. 재개면 이미 통과한 판정이다.
   const verdict = already("judge")
-    ? ({ verdict: "good", reason: "이전 실행에서 판정됨" } as const)
-    : await stage("judge", () => judge(summary, ctx.signal));
+    ? ({ verdict: "good", reason: "이전 실행에서 판정됨", missing: [] } as const)
+    : await stage("judge", () =>
+        judge(summary, { discovered: gathered.discovered, signal: ctx.signal }),
+      );
   if (already("judge")) reuse("judge");
   if (!verdict) {
     // 예전엔 여기서 아무 말 없이 스트림이 닫혔다. 화면에는 「연결이 끊겨
@@ -547,7 +567,11 @@ export async function runStart(
     emit({
       type: "end",
       reason: "stopped",
+      // 「못 한다」만 말하면 사용자는 다음에 무엇을 해야 할지 모른다. 청사진
+      // [3]의 계약이 `missing` 을 함께 내게 돼 있던 이유다.
       detail: `공고로 읽을 내용이 부족합니다 — ${verdict.reason}`,
+      question: verdict.question || undefined,
+      missing: verdict.missing.length ? verdict.missing : undefined,
     });
     return;
   }

@@ -309,13 +309,23 @@ GET  /v2/responses/{job_id}    폴링 → completed
 리뷰도 못 한다. Config 는 **불변**이라 고칠 때마다 새 Config 가 생긴다 —
 버전 관리와 감사 추적이 공짜로 따라온다.
 
-현재:
+현재. **Studio 화면의 이름이 곧 환경변수 이름이다** — 계정에 에이전트가 여럿
+보일 때 어느 것이 우리 것인지 화면만 보고 갈리게 하려고 그렇게 붙였다.
 
-| 에이전트                  | Agent ID                     | Config                       |
-| ------------------------- | ---------------------------- | ---------------------------- |
-| 공고 처리                 | `agt_VUBEVuk2mXQrrTxYnLL93w` | `cfg_EnXdSDnc6VRVdCtEUayNHo` |
-| 유효성 검사 (유효성·요약) | `agt_atmMQXMKxDZkjqSkdiVpDq` | `cfg_iCdJf9NLuuNh4sGtTQrVjw` |
-| 정보 분석 (필드·준비문서) | `agt_kKEZDyyAzn84oo3AsgpWj9` | `cfg_L9bTyjc9Trws2jq7NMqGot` |
+| Studio 표시 이름                          | Agent ID                     | Config                       |
+| ----------------------------------------- | ---------------------------- | ---------------------------- |
+| `Antelope · 공고 처리 (UPSTAGE_AGENT_ID)` | `agt_VUBEVuk2mXQrrTxYnLL93w` | `cfg_EnXdSDnc6VRVdCtEUayNHo` |
+| `Antelope · 유효성 검사 (VALIDATION)`     | `agt_atmMQXMKxDZkjqSkdiVpDq` | `cfg_iCdJf9NLuuNh4sGtTQrVjw` |
+| `Antelope · 정보 분석 (ANALYSIS)`         | `agt_kKEZDyyAzn84oo3AsgpWj9` | `cfg_kzzPDmW4bsrdK85EtpcwiR` |
+
+⚠ **우리 에이전트는 프로젝트 폴더에 없다** (`project_id: null`). Studio 화면에서
+프로젝트를 열면 안 보이고, 왼쪽 「자동화 → 에이전트」 전체 목록에서 봐야 한다.
+폴더에 넣으면 `/v2/files` 로 올린 파일과 소속이 갈려 `403 No access to file` 이다
+(아래 참고). 화면이 비어 보인다고 「안 돌고 있다」가 아니다.
+
+`pnpm studio:provision*` 을 반복해 돌리면 **환경변수를 안 넣은 실행마다 에이전트가
+새로 생긴다.** 이름이 전부 같아서 어느 것이 라이브인지 목록에서 안 갈린다 —
+`.env.local`·Railway 가 가리키는 ID 만 남기고 `DELETE /v2/agents/{id}` 로 치운다.
 
 Agent·Config 는 **API 키 소유 계정에 묶인다.** 키를 바꾸면 이전 에이전트가 안 보이므로
 `pnpm studio:provision` 을 다시 돌려 새 계정에 Config 를 만들고 `UPSTAGE_AGENT_ID` 를
@@ -396,6 +406,94 @@ apply/route.ts 9단계 SSE:    runBrowserAgent(allowSubmit) — lab/notice 재�
 - lab/notice 는 부품으로 **읽어서 쓴다.** 이번에 lab 쪽에 더한 것은
   `LiveScreen` export 와 `runBrowserAgent` 의 `allowSubmit` 옵션뿐이다.
 
+### 공고 찾기 — 링크가 없으면 검색한다 (`src/lib/search.ts`)
+
+`BLUEPRINT.md` 는 자료 수집을 「**웹 검색** · 웹 탐색 · 첨부 파일 · 페이지 자체를
+파일로」 넷으로 적었는데 구현은 뒤의 셋뿐이었다. 그래서 **공고 제목만 붙여넣은
+입력**은 읽을 원문이 0바이트였다 — 그런데 멈추지도 않았다. 실측: 76자 한 줄이
+Solar 요약을 거쳐 923자가 되고, 실질이 전부 「정보 없음」인 그 923자가 PDF 로
+찍혀 Studio 까지 갔다.
+
+```
+intake  링크·파일이 0개 → discover()  검색어 생성 → webSearch → 원문 페이지 선별 → drill
+judge   파일·페이지에서 온 요약이 0개 → bad + missing (모델에게 안 묻는다)
+```
+
+- 레인은 셋을 **병렬로** 돌리고 합친다. `naver`(키 없음, HTML) ·
+  `naver-api`(`NAVER_CLIENT_ID`/`SECRET`) · `bizinfo`(공공데이터, 키 이미 있음).
+- **키 없이도 돌아야 한다.** DuckDuckGo(html·lite)·Startpage·searx 공개 인스턴스는
+  전부 봇 차단으로 202/캡챠다(실측). 네이버 웹검색만 200 에 결과를 싣는다.
+- `naver` 레인은 **앵커 태그만** 본다. 클래스명이 난독화되어 선택자를 못 믿는다.
+- `bizinfo` 는 검색 파라미터가 없어 **전체를 받아 제목으로 고른다**(1,510건 /
+  3.6MB × 2페이지, 10분 캐시). 중앙부처 지원사업은 여기가 정확하고, **지자체
+  자체 공고는 안 올라온다** — 그래서 레인이 하나로는 안 된다.
+- **검색어와 선별을 나눠 묻는다.** 검색어는 원문 글자를 남기는 문제고(요청부를
+  뗀다), 선별은 버리는 문제다(재게시 블로그가 원문보다 위에 온다).
+  실측: 사용자 문장을 그대로 넣으면 6.6초에 12건인데 정답이 없고, 요청부를 뗀
+  질의는 537ms 에 정답을 낸다.
+- **확신 없으면 빈 배열.** 비슷한 다른 공고를 시드로 잡으면 요약·분석·입력 항목이
+  전부 남의 공고로 채워지고, 화면에는 그 사실이 어디에도 안 나온다.
+
+#### Solar 에 내장 검색이 없으니 도구로 쥐여 준다
+
+API 가 직접 그렇게 답한다 — `tools:[{type:"web_search"}]` 는
+`400 Invalid value: 'web_search'. Currently, only 'function' is supported`
+(`web_search_preview`·`web_search_20250305` 도 같다). `type:"function"` 만 200 이고
+`tool_calls` 가 정상적으로 온다. 그래서 `src/lib/ai/gateway.ts` 에 **`runTools`** 를
+두고, `discover.ts` 가 `search` · `open` · `submit` 세 도구로 루프를 돌린다.
+호출부마다 `generateText({tools})` 를 새로 짜면 계측·레인·취소·스텝 상한이
+곳곳에서 빠진다 — `runObject`·`runText` 와 같은 이유로 게이트웨이에 둔다.
+
+- **싼 길을 먼저.** 검색어 생성 → 병렬 검색까지는 결정론이고, 그 결과를 들려
+  준 채로 루프를 시작한다. 대개 1스텝에 `submit` 이 나온다.
+- **끝났는데 마무리 도구를 안 불렀으면 한 번 강제한다.** 「마지막에 반드시
+  submit」을 프롬프트로만 걸면 모델이 산문으로 답하고 끝난다 — 실측: 4/8스텝에서
+  정답 페이지를 열어 놓고 확정 없이 종료했다. `runTools` 가 그때 대화를 그대로
+  이어 `toolChoice` 로 한 번 더 부른다. 스텝 상한에 건 `prepareStep` 만으로는
+  **상한에 닿기 전에 멈추는 경우**를 못 잡는다.
+- **횟수만으로는 부족하다 — 벽시계 예산(45초)을 함께 건다.** 실측: 모델이 첨부
+  파일의 다운로드 주소를 찾겠다고 검색 5회·열기 5회를 다 써서 `intake` 가
+  **139초**가 됐다. 정작 그 첨부는 바로 다음 `harvest` 가 페이지에서 받아 온다.
+  단계 상한이 240초라 여기서 절반 넘게 쓰면 남은 수집이 위험하다.
+- **루프가 본 것은 폴백에도 넘긴다.** 확정을 못 해도 그동안 검색을 더 돌리고
+  페이지를 열었다. 그걸 버리고 첫 검색 결과로만 고르면, 정답 페이지를 열어 놓고도
+  폴백이 재게시 사이트를 고른다(실측).
+- **도구를 직렬화하지 않는다.** 브라우저 조작은 병렬 호출이 서로를 덮어써서
+  직렬로 묶었지만, 검색과 페이지 열기는 읽기 전용이고 서로 독립이다.
+
+실측(「[경북] 포항시 2026년 AI라이브커머스 지원기업 추가 모집 공고」, 링크 없음):
+27.7초에 공고문 PDF 192KB + 신청서 양식 HWP 102KB 를 스스로 찾아 왔다. 이전에는
+수집 0개 · 분석 0개 · 「신청 페이지 링크」를 사람에게 묻고 끝이었다.
+
+### 착수 판정 — 원문을 안 읽었으면 진행하지 않는다
+
+`judge` 는 요약 **텍스트**만 보고 판정한다. 그래서 원문이 0바이트였다는 사실이
+판정자에게 도달하지 않았다 — 규칙에 「'정보 없음' 뿐이면 bad」가 있는데도 위의
+923자에 `good` 이 떨어졌다(실측). 요약이 정보 없음을 *서술*하는 순간 형식상
+비어 있지 않기 때문이다.
+
+**규칙으로 답할 수 있는 것을 모델에게 묻지 않는다.** `SummaryPart.kind` 가
+`file|page|text` 를 구분하고, `text` 뿐이면 모델을 부르기 전에 `bad` 다.
+
+**멈출 때는 되묻는다.** `Verdict` 가 `missing`(무엇이 없는가)과
+`question`(그래서 무엇을 해 달라)을 함께 낸다. 둘을 나눈 이유는 화면이 쓰는
+자리가 달라서다 — 목록은 카드에, 질문은 입력칸 안내문에 들어간다.
+
+```
+judge(bad) → StartEvent end{question, missing} → 질문 카드 + SteerBox(retry)
+           → startRun(more) — 원래 입력에 보탠 글을 합쳐 처음부터 다시
+```
+
+`resume` 으로 이어받지 않는다. bad 로 멈춘 실행은 스냅샷의 요약이 이미 bad 라
+같은 자리에서 또 멈춘다. **빨간 배너로 끝내지 않는다** — 「멈췄다」와 「이것만
+주면 이어서 한다」는 사용자에게 전혀 다른 상황인데, 둘 다 같은 배너로 나가고
+있었다. `intake` 가 링크를 못 가져온 경우도 `error` 가 아니라 같은 되묻기다.
+
+같은 구분이 `analyze.ts` 의 synth 게이트에도 쓰인다. **길이는 게이트가 될 수
+없다** — `MIN_SYNTH_CHARS`(300)만 보던 자리를 「파일·페이지에서 온 요약이
+있는가」로 바꿨다. `parts` 가 빈 경우(재개 실행)는 판단 근거가 없으므로 막지
+않는다. 아는 실패만 막는다.
+
 ### 자료 수집 — 사용자가 파일을 안 넣어도 Studio 를 태운다
 
 이 제품이 증명하려는 것은 「링크 하나만 던져도 에이전트가 공고문·모집요강·서식을
@@ -427,6 +525,13 @@ analyze  모은 것 전부를 Studio 한 job 에
 - **모델에게 개수 상한을 주지 않는다.** 「3개까지」라고 말하면 열 개가 다 관련
   있어도 세 개만 온다. 총량은 예산이 자른다.
 - 상한을 만지면 `pnpm eval` — `evals/harvest.test.ts` 가 게이트를 못박는다.
+
+**수집이 링크 선별보다 먼저다.** `research()` 안에서 `harvest` 가 `pickLinks` 보다
+**앞에** 온다. 순서가 반대였을 때 후보는 시드 페이지의 `<a>` 뿐이었고, 목록 →
+상세로 한 홉 더 들어가야 보이는 「신청하기」는 모델에게 보여준 적이 없었다 —
+사용자가 던진 링크가 게시판 목록이면 `applyUrl` 이 **항상** null 이었고 매번 같은
+「신청 페이지 링크」를 사람에게 물었다. 후보 상한(60)에서 요약 본문 URL 의 몫도
+12개로 자른다. 앵커 글자가 없는 평문 URL 이 상한을 다 먹으면 진짜 후보가 밀린다.
 
 **단계 상한이 Studio 보다 짧으면 안 된다.** 240초는 파일 한두 개 시절의 값이라,
 스무 개를 넣으면 파이프라인이 job 을 먼저 죽이고 화면에는 「시간 초과」만 남는다 —
@@ -929,6 +1034,11 @@ src/lib/ai/
 | `.devcontainer/compose.yaml`   | `NODE_ENV: ""`                                                  | Dockerfile dev 타깃의 `NODE_ENV=development` 상태로 `pnpm build` 하면 React 가 dev/prod 로 갈려 프리렌더 깨짐                                                           |
 | `src/lib/session.ts`           | `headers()` 를 `hasDb()` **밖에서** 먼저 부르는 순서            | 도커 빌드엔 `DATABASE_URL` 이 없어 호출이 통째로 안 돌고, 동적 API 가 사라진 `/` 를 Next 가 정적 프리렌더한다 → 랜딩이 「로그아웃 + 프로바이더 없음」 스냅샷으로 굳는다 |
 | `.dockerignore`                | `.pnpm-store`                                                   | devcontainer 안 pnpm 이 bind mount 위에 만드는 폴백 스토어(1.7GB)를 `COPY . .` 가 이미지에 넣는다 → 도커 VM 디스크가 차서 `no space left on device`                     |
+| `gateway.ts`                   | `runTools` 의 「마무리 도구 없이 끝나면 한 번 강제」            | 모델이 상한에 닿기 전에 산문으로 답하고 멈춘다 — 정답 페이지를 열어 놓고도 확정 없이 끝나 루프가 알아낸 것이 통째로 버려진다(실측 4/8스텝)                              |
+| `discover.ts`                  | `EXPLORE_BUDGET_MS`(45초) 벽시계 예산                           | 횟수 상한만 남으면 모델이 첨부 다운로드 주소를 찾겠다고 검색·열기를 다 써서 `intake` 가 139초가 된다(실측). 단계 상한은 240초다                                         |
+| `summarize.ts`                 | `judge` 의 `kind !== "text"` 규칙 분기                          | 원문 0바이트인 입력이 그대로 통과한다. 모델은 요약 **텍스트**만 보므로 「정보 없음」으로 채운 923자에 `good` 을 준다(실측)                                              |
+| `analyze.ts`                   | synth 게이트의 `sourced.length === 0` 검사                      | 길이만 재던 자리로 돌아간다 — 사용자가 친 76자가 923자 요약이 되고, 그게 PDF 로 찍혀 Document Parse 를 낸다                                                             |
+| `research.ts`                  | `harvest` 가 `pickLinks` **앞**                                 | 신청 URL 후보가 시드 페이지의 `<a>` 로 좁아져, 목록 페이지를 던진 입력은 `applyUrl` 이 항상 null 이 된다                                                                |
 | `src/proxy.ts`                 | `/app`·`/sign-in` 세션 게이트                                   | 로그인 없이 `/app` 이 열린다. 레이아웃 `redirect()` 만으로는 셸이 이미 흘러 나간 뒤라 200 + `NEXT_REDIRECT` 가 되어 로그아웃 화면이 한 번 번쩍인다                      |
 
 ## 이름 규칙

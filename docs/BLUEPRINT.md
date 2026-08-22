@@ -81,9 +81,27 @@
 만큼의 정보가 첨부에서 나오는가」 하나만 본다. 나오면 사용자를 붙잡지 않고
 바로 [4]로 간다. 안 나오면 **무엇이 없어서 못 하는지 지목해서** 되묻는다.
 
+> **구현**: `summarize.ts` 의 `judge`. 판정은 규칙이 먼저다 — `SummaryPart.kind`
+> 가 전부 `text`(사용자가 쓴 문장)면 모델을 부르기 전에 `bad` 이고,
+> `Verdict.missing`·`Verdict.question` 에 무엇이 필요한지 싣는다. 모델에게
+> 맡겼을 때 「정보 없음」으로 채운 923자에 `good` 이 떨어졌다(실측).
+>
+> 되묻기(`──▶ [1]`)는 `StartEvent` 의 `end{question, missing}` → 화면의 질문
+> 카드 → `SteerBox` 의 `retry` 모드 → `startRun(more)` 로 돈다. 원래 입력에
+> 보탠 글을 합쳐 **처음부터 다시** 돈다 — bad 로 멈춘 실행은 저장된 요약이
+> 이미 bad 라 `resume` 으로 이어받아 봐야 같은 자리에서 또 멈춘다.
+>
+> `goal`·`category` 는 계약에 있지만 넣지 않았다. `goal` 은 `intake.intent` 로
+> 이미 아래로 흐르고 있어 판정에 복제할 이유가 없고, `category` 는 구멍 6
+> (분류 체계가 둘이다)을 먼저 풀어야 한다.
+
 **[4] 자료 수집.** 공고 원문이 첨부 하나로 끝나는 경우는 드물다. 링크를 타고
 들어가 PDF·HWP 를 받고, 페이지 자체도 정보 분석 이 읽을 수 있는 파일로 만든다.
 이 단계의 목표는 정확도가 아니라 **누락 없음**이다.
+
+> **구현**: 웹 검색은 `src/lib/search.ts` + `start/_lib/discover.ts`, 나머지는
+> `start/_lib/harvest.ts`. 검색은 시드가 0일 때만 돌고 `intake` 안에 있다 —
+> 시드가 없으면 요약할 것이 사용자 문장뿐이라 요약보다 **앞**이어야 한다.
 
 **[5] 정규화.** 정보 분석 이 모아 온 자료를 하나의 신청 양식 정의로 수렴시킨다.
 산출물이 둘이다 — 필드 목록(구조화)과 parse 된 Markdown(원문 보존).
@@ -229,17 +247,17 @@ type Artifact = {
 
 `runStart()` 가 도는 6단계 (`_lib/pipeline.ts`):
 
-| #   | Stage       | 담당            | 파일                                                | 상태                                                                                                              |
-| --- | ----------- | --------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| 1   | `intake`    | solar-mini      | `_lib/intake.ts` `_lib/fetch.ts`                    | **있음** — 문장에서 링크 추출, 링크가 파일이면 내려받고 페이지면 본문·링크 수집, 첨부 후보를 모델이 골라 다운로드 |
-| 2   | `summarize` | **유효성 검사** | `_lib/summarize.ts`                                 | **있음** — 실패 시 `parseDocument` + Solar 로 대체. 경로를 `via` 에 남긴다                                        |
-| 3   | `judge`     | solar-mini      | `_lib/summarize.ts`                                 | **있음** — good/bad. bad 면 뒤 단계를 skip 한다                                                                   |
-| 4   | `research`  | solar-pro4      | `_lib/research.ts`                                  | **있음** — 신청 URL 을 찾아 실제로 읽고, 폼 라벨에서 입력 항목을 뽑는다                                           |
-| 5   | `analyze`   | **정보 분석**   | `_lib/analyze.ts`                                   | **있음** — 파일 여러 개를 한 job 에. 실패 시 Solar 대체                                                           |
-| 6   | `prefill`   | 지식베이스      | `_lib/prefill.ts`                                   | **있음** — `recallForFields` 로 선채움                                                                            |
-| —   | 병합        | solar-pro4      | `_lib/needs.ts` `_lib/reconcile.ts`                 | **있음** — 같은 항목을 두 번 묻지 않게 모델이 한 번 더 합친다                                                     |
-| 7   | 사용자 수집 | —               | `_lib/needs-form.tsx`                               | **부분** — 아래 참고                                                                                              |
-| 8   | 실행        | 브라우저        | `start/apply/route.ts` → `lab/notice/_lib/agent.ts` | **있음** — 가상 데스크톱, 라이브 스트리밍, 사람 개입, `allowSubmit`                                               |
+| #   | Stage       | 담당            | 파일                                                | 상태                                                                                                                                                                                                |
+| --- | ----------- | --------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `intake`    | solar-mini      | `_lib/intake.ts` `_lib/fetch.ts` `_lib/discover.ts` | **있음** — 문장에서 링크 추출, 링크가 파일이면 내려받고 페이지면 본문·링크 수집, 첨부 후보를 모델이 골라 다운로드. 링크·파일이 0개면 **웹 검색으로 공고를 찾아 시드를 만든다**(`src/lib/search.ts`) |
+| 2   | `summarize` | **유효성 검사** | `_lib/summarize.ts`                                 | **있음** — 실패 시 `parseDocument` + Solar 로 대체. 경로를 `via` 에 남긴다                                                                                                                          |
+| 3   | `judge`     | solar-mini      | `_lib/summarize.ts`                                 | **있음** — good/bad + `missing`. 원문(파일·페이지)에서 온 요약이 0개면 **규칙으로** bad. bad 면 뒤 단계를 skip 한다                                                                                 |
+| 4   | `research`  | solar-pro4      | `_lib/research.ts`                                  | **있음** — 신청 URL 을 찾아 실제로 읽고, 폼 라벨에서 입력 항목을 뽑는다                                                                                                                             |
+| 5   | `analyze`   | **정보 분석**   | `_lib/analyze.ts`                                   | **있음** — 파일 여러 개를 한 job 에. 실패 시 Solar 대체                                                                                                                                             |
+| 6   | `prefill`   | 지식베이스      | `_lib/prefill.ts`                                   | **있음** — `recallForFields` 로 선채움                                                                                                                                                              |
+| —   | 병합        | solar-pro4      | `_lib/needs.ts` `_lib/reconcile.ts`                 | **있음** — 같은 항목을 두 번 묻지 않게 모델이 한 번 더 합친다                                                                                                                                       |
+| 7   | 사용자 수집 | —               | `_lib/needs-form.tsx`                               | **부분** — 아래 참고                                                                                                                                                                                |
+| 8   | 실행        | 브라우저        | `start/apply/route.ts` → `lab/notice/_lib/agent.ts` | **있음** — 가상 데스크톱, 라이브 스트리밍, 사람 개입, `allowSubmit`                                                                                                                                 |
 
 ### 5축 대비
 
@@ -264,6 +282,20 @@ type Artifact = {
    없어 실제로는 자유 입력으로 그려진다.
 6. **분류 체계가 둘이다.** `start` 플로우는 정보 분석 클래스(`JOB_APPLICATION` 등 7종),
    `lab/notice`·랜딩은 `src/lib/categories.ts`(13종). 둘이 만나지 않는다.
+7. **JS 로만 내려받는 첨부는 못 잡는다.** eGov 계열 지자체 사이트는 첨부가
+   `href="#"` + `onclick="…file.download(id1,id2)"` 다(실측: `pohang.go.kr`).
+   `harvest` 는 `<a href>` 만 보므로 그 페이지에서는 첨부가 0개다. 같은 공고가
+   기업마당에 실려 있으면 그쪽 `fileDown.do` 로 받아지므로 검색 레인이 우회로가
+   되지만, 항상 그런 것은 아니다. 사이트별 규칙을 더하는 것은 「케이스마다
+   프롬프트를 붙이지 않는다」와 같은 이유로 답이 아니다.
+
+**메운 것** — 아래 둘은 청사진에 있었는데 코드에 없었고, 2026-08-23 에 구현했다.
+
+- **[4] 웹 검색** (`src/lib/search.ts` · `start/_lib/discover.ts`). 없던 동안
+  「공고 제목만 붙여넣기」가 원문 0바이트로 흘렀다.
+- **[3] 착수 판정의 `missing`** (`summarize.ts` 의 `judge`). 계약에는
+  `{status:"need-more", question, missing}` 가 있었지만 코드는 `{verdict, reason}`
+  뿐이었고, 판정 재료가 요약 텍스트여서 원문 0바이트를 못 봤다.
 
 ## 5. Studio Config 를 고쳐야 하는 곳
 
