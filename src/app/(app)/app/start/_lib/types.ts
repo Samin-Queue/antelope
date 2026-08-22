@@ -120,6 +120,13 @@ export type Need = {
   /** 기억이 다른 이름으로 저장돼 있었을 때 그 이름 */
   memoryLabel?: string;
   /**
+   * 이 값의 근거 — 원문 요소 id.
+   *
+   * **못 찾으면 비운다.** 아무 블록이나 칠하면 하이라이트가 근거인 척하는
+   * 장식이 되고, 이 제품이 파는 게 정확히 그 신뢰다.
+   */
+  evidenceIds?: number[];
+  /**
    * 공고가 지정한 서식 파일 이름.
    *
    * Studio 의 추출 스키마가 이미 요구하는 값인데(`formName`) 우리 zod 스키마에
@@ -210,6 +217,19 @@ export type SessionSnapshot = {
   artifacts: Artifact[];
   /** 어디까지 갔는지. 다시 열었을 때 레일을 그대로 그린다 */
   stages: Partial<Record<Stage, "done" | "error" | "skip">>;
+  /**
+   * 근거로 쓸 원문 요소와 좌표.
+   *
+   * 응답 크기 때문에 **단어별 좌표는 버리고 요소 단위로만** 담는다 — 1쪽짜리
+   * 공고 기준 5KB 안팎이다. Studio 를 안 탄 경로에서는 비어 있다.
+   */
+  evidence?: Array<{
+    id: number;
+    page: number;
+    category: string;
+    text: string;
+    box: { x: number; y: number; w: number; h: number };
+  }>;
 };
 
 export type StartEvent =

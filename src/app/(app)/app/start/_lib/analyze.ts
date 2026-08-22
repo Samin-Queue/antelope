@@ -3,7 +3,8 @@ import { z } from "zod";
 import { isAbort, runObject } from "@/lib/ai/gateway";
 import { noPlaceholder } from "@/lib/ai/verify";
 import { env } from "@/lib/env";
-import { findStep, runAgent, stepOutputs } from "@/lib/upstage-studio";
+import { toEvidence, type Evidence } from "@/lib/grounding";
+import { findStep, parsedElements, runAgent, stepOutputs } from "@/lib/upstage-studio";
 import { BRIEF } from "@/app/(labs)/lab/analysis/_lib/workflow";
 
 import type { IntakeFile } from "./fetch";
@@ -35,6 +36,14 @@ export type Analysis = {
    */
   brief: string | null;
   via: "analysis" | "solar" | "none";
+  /**
+   * 원문 요소와 그 좌표.
+   *
+   * 「이 값 어디서 나왔어?」에 답하는 재료다. Studio 를 안 탄 경로(링크·문장
+   * 입력, Solar 폴백)에서는 비어 있고, 화면은 그때 근거 패널을 안 그린다 —
+   * 아무 블록이나 칠하면 하이라이트가 근거인 척하는 장식이 된다.
+   */
+  evidence: Evidence[];
 };
 
 const APPLICATION_TYPES = [
@@ -130,13 +139,19 @@ export async function analyze(
         throw new Error("정보 분석 이 필드 목록을 만들지 못했습니다.");
       }
       const brief = unquote(findStep(outputs, BRIEF)?.text ?? "");
+      const evidence = toEvidence(parsedElements(findStep(outputs, "parse")));
       ctx.log(
         `정보 분석 완료: ${outputs.map((o) => o.step).join(" → ")} · 필드 ${parsed.data.fields.length}개` +
           (brief
             ? ` · 준비 문서 ${brief.length.toLocaleString()}자`
-            : " · 준비 문서 없음"),
+            : " · 준비 문서 없음") +
+          (evidence.length ? ` · 근거 요소 ${evidence.length}개` : " · 근거 없음"),
       );
-      return { ...toAnalysis(parsed.data, "analysis"), brief: brief || null };
+      return {
+        ...toAnalysis(parsed.data, "analysis"),
+        brief: brief || null,
+        evidence,
+      };
     } catch (error) {
       if (isAbort(error)) throw error;
       ctx.log(`정보 분석 실패 — Solar 로 대체: ${message(error)}`);
@@ -148,7 +163,14 @@ export async function analyze(
   }
 
   if (!summary.markdown.trim())
-    return { needs: [], applicationType: null, title: null, brief: null, via: "none" };
+    return {
+      needs: [],
+      applicationType: null,
+      title: null,
+      brief: null,
+      via: "none",
+      evidence: [],
+    };
 
   try {
     const { value } = await runObject(
@@ -172,7 +194,14 @@ export async function analyze(
   } catch (error) {
     if (isAbort(error)) throw error;
     ctx.log(`Solar 도출 실패: ${message(error)}`);
-    return { needs: [], applicationType: null, title: null, brief: null, via: "none" };
+    return {
+      needs: [],
+      applicationType: null,
+      title: null,
+      brief: null,
+      via: "none",
+      evidence: [],
+    };
   }
 }
 
@@ -207,6 +236,7 @@ function toAnalysis(data: Fields, via: Analysis["via"]): Analysis {
     title: data.applicationTitle?.trim() || null,
     brief: null,
     via,
+    evidence: [],
   };
 }
 

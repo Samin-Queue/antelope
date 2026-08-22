@@ -50,6 +50,14 @@ export function validationWorkflow(): Step[] {
         lang: "ko",
         merge_multipage_tables: true,
         output_formats: ["html", "markdown"],
+        /**
+         * 요소마다 정규화 좌표(0~1)를 받는다. **근거 하이라이트의 재료다.**
+         *
+         * 이게 꺼져 있어서 「이 값 어디서 나왔어?」가 실험(`/lab/notice`)에만
+         * 있고 실제 사용자 플로우에는 없었다 — `parsedElements()` 가 좌표
+         * 없는 요소를 버리므로 화면에 그릴 것이 하나도 안 남는다.
+         */
+        coordinates: true,
       },
       is_first: true,
       next_steps: [{ step_name: "analyze" }],

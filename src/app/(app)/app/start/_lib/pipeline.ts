@@ -2,6 +2,7 @@ import { isAbort } from "@/lib/ai/gateway";
 import { lanes } from "@/lib/ai/lanes";
 import { table } from "@/lib/ai/ledger";
 import { withTask } from "@/lib/ai/meter";
+import { matchEvidence } from "@/lib/grounding";
 
 import { analyze } from "./analyze";
 import type { IntakeFile } from "./fetch";
@@ -342,9 +343,30 @@ export async function runStart(
   const merged = mergeNeeds(applyNeed ? [applyNeed] : [], reconciled);
   ctx.log(`입력 항목 ${merged.length}개로 병합`);
 
+  /**
+   * 항목마다 원문 근거를 붙인다.
+   *
+   * 「왜 이걸 묻나」에 문장이 아니라 **좌표**로 답할 수 있게 된다. 못 찾은
+   * 항목은 비워 둔다 — 그 사실이 화면에 그대로 보여야 한다.
+   */
+  const evidence = analysis?.evidence ?? [];
+  const withEvidence = evidence.length
+    ? merged.map((need) => {
+        const hits = matchEvidence(evidence, need.why ?? need.label);
+        return hits.length
+          ? { ...need, evidenceIds: hits.map((hit) => hit.evidence.id) }
+          : need;
+      })
+    : merged;
+  if (evidence.length) {
+    const found = withEvidence.filter((need) => need.evidenceIds?.length).length;
+    ctx.log(`원문 근거를 ${found}/${withEvidence.length}개 항목에 붙였다`);
+  }
+
   // 6 — 선채움
   const filled =
-    (await stage("prefill", () => prefill(merged, opts.userId, ctx))) ?? merged;
+    (await stage("prefill", () => prefill(withEvidence, opts.userId, ctx))) ??
+    withEvidence;
   const known = filled.filter((need) => need.value?.trim());
   tell(
     "data",
@@ -507,6 +529,7 @@ export async function runStart(
     plan,
     artifacts: artifacts ?? [],
     stages,
+    evidence,
   };
 
   // 여기가 「세션이 시작됐다」의 자연스러운 지점이다 — 마스터 테이블이 처음

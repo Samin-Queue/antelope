@@ -300,6 +300,19 @@ function Field({
         <span className="flex items-start gap-1 text-[11px] text-muted-foreground">
           <HelpCircle className="mt-px size-3 shrink-0" />
           {need.why}
+          {/*
+            근거를 찾았는지 **그대로** 말한다.
+            못 찾은 것을 안 보여 주면 화면 전체가 「전부 근거가 있다」로 읽힌다 —
+            찾은 것에만 표를 다는 편이 정직하고, 그 차이가 이 제품이 파는 것이다.
+          */}
+          {need.evidenceIds?.length ? (
+            <span
+              className="ml-1 shrink-0 rounded-sm bg-brand/10 px-1 text-[10px] text-brand"
+              title={`공고 원문 ${need.evidenceIds.length}곳에서 확인했다`}
+            >
+              원문 확인
+            </span>
+          ) : null}
         </span>
       )}
     </label>
