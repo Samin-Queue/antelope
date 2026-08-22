@@ -135,19 +135,29 @@ export async function runStart(
    */
   let narrating: Promise<void> = Promise.resolve();
   const tell = (card: CardKey, facts: string, reason?: string) => {
-    narrating = narrating.then(async () => {
-      emit({ type: "orchestrator", status: "start" });
-      try {
-        const said = await withTask({ task: "narrate", runId }, () =>
-          narrate({ card, facts, history, reason }, ctx),
-        );
-        if (!said) return;
-        history.push({ card, ...said });
-        emit({ type: "card", card, headline: said.headline, body: said.body });
-      } finally {
-        emit({ type: "orchestrator", status: "done" });
-      }
-    });
+    narrating = narrating
+      .then(async () => {
+        emit({ type: "orchestrator", status: "start" });
+        try {
+          const said = await withTask({ task: "narrate", runId }, () =>
+            narrate({ card, facts, history, reason }, ctx),
+          );
+          if (!said) return;
+          history.push({ card, ...said });
+          emit({ type: "card", card, headline: said.headline, body: said.body });
+        } finally {
+          emit({ type: "orchestrator", status: "done" });
+        }
+        /**
+         * ⚠ **여기서 반드시 잡는다.** 이 프로미스는 아무도 기다리지 않는다 —
+         * 거부된 채로 두면 Node 가 `unhandledRejection` 으로 **프로세스를 죽인다.**
+         * 화면 문구 하나 때문에 준비 전체가 사라지는 것이고, 밖에서는 「서버가
+         * 종료 이벤트 없이 연결을 닫았다」로만 보인다.
+         */
+      })
+      .catch((error) => {
+        ctx.log(`서술 실패: ${error instanceof Error ? error.message : error}`);
+      });
   };
 
   /**

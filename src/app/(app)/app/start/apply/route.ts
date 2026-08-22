@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { auth } from "@/lib/auth";
 import { hasDb } from "@/lib/db";
+import { guardProcess } from "@/lib/guard";
 import { NeedsHuman, runBrowserAgent } from "@/app/(labs)/lab/notice/_lib/agent";
 import { closeSession } from "@/app/(labs)/lab/notice/_lib/desktop";
 import {
@@ -167,6 +168,8 @@ const LINGER_MS = 90_000;
  * 수동으로 갈아탄다 — 캡챠는 제출을 누른 뒤에 나타나는 경우가 많다.
  */
 export async function POST(req: Request) {
+  // 떠 있는 프로미스 하나가 서버 전체를 내리지 않게. `src/lib/guard.ts` 참고
+  guardProcess();
   const parsed = body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     // 어느 필드가 왜 걸렸는지 말한다. 「applyUrl·title·facts 가 필요합니다」만
@@ -234,7 +237,10 @@ export async function POST(req: Request) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      /** `done`·`error` 를 한 번은 보냈는가. 안 보내고 닫으면 화면이 이유를 모른다 */
+      let closed = false;
       const emit = (event: ApplyEvent) => {
+        if (event.type === "done" || event.type === "error") closed = true;
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         } catch {
@@ -514,6 +520,14 @@ export async function POST(req: Request) {
         // 삼켜, 브라우저 카드가 running 인 채로 스트림이 끝난다 — 클라이언트는
         // 그걸 「연결이 끊겨 중단됐다」로 칠한다. 접수까지 마친 신청이 화면에서
         // 실패로 보이던 원인이 이 두 줄의 순서였다.
+        // 준비 스트림과 같은 이유로, 종료 신호를 한 번은 반드시 보낸다.
+        if (!closed) {
+          emit({
+            type: "error",
+            error:
+              "신청이 종료 신호 없이 끝났습니다. 서버 로그의 [start/apply] 항목을 확인하세요.",
+          });
+        }
         emit({ type: "agent", agent: "browser", status: "done" });
         try {
           controller.close();

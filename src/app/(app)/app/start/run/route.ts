@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { hasDb } from "@/lib/db";
+import { guardProcess } from "@/lib/guard";
 
 import { MAX_FILE_BYTES } from "../_lib/fetch";
 import type { IntakeInput } from "../_lib/intake";
@@ -18,6 +19,8 @@ export const maxDuration = 600;
  * 1~2분 동안 화면이 죽어 보인다.
  */
 export async function POST(req: Request) {
+  // 떠 있는 프로미스 하나가 서버 전체를 내리지 않게. `src/lib/guard.ts` 참고
+  guardProcess();
   let form: FormData;
   try {
     form = await req.formData();
@@ -92,16 +95,44 @@ export async function POST(req: Request) {
         }
       }, 15_000);
 
+      /**
+       * 종료 신호를 **한 번은 반드시** 보낸다.
+       *
+       * `runStart` 안에 `end` 를 보내는 경로가 여럿이라, 하나만 빠져도 화면은
+       * 「서버가 종료 이벤트 없이 연결을 닫았다」로 끝난다 — 서버가 스스로
+       * 끝낸 것인지 죽은 것인지 사용자도 우리도 구분 못 한다. 여기서 마지막에
+       * 한 번 더 확인한다: 이미 보냈으면 아무 일도 안 하고, 안 보냈으면 이유를
+       * 지어내지 않고 「이유 없이 끝났다」고 그대로 적는다.
+       */
+      let closed = false;
+      const finish = (event: StartEvent) => {
+        if (closed) return;
+        closed = true;
+        emit(event);
+      };
+
       try {
-        await runStart(input, emit, { userId });
+        await runStart(
+          input,
+          (event) => {
+            if (event.type === "end" || event.type === "error") closed = true;
+            emit(event);
+          },
+          { userId },
+        );
       } catch (error) {
         // 서버 로그에도 남긴다. 화면 문구만으로는 스택을 볼 수 없다.
         console.error("[start/run] 파이프라인 예외", error);
-        emit({
+        finish({
           type: "error",
           error: error instanceof Error ? error.message : String(error),
         });
       } finally {
+        finish({
+          type: "error",
+          error:
+            "준비가 종료 신호 없이 끝났습니다. 서버 로그의 [start/run] 항목을 확인하세요.",
+        });
         clearInterval(beat);
         try {
           controller.close();
