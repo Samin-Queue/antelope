@@ -4,6 +4,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { z } from "zod";
 
 import { lanes } from "@/lib/ai/lanes";
+import { unitMatch } from "@/lib/ai/verify";
 import { pruneToolResults } from "@/lib/ai/window";
 import { chatModel } from "@/lib/llm";
 
@@ -85,6 +86,9 @@ const SNAPSHOT = `(() => {
       multiple: el.multiple === true,
       // 폼 밖으로 나가는 링크. 누르면 되돌아오느라 시간을 태운다.
       href: el.tagName === 'A' ? String(el.getAttribute('href') || '').slice(0, 200) : '',
+      // 되돌릴 수 없는 버튼. 규칙 문장이 아니라 **도구 구조**로 막는다.
+      isSubmit: (el.type === 'submit' && el.tagName !== 'A')
+        || /제출|신청하기|접수하기|최종\s*확인|결제|납부|가입하기/.test(String(label)),
     });
   }
   return { elements: out, text: (document.body?.innerText || '').replace(/\\n{2,}/g, '\\n').slice(0, 1800) };
@@ -106,6 +110,7 @@ type Snapshot = {
     accept: string;
     multiple: boolean;
     href: string;
+    isSubmit: boolean;
   }>;
   text: string;
 };
@@ -457,6 +462,18 @@ async function runPlaywrightAgentInLane(
             await record("fill", { ref, skipped: true }, message);
             return message;
           }
+          /**
+           * 라벨의 단위와 값의 자릿수를 **코드가** 본다.
+           *
+           * 예전에는 이걸 프롬프트 한 줄로 부탁했다. 규칙을 사이트마다 한 줄씩
+           * 더하면 규칙이 사이트 수만큼 늘고 서로 부딪친다 — 브라우저에게
+           * 물을 수 있는 것은 묻고, 셀 수 있는 것은 센다.
+           */
+          const unit = unitMatch(el.label, value);
+          if (unit.length) {
+            await record("fill", { ref, unit: true }, unit[0].message);
+            return `${unit[0].message} 값을 고쳐 다시 fill 한다.`;
+          }
           await locator.fill(value, { timeout: 10_000 });
           await settle(page, 400);
           await frame();
@@ -472,6 +489,19 @@ async function runPlaywrightAgentInLane(
         execute: async ({ ref }) => {
           await guard();
           const { el, locator } = locate(ref);
+          /**
+           * 되돌릴 수 없는 버튼은 `click` 으로 못 누른다.
+           *
+           * 프롬프트에 「제출은 신중히」라고 적어 두는 것과 도구를 안 주는 것은
+           * 다르다. `[폼 밖]` 링크를 이미 이렇게 막고 있다 — 같은 방식이다.
+           */
+          if (el.isSubmit) {
+            const message = allowSubmit
+              ? `"${el.label}" 는 제출 버튼이다. click 이 아니라 **submit** 도구로 누른다.`
+              : `"${el.label}" 는 제출 버튼이다. 이번 실행은 제출까지 가지 않는다 — 여기서 멈추고 보고한다.`;
+            await record("click", { ref, blocked: true }, message);
+            return message;
+          }
           if (el.checked) {
             const message = `"${el.label}" 는 이미 선택돼 있다. 다시 누르면 해제되므로 건너뛴다.`;
             await record("click", { ref, skipped: true }, message);
@@ -508,6 +538,91 @@ async function runPlaywrightAgentInLane(
           return message;
         },
       }),
+      /**
+       * 제출 — **값을 되읽어 대조한 뒤에만** 누른다.
+       *
+       * 성공 판정이 모델의 자기보고였다. 「신청을 마쳤다」는 문장 하나로
+       * `done` 이 나가고 사용자는 접수됐다고 믿는다. 여기서 두 가지를 코드가
+       * 한다: 누르기 전에 화면의 실제 값과 넘겨받은 사실을 맞춰 보고, 누른
+       * 뒤에 접수번호·완료 문구를 정규식으로 찾는다.
+       */
+      ...(allowSubmit
+        ? {
+            submit: tool({
+              description:
+                "신청서를 최종 제출한다. 모든 칸을 채운 뒤 마지막에 한 번만 부른다.",
+              inputSchema: z.object({ ref: z.string() }),
+              execute: async ({ ref }) => {
+                await guard();
+                const { el, locator } = locate(ref);
+
+                // 화면을 되읽어 지금 값이 무엇인지 본다. 모델의 기억이 아니라.
+                snapshot = (await page.evaluate(SNAPSHOT)) as Snapshot;
+                const blockers = snapshot.elements.filter(
+                  (item) =>
+                    item.invalid ||
+                    (item.required &&
+                      !item.value &&
+                      item.type !== "checkbox" &&
+                      item.type !== "radio") ||
+                    (item.required &&
+                      (item.type === "checkbox" || item.type === "radio") &&
+                      !item.checked),
+                );
+                if (blockers.length) {
+                  const message = [
+                    "제출하지 않았다. 아직 막는 것이 있다:",
+                    ...blockers.map(
+                      (item) =>
+                        `  ${item.ref} "${item.label}"${item.validationMessage ? ` — ${item.validationMessage}` : ""}`,
+                    ),
+                  ].join("\n");
+                  await record("submit", { ref, blocked: blockers.length }, message);
+                  return message;
+                }
+
+                // 넘겨받은 사실과 화면의 값이 다르면 그대로 보여 주고 멈춘다.
+                const differs = Object.entries(facts).filter(([label, want]) => {
+                  const field = snapshot.elements.find(
+                    (item) => normalize(item.label) === normalize(label),
+                  );
+                  return field && field.value && field.value.trim() !== want.trim();
+                });
+                if (differs.length) {
+                  const message = [
+                    "제출하지 않았다. 화면 값이 받은 사실과 다르다:",
+                    ...differs.map(([label, want]) => `  ${label}: 받은 값 "${want}"`),
+                    "값을 맞춘 뒤 다시 submit 한다.",
+                  ].join("\n");
+                  await record("submit", { ref, differs: differs.length }, message);
+                  return message;
+                }
+
+                await locator.click({ timeout: 15_000 });
+                await settle(page, 1_200);
+                await frame();
+                const after = (await page.evaluate(SNAPSHOT)) as Snapshot;
+                snapshot = after;
+
+                const receipt = after.text.match(
+                  /접수\s*(?:번호)?\s*[:：]?\s*([A-Za-z0-9-]{4,})/,
+                )?.[1];
+                const done = /신청이?\s*(완료|접수)|제출\s*(완료|되었)/.test(after.text);
+                const message = receipt
+                  ? `제출했다. 접수번호 ${receipt} 를 확인했다.`
+                  : done
+                    ? "제출했다. 완료 문구를 확인했다."
+                    : "제출 버튼을 눌렀지만 접수번호도 완료 문구도 못 찾았다. read 로 화면을 확인하고, 아직 안 됐으면 무엇이 남았는지 보고한다.";
+                await record(
+                  "submit",
+                  { ref, receipt: receipt ?? null, confirmed: Boolean(receipt || done) },
+                  message,
+                );
+                return message;
+              },
+            }),
+          }
+        : {}),
       upload: tool({
         description:
           "파일 업로드 칸에 준비된 파일을 넣는다. file 은 「준비된 파일」 목록의 이름 그대로 쓴다.",
@@ -606,13 +721,29 @@ async function runPlaywrightAgentInLane(
      * 직렬화를 잊을 자리가 없다.
      */
     let chain: Promise<unknown> = Promise.resolve();
-    for (const entry of Object.values(tools)) {
+    for (const [name, entry] of Object.entries(tools)) {
       const original = entry.execute as (...args: unknown[]) => Promise<unknown>;
       entry.execute = ((...args: unknown[]) => {
-        const next = chain.then(
-          () => original(...args),
-          () => original(...args),
-        );
+        const next = chain
+          .then(
+            () => original(...args),
+            () => original(...args),
+          )
+          .catch(async (error: unknown) => {
+            // 캡챠와 취소는 위로 올린다 — 루프를 끊어야 하는 것들이다.
+            // 여기서 문자열로 바꾸면 모델이 그걸 읽고 태연히 다음 조작을 한다.
+            if (error instanceof CaptchaFound || stop.signal.aborted) throw error;
+            if (error instanceof Error && /Abort|Timeout/i.test(error.name)) throw error;
+            /**
+             * 도구가 던지면 AI SDK 가 `tool-error` 로 바꿔 모델에게만 준다.
+             * 그래서 `fill`·`click` 타임아웃이 trace 에도 SSE 에도 안 남았다 —
+             * 화면에는 아무 일도 없었던 것처럼 보이고, 나중에 「왜 안 됐지」를
+             * 재구성할 수 없다. 여기서 기록하고 모델에게도 같은 말을 준다.
+             */
+            const text = error instanceof Error ? error.message : String(error);
+            await record(name, { failed: true }, text.slice(0, 300));
+            return `${name} 실패: ${text.slice(0, 200)}`;
+          });
         chain = next.then(
           () => undefined,
           () => undefined,
@@ -687,6 +818,21 @@ async function runPlaywrightAgentInLane(
 }
 
 class CaptchaFound extends Error {}
+
+/**
+ * 라벨 대조용 정규화.
+ *
+ * 「휴대전화 *」와 「휴대전화」는 같은 칸이고, 「사업자 등록 번호」와
+ * 「사업자등록번호」도 같다. `app/start` 의 `normalizeKey` 와 같은 규칙이지만
+ * 여기는 실험 폴더라 그쪽을 import 하면 의존 방향이 거꾸로 선다.
+ */
+function normalize(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[\s\-_·.,:()（）*※]/g, "")
+    .replace(/필수|선택/g, "")
+    .trim();
+}
 
 async function settle(page: Page, extraMs = 700) {
   await page
@@ -770,7 +916,7 @@ function systemPrompt(allowSubmit: boolean, hasArtifacts: boolean): string {
     "- **값이 없으면 지어내지 말고 `askUser` 로 묻는다.** 사용자가 화면을 보고 있으므로 바로 답이 온다.",
     "- **필요한 서류가 준비된 파일에 없으면 `makeFile` 로 만들게 한다.** 사업계획서·자기소개서처럼 작성하는 것은 만들어진다. 등록증·증명서 같은 발급 서류는 안 된다 — 그건 사람 몫이라고 보고한다.",
     "- 같은 곳에서 두 번 막혔으면 `replan` 을 부른다. 같은 시도를 세 번 반복하지 않는다.",
-    "- **라벨의 단위 표기를 그대로 따른다.** 「총사업비 (천원)」 에 1억을 넣으려면 `100000` 이다. 「%」·「백만원」·「개월」 도 같다.",
+    "- **라벨의 단위 표기를 그대로 따른다.** 「총사업비 (천원)」 에 1억을 넣으려면 `100000` 이다.",
     "- **막히면 추측하지 말고 diagnose 를 부른다.** 무엇이 비었고 무엇이 막고 있는지 브라우저가 직접 답한다. 「이전」 을 눌러 앞 단계를 뒤지기 전에 이걸 먼저 한다.",
     "- diagnose 가 「사람이 발급받아야 한다」 고 하면 더 밀지 않는다. 무엇이 없어 못 냈는지 보고하고 끝낸다.",
     "- `[미충족]` 이 붙은 칸은 브라우저가 값을 거부한 것이다. 같은 값을 다시 넣지 말고 형식을 바꾼다.",
@@ -779,7 +925,7 @@ function systemPrompt(allowSubmit: boolean, hasArtifacts: boolean): string {
     "- **계획서가 주어지면 그 순서를 따른다.** 계획에 없는 곳으로 가지 않는다.",
     "- **「사람이 직접 해야 하는 것」에 적힌 일은 시도하지 않는다.** 증명서 발급·본인인증·서류 작성은 네 몫이 아니다. 그 자리에 오면 건너뛰고 마지막에 보고한다.",
     allowSubmit
-      ? "- 결제·회원 탈퇴처럼 되돌릴 수 없는 조작은 하지 않는다. 단, **신청서 제출 버튼은 누른다** — 제출까지가 목표다. 제출 뒤 접수번호나 완료 문구가 보이면 read 로 확인하고 보고한다."
+      ? "- **제출은 `submit` 도구로만** 한다. 모든 칸을 채운 뒤 마지막에 한 번. 그 도구가 화면 값을 되읽어 대조하고 접수번호까지 확인해 준다 — 「제출했다」고 스스로 판단하지 않는다."
       : "- 결제·최종 제출·회원 탈퇴처럼 되돌릴 수 없는 버튼은 누르지 않는다. 직전에서 멈추고 보고한다.",
     "- 목표를 달성했거나 더 진행할 수 없으면 도구 호출을 멈추고 무엇을 했는지 한국어로 요약한다.",
     "  채우지 못한 항목과 그 이유(값 없음·파일 필요)를 반드시 적는다.",
