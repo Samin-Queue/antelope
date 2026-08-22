@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
 
+import { laneGauges } from "@/lib/ai/lanes";
+import { summary } from "@/lib/ai/ledger";
 import { hasDb } from "@/lib/db";
 import { llmInfo } from "@/lib/llm";
 
@@ -53,10 +55,25 @@ async function memory() {
 
 export async function GET() {
   return Response.json({
+    // `ok` 는 **프로세스 생존**만 뜻한다. Railway healthcheck 가 이 응답을
+    // 보므로 상류 순단으로 롤백이 걸리면 안 된다 — 상류 상태는 아래에 따로 쓴다.
     ok: true,
     commit: process.env.RAILWAY_GIT_COMMIT_SHA ?? null,
     db: hasDb() ? "configured" : "missing",
     llm: llmInfo(),
+    /**
+     * 최근 10분의 모델 왕복.
+     *
+     * 이게 없던 동안 「어느 단계가 비싼가」에 대한 모든 답이 추정이었다.
+     */
+    ai: summary(600_000),
+    /**
+     * 자원 게이지.
+     *
+     * 단일 실행 프로파일러만 있으면 이 시스템이 실제로 죽는 방식(동시 2건에서
+     * Chromium OOM, 레인 대기 적체)은 안 잡힌다.
+     */
+    lanes: laneGauges(),
     memory: await memory(),
     uptimeSec: Math.round(process.uptime()),
   });

@@ -1,3 +1,4 @@
+import { meteredFetch } from "@/lib/ai/meter";
 import { env, required } from "@/lib/env";
 
 /**
@@ -59,7 +60,7 @@ export type StudioAgent = { id: string; name?: string };
 export type StudioConfig = { id: string; external_id?: string };
 
 export async function createAgent(name: string): Promise<StudioAgent> {
-  const response = await fetch(`${BASE}/agents`, {
+  const response = await meteredFetch(`${BASE}/agents`, {
     method: "POST",
     headers: { ...authHeader(), "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
@@ -76,7 +77,7 @@ export async function createConfig(opts: {
   steps: Step[];
   isDefault?: boolean;
 }): Promise<StudioConfig> {
-  const response = await fetch(`${BASE}/agents/${opts.agentId}/configs`, {
+  const response = await meteredFetch(`${BASE}/agents/${opts.agentId}/configs`, {
     method: "POST",
     headers: { ...authHeader(), "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -100,7 +101,7 @@ export async function uploadFile(
   form.append("file", file, filename ?? (file as File).name ?? "document");
   form.append("purpose", "user_data");
 
-  const response = await fetch(`${BASE}/files`, {
+  const response = await meteredFetch(`${BASE}/files`, {
     method: "POST",
     headers: authHeader(),
     body: form,
@@ -126,7 +127,7 @@ export async function createJob(opts: {
   agentId: string;
   fileId: string;
 }): Promise<StudioJob> {
-  const response = await fetch(`${BASE}/responses`, {
+  const response = await meteredFetch(`${BASE}/responses`, {
     method: "POST",
     headers: { ...authHeader(), "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -164,7 +165,7 @@ export async function waitForJob(
   const include = opts.include ?? "all";
 
   while (Date.now() < deadline) {
-    const response = await fetch(`${BASE}/responses/${jobId}?include=${include}`, {
+    const response = await meteredFetch(`${BASE}/responses/${jobId}?include=${include}`, {
       headers: authHeader(),
     });
     if (!response.ok) {

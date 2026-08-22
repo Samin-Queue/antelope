@@ -210,6 +210,8 @@ export type StartEvent =
       stage: Stage;
       status: "start" | "done" | "error" | "skip";
       detail?: string;
+      /** 이 단계가 실제로 걸린 시간. 어디가 느린지는 추측이 아니라 이 값이 답한다 */
+      ms?: number;
     }
   /** 어느 카드의 로그인지. 없으면 화면 전체 로그 */
   | { type: "log"; stage?: Stage; text: string }

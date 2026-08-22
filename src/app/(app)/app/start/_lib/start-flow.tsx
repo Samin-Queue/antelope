@@ -28,6 +28,7 @@ import {
   APPLY_URL_KEY,
   CARD_OF,
   PLAN_OWNER_LABEL,
+  STAGE_LABEL,
   type AgentKey,
   type ApplyEvent,
   type Artifact,
@@ -35,6 +36,7 @@ import {
   type FileInfo,
   type Need,
   type Plan,
+  type Stage,
   type StartEvent,
 } from "./types";
 
@@ -131,6 +133,16 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   /** 서버가 말해 준 것만 켠다 — 단계 사이 공백이 여기서 메워진다 */
   const [orchestrating, setOrchestrating] = useState(false);
   /**
+   * 서버가 흘리는 진단.
+   *
+   * 서버는 모든 `ctx.log` 를 `log` 이벤트로 보내는데 화면이 그걸 통째로 버리고
+   * 있었다. 「유효성 검사 실패 — Solar 로 대체」처럼 **결과를 가르는 결정**이
+   * 서버 콘솔에만 남고, 사용자는 왜 그렇게 됐는지 알 방법이 없었다.
+   */
+  const [diagnostics, setDiagnostics] = useState<
+    Array<{ stage?: Stage; text: string; ms?: number }>
+  >([]);
+  /**
    * 서술자가 지금까지 한 말. 준비와 신청이 요청 두 개로 갈려 있어서 클라이언트가
    * 들고 있다가 신청 요청에 실어 보낸다 — 그래야 맥락이 이어진다.
    */
@@ -226,6 +238,19 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           patchStage(event.stage, {
             status: event.status === "start" ? "running" : event.status,
           });
+          if (event.status !== "start") {
+            setDiagnostics((prev) => [
+              ...prev,
+              {
+                stage: event.stage,
+                text: `${STAGE_LABEL[event.stage].title} ${event.status}${event.detail ? ` — ${event.detail}` : ""}`,
+                ms: event.ms,
+              },
+            ]);
+          }
+          break;
+        case "log":
+          setDiagnostics((prev) => [...prev, { stage: event.stage, text: event.text }]);
           break;
         case "orchestrator":
           setOrchestrating(event.status === "start");
@@ -602,6 +627,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           </p>
         )}
 
+        <Diagnostics lines={diagnostics} />
+
         {/* 실패한 뒤에도 폼으로 돌아갈 수 있어야 한다. `idle` 만 허용했을 때는
             신청이 한 번 깨지면 에러 문구만 남고 되돌아갈 길이 없었다. */}
         {prepared &&
@@ -669,6 +696,45 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         result={apply.summary}
       />
     </div>
+  );
+}
+
+/**
+ * 서버 진단 — 접어 둔다.
+ *
+ * 서버는 단계마다 무엇을 왜 그렇게 했는지 `log` 로 흘리고 있었는데 화면이
+ * 그것을 통째로 버렸다. 「유효성 검사 실패 — Solar 로 대체」·「지식베이스에서
+ * 3개 채움」 같은 결정이 서버 콘솔에만 남아, 사용자도 우리도 왜 그 결과가
+ * 나왔는지 알 수 없었다. 기본은 접힌 상태다 — 평소엔 볼 것이 아니고, 무언가
+ * 이상할 때 **그 자리에서** 열려야 하는 것이다.
+ */
+function Diagnostics({
+  lines,
+}: {
+  lines: Array<{ stage?: Stage; text: string; ms?: number }>;
+}) {
+  if (lines.length === 0) return null;
+  const total = lines.reduce((sum, line) => sum + (line.ms ?? 0), 0);
+  return (
+    <details className="rounded-lg border border-border/60 bg-muted/30">
+      <summary className="cursor-pointer px-4 py-2 text-xs text-muted-foreground select-none">
+        서버 진단 {lines.length}줄
+        {total > 0 ? ` · 단계 합계 ${(total / 1000).toFixed(1)}초` : ""}
+      </summary>
+      <ul className="max-h-64 space-y-0.5 overflow-y-auto px-4 pt-1 pb-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+        {lines.map((line, index) => (
+          <li key={index} className="break-words">
+            {line.stage && (
+              <span className="text-brand">{STAGE_LABEL[line.stage].title} </span>
+            )}
+            {line.text}
+            {line.ms !== undefined && (
+              <span className="tabular-nums"> · {(line.ms / 1000).toFixed(1)}초</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

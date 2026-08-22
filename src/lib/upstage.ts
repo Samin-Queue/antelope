@@ -1,3 +1,4 @@
+import { meteredFetch } from "@/lib/ai/meter";
 import { required } from "@/lib/env";
 
 /**
@@ -18,7 +19,9 @@ async function post(
   body: BodyInit,
   extraHeaders: Record<string, string> = {},
 ) {
-  const response = await fetch(`${BASE}${path}`, {
+  // Document Parse·임베딩도 청구된다. 원장에 안 들어가면 「무엇이 비싼가」의
+  // 절반이 안 보인다 — 이 API 는 AI SDK 를 안 타므로 여기서 직접 건다.
+  const response = await meteredFetch(`${BASE}${path}`, {
     method: "POST",
     headers: { ...authHeader(), ...extraHeaders },
     body,

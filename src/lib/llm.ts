@@ -1,6 +1,7 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
 
+import { meteredFetch } from "@/lib/ai/meter";
 import { env } from "@/lib/env";
 
 /**
@@ -93,8 +94,39 @@ export function llmInfo(): ResolvedLlm | { error: string } {
   }
 }
 
+/**
+ * 프로바이더 인스턴스는 **한 번만 만든다.**
+ *
+ * 호출마다 새로 만들면 그때마다 fetch 훅과 내부 상태가 새로 생긴다. 키가
+ * 같으면 같은 것을 쓴다 — 키는 캐시 키에 해시로만 들어간다.
+ */
+const clients = new Map<string, ReturnType<typeof createOpenAICompatible>>();
+
+function clientFor(
+  provider: ProviderId,
+  baseURL: string,
+  apiKey: string,
+  headers?: Record<string, string>,
+) {
+  const key = `${provider}|${baseURL}|${apiKey.length}|${apiKey.slice(-6)}|${JSON.stringify(headers ?? {})}`;
+  let client = clients.get(key);
+  if (!client) {
+    client = createOpenAICompatible({
+      name: provider,
+      baseURL,
+      apiKey,
+      headers,
+      // 토큰이 응답에 실려 오게 한다. 이게 없으면 원장이 지연만 안다.
+      includeUsage: true,
+      // 계측의 **유일한** 훅 지점. 호출부 21곳을 안 고치고 전부 잡힌다.
+      fetch: meteredFetch,
+    });
+    clients.set(key, client);
+  }
+  return client;
+}
+
 export function chatModel(overrideModel?: string): LanguageModel {
   const { provider, baseURL, apiKey, model, headers } = resolve();
-  const client = createOpenAICompatible({ name: provider, baseURL, apiKey, headers });
-  return client.chatModel(overrideModel ?? model);
+  return clientFor(provider, baseURL, apiKey, headers).chatModel(overrideModel ?? model);
 }

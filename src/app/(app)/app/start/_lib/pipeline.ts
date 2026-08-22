@@ -1,4 +1,6 @@
 import { lanes } from "@/lib/ai/lanes";
+import { table } from "@/lib/ai/ledger";
+import { withTask } from "@/lib/ai/meter";
 
 import { analyze } from "./analyze";
 import type { IntakeFile } from "./fetch";
@@ -88,11 +90,17 @@ export async function runStart(
    */
   const history: NarrationTurn[] = [];
 
+  // 이번 실행이 만든 파일을 담을 곳이자 원장의 귀속 키. 세션 id 는 맨 끝에 만든다.
+  const runId = crypto.randomUUID();
+  emit({ type: "run", runId });
+
   /** 사실은 코드가 뽑아 넘긴다. 서술자가 산출물을 추측하지 않게 */
   const tell = async (card: CardKey, facts: string, reason?: string) => {
     emit({ type: "orchestrator", status: "start" });
     try {
-      const said = await narrate({ card, facts, history, reason }, ctx);
+      const said = await withTask({ task: "narrate", runId }, () =>
+        narrate({ card, facts, history, reason }, ctx),
+      );
       if (!said) return;
       history.push({ card, ...said });
       emit({ type: "card", card, headline: said.headline, body: said.body });
@@ -100,15 +108,16 @@ export async function runStart(
       emit({ type: "orchestrator", status: "done" });
     }
   };
-  // 이번 실행이 만든 파일을 담을 곳. 세션 id 는 아직 없다(맨 끝에 만든다).
-  const runId = crypto.randomUUID();
-  emit({ type: "run", runId });
-
   // 세션에 그대로 실린다 — 다시 열었을 때 진행 레일을 같은 모양으로 그린다.
   const stages: SessionSnapshot["stages"] = {};
-  const mark = (id: Stage, status: "done" | "error" | "skip", detail?: string) => {
+  const mark = (
+    id: Stage,
+    status: "done" | "error" | "skip",
+    detail?: string,
+    ms?: number,
+  ) => {
     stages[id] = status;
-    emit({ type: "stage", stage: id, status, detail });
+    emit({ type: "stage", stage: id, status, detail, ms });
   };
 
   const stage = async <T>(
@@ -118,12 +127,19 @@ export async function runStart(
   ): Promise<T | null> => {
     current = id;
     emit({ type: "stage", stage: id, status: "start" });
+    const started = performance.now();
     try {
-      const value = await withTimeout(task(), limitMs, id);
-      mark(id, "done");
+      // `withTask` 안에서 일어난 모든 모델 왕복이 이 단계 이름으로 원장에 잡힌다.
+      const value = await withTimeout(withTask({ task: id, runId }, task), limitMs, id);
+      mark(id, "done", undefined, Math.round(performance.now() - started));
       return value;
     } catch (error) {
-      mark(id, "error", error instanceof Error ? error.message : String(error));
+      mark(
+        id,
+        "error",
+        error instanceof Error ? error.message : String(error),
+        Math.round(performance.now() - started),
+      );
       return null;
     }
   };
@@ -245,9 +261,11 @@ export async function runStart(
   // 단계 밖이라 `stage()` 의 보호를 못 받는다. 모델 호출이므로 여기도 상한을
   // 건다 — 매달리면 카드는 하나도 안 도는데 화면만 멈춰 더 헷갈린다.
   const reconciled = await withTimeout(
-    reconcileNeeds(
-      analysis?.needs ?? [],
-      researchNeeds.filter((need) => need.key !== APPLY_URL_KEY),
+    withTask({ task: "reconcile", runId }, () =>
+      reconcileNeeds(
+        analysis?.needs ?? [],
+        researchNeeds.filter((need) => need.key !== APPLY_URL_KEY),
+      ),
     ),
     STAGE_TIMEOUT_MS,
     "항목 병합",
@@ -430,6 +448,8 @@ export async function runStart(
     needs: filled,
   });
   emit({ type: "end", reason: "ready" });
+  // 개발 중에는 런 하나의 단계별 토큰·지연을 그 자리에서 본다.
+  table(runId);
 }
 
 /**
