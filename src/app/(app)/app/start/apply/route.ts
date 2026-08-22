@@ -20,9 +20,31 @@ import type { AgentKey, ApplyEvent, CardKey, Need, Plan } from "../_lib/types";
 export const dynamic = "force-dynamic";
 export const maxDuration = 900;
 
+/**
+ * 길면 **자른다**. 거절하지 않는다.
+ *
+ * 스키마가 열 몇 개 필드를 전부 똑같이 엄격하게 받고 있었다. 준비 문서가 길거나
+ * 제목이 긴 것처럼 신청 자체와 무관한 이유로 400 이 나고, 화면에는 「applyUrl·
+ * title·facts 가 필요합니다」만 떠서 원인을 좁힐 수도 없었다.
+ *
+ * 요청이 없으면 못 도는 것(`applyUrl`·`facts`·`runId`)만 거절할 수 있고,
+ * 나머지 맥락은 잘라서 받는다.
+ *
+ * ⚠ 맥락 필드는 전부 `.nullish()` 다. `.optional()` 은 undefined 만 받는데
+ *   클라이언트 상태가 `string | null` 이라 `null` 이 그대로 실려 온다 —
+ *   실제로 `brief: null` 하나 때문에 신청이 400 으로 죽었다.
+ */
+const clamped = (max: number) => z.string().transform((text) => text.slice(0, max));
+
 const body = z.object({
-  applyUrl: z.string().url(),
-  title: z.string().min(1).max(200),
+  /**
+   * 사람이 직접 칠 수 있는 값이라 여기서는 「비어 있지 않다」만 본다.
+   * 스킴 누락 같은 건 `normalizeUrl` 이 손보고, 그래도 안 되면 입력값을
+   * 그대로 보여 주며 거절한다 — `.url()` 로 여기서 튕기면 무엇이 틀렸는지
+   * 알 수 없다.
+   */
+  applyUrl: z.string().min(1),
+  title: clamped(200).nullish(),
   facts: z.record(z.string(), z.string()),
   /**
    * 계획 에이전트가 세운 순서를 문자열로 옮긴 것.
@@ -31,10 +53,16 @@ const body = z.object({
    */
   plan: z
     .object({
-      browser: z.array(z.string().max(300)).max(8).optional(),
-      human: z.array(z.string().max(300)).max(8).optional(),
+      browser: z
+        .array(clamped(300))
+        .nullish()
+        .transform((list) => list?.slice(0, 8)),
+      human: z
+        .array(clamped(300))
+        .nullish()
+        .transform((list) => list?.slice(0, 8)),
     })
-    .optional(),
+    .nullish(),
   /**
    * 파일 에이전트가 만들어 둔 파일. `path` 는 컨테이너 안 경로라 같은
    * 인스턴스에서만 유효하다 — 없으면 업로드 칸을 건너뛴다.
@@ -42,22 +70,25 @@ const body = z.object({
   artifacts: z
     .array(
       z.object({
-        label: z.string().max(120),
-        filename: z.string().max(200),
-        path: z.string().max(500),
+        label: clamped(120),
+        filename: clamped(200),
+        path: clamped(500),
       }),
     )
-    .max(12)
-    .optional(),
+    .nullish()
+    .transform((list) => list?.slice(0, 12) ?? undefined),
   /** 사용자가 이 실행에 개입할 때 쓰는 id. 클라이언트가 만들어 보낸다 */
   runId: z.string().min(8).max(64),
   /** 이 신청이 속한 세션(goals.id). 결과를 여기에 남긴다 */
   sessionId: z.string().uuid().nullish(),
   /** 되부르기에 필요한 재료 — 마스터 테이블과 준비 문서 */
-  needs: z.array(z.record(z.string(), z.unknown())).max(200).optional(),
-  brief: z.string().max(40_000).optional(),
-  organization: z.string().max(200).nullish(),
-  deadline: z.string().max(40).nullish(),
+  needs: z
+    .array(z.record(z.string(), z.unknown()))
+    .nullish()
+    .transform((list) => list?.slice(0, 200) ?? undefined),
+  brief: clamped(40_000).nullish(),
+  organization: clamped(200).nullish(),
+  deadline: clamped(40).nullish(),
   /**
    * 준비 단계에서 서술자가 이미 한 말. 스트림이 둘로 갈려 있어서 클라이언트를
    * 거쳐 넘긴다 — 이게 없으면 신청 단계 서술이 매번 처음부터 다시 설명한다.
@@ -65,14 +96,49 @@ const body = z.object({
   narration: z
     .array(
       z.object({
-        card: z.string().max(20),
-        headline: z.string().max(200),
-        body: z.string().max(2000),
+        card: clamped(20),
+        headline: clamped(200),
+        body: clamped(2000),
       }),
     )
-    .max(20)
-    .optional(),
+    .nullish()
+    .transform((list) => list?.slice(-20) ?? undefined),
 });
+
+/**
+ * 사람이 친 주소를 받아 준다.
+ *
+ * 스킴 없이 `www.k-startup.go.kr/...` 로 치는 것이 흔한데, `z.string().url()` 은
+ * 그 자리에서 튕긴다. 붙여 보고 다시 판정한다. http(s) 가 아니면 거절한다 —
+ * `javascript:` 같은 것을 브라우저에 넘길 수는 없다.
+ */
+function normalizeUrl(raw: string): string | null {
+  const text = raw.trim();
+  if (!text) return null;
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(text)) {
+    try {
+      const url = new URL(text);
+      return url.protocol === "http:" || url.protocol === "https:"
+        ? url.toString()
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 스킴이 없다. 붙여 보되 **호스트가 도메인처럼 생겼을 때만** 받는다.
+  // 아무 글자에나 붙이면 한글 문장도 IDN 호스트로 성립한다 — 실측에서
+  // 「채워야함」 이 https://xn--2f5b1x83jr1k/ 가 되어 브라우저가 거기로 갔다.
+  // 퓨니코드로 바뀐 한 덩어리에는 점이 없으므로 이 검사에서 걸린다.
+  try {
+    const url = new URL(`https://${text}`);
+    if (!/^[^\s.]+(\.[^\s.]+)*\.[a-z]{2,}$/i.test(url.hostname)) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
 
 /** 신청이 끝난 뒤 화면을 이만큼 더 남긴다. 접수 완료 화면을 사람이 봐야 한다 */
 const LINGER_MS = 90_000;
@@ -91,13 +157,27 @@ const LINGER_MS = 90_000;
 export async function POST(req: Request) {
   const parsed = body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
+    // 어느 필드가 왜 걸렸는지 말한다. 「applyUrl·title·facts 가 필요합니다」만
+    // 띄우면 실제 원인이 다른 필드일 때 엉뚱한 데를 뒤지게 된다.
+    const issue = parsed.error.issues[0];
+    const where = issue?.path.join(".") || "요청";
     return Response.json(
-      { error: "applyUrl·title·facts 가 필요합니다." },
+      { error: `요청이 올바르지 않습니다 — ${where}: ${issue?.message ?? "형식 오류"}` },
       { status: 400 },
     );
   }
-  const { applyUrl, title, facts, plan, runId, brief, organization, deadline } =
-    parsed.data;
+  const applyUrl = normalizeUrl(parsed.data.applyUrl);
+  if (!applyUrl) {
+    return Response.json(
+      {
+        error: `신청 URL 이 올바르지 않습니다: ${parsed.data.applyUrl.slice(0, 120)}`,
+      },
+      { status: 400 },
+    );
+  }
+  const { facts, runId, brief, organization, deadline } = parsed.data;
+  const plan = parsed.data.plan ?? undefined;
+  const title = parsed.data.title?.trim() || "제목 미상";
   const history = (parsed.data.narration ?? []) as NarrationTurn[];
   const goalId = parsed.data.sessionId ?? null;
   // 스트림이 시작되기 전에 읽는다 — `headers()` 는 요청 스코프 안에서만 유효하다.
