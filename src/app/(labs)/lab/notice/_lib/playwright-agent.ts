@@ -3,6 +3,7 @@ import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import { chromium, type Browser, type Page } from "playwright";
 import { z } from "zod";
 
+import { lanes } from "@/lib/ai/lanes";
 import { chatModel } from "@/lib/llm";
 
 import { findCaptcha } from "./captcha";
@@ -160,6 +161,14 @@ export async function runPlaywrightAgent(opts: {
   onStep?: (entry: TraceEntry) => void;
   onFrame?: (image: string, url: string) => void;
 }): Promise<PlaywrightRun> {
+  // Chromium 을 띄우는 모든 것이 같은 레인을 쓴다. 상한 없이 병렬로 뜨면
+  // 컨테이너가 로그 한 줄 없이 죽는다 — 증상이 「스트림이 조용히 끊김」이다.
+  return lanes.browser(() => runPlaywrightAgentInLane(opts));
+}
+
+async function runPlaywrightAgentInLane(
+  opts: Parameters<typeof runPlaywrightAgent>[0],
+): Promise<PlaywrightRun> {
   const {
     goal,
     facts = {},
@@ -807,7 +816,13 @@ function promptFor(
  * 신청을 시작하기 전에 어느 모드로 갈지 정하는 데 쓴다. 여는 비용이 아깝지만,
  * 잘못 골라 자동 모드로 갔다가 캡챠 앞에서 헛도는 것보다 훨씬 싸다.
  */
-export async function probeCaptcha(
+export function probeCaptcha(
+  url: string,
+): Promise<{ found: boolean; reason: string | null }> {
+  return lanes.browser(() => probeCaptchaInLane(url));
+}
+
+async function probeCaptchaInLane(
   url: string,
 ): Promise<{ found: boolean; reason: string | null }> {
   let browser: Browser | null = null;

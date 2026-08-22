@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
-import { chromium } from "playwright";
+import { chromium, type Browser } from "playwright";
+
+import { lanes } from "@/lib/ai/lanes";
 
 import { plain, type Block, type Inline } from "./blocks";
 
@@ -10,25 +12,43 @@ import { plain, type Block, type Inline } from "./blocks";
  */
 const SYSTEM_CHROMIUM = "/usr/bin/chromium";
 
-export async function renderPdf(blocks: Block[], title: string): Promise<Buffer> {
+/**
+ * 브라우저는 **한 번만 띄운다.**
+ *
+ * 문서마다 launch/close 하고 있었고, `pdfCopy` 가 한 번 더 한다. 문서 작성이
+ * 병렬로 바뀌면 3편 = Chromium 6개가 동시에 뜬다 — 이 컨테이너에서 먼저 죽는
+ * 자원이 정확히 그것이다. 인스턴스를 재사용하고 페이지만 새로 연다.
+ */
+let shared: Browser | null = null;
+
+async function browser(): Promise<Browser> {
+  if (shared?.isConnected()) return shared;
   const executablePath = existsSync(SYSTEM_CHROMIUM) ? SYSTEM_CHROMIUM : undefined;
-  const browser = await chromium.launch({
+  shared = await chromium.launch({
     headless: true,
     ...(executablePath
       ? { executablePath, args: ["--no-sandbox", "--disable-dev-shm-usage"] }
       : {}),
   });
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html(blocks, title), { waitUntil: "load" });
-    return await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "20mm", bottom: "20mm", left: "18mm", right: "18mm" },
-    });
-  } finally {
-    await browser.close().catch(() => {});
-  }
+  return shared;
+}
+
+export function renderPdf(blocks: Block[], title: string): Promise<Buffer> {
+  // 브라우저 레인 아래에서만 돈다. 신청용 Playwright·Xvfb 와 **같은** 레인이다 —
+  // 종류별로 나누면 합이 상한을 넘는다.
+  return lanes.browser(async () => {
+    const page = await (await browser()).newPage();
+    try {
+      await page.setContent(html(blocks, title), { waitUntil: "load" });
+      return await page.pdf({
+        format: "A4",
+        printBackground: true,
+        margin: { top: "20mm", bottom: "20mm", left: "18mm", right: "18mm" },
+      });
+    } finally {
+      await page.close().catch(() => {});
+    }
+  });
 }
 
 function html(blocks: Block[], title: string): string {

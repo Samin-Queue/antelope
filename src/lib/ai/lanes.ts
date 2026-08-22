@@ -57,8 +57,13 @@ const interactive = new Semaphore("interactive", 4);
 /** 사람이 당장 안 보는 것 — 문서 작성처럼 */
 const batch = new Semaphore("batch", 2);
 /**
- * Chromium 을 띄우는 모든 것. `probeCaptcha`·`runPlaywrightAgent`·`renderPdf`·
- * Xvfb 세션이 **같은** 레인을 쓴다. 종류별로 나누면 합이 상한을 넘는다.
+ * **수명이 정해진** Chromium — `probeCaptcha`·`runPlaywrightAgent`·`renderPdf`.
+ * 셋이 같은 레인을 쓴다. 종류별로 나누면 합이 상한을 넘는다.
+ *
+ * ⚠ Xvfb 수동 세션(`desktop.ts`)은 **여기 넣지 않는다.** 그 세션은 함수가
+ * 끝난 뒤에도 최대 15분 살아 있으므로, 레인을 잡고 있으면 다음 신청이
+ * 「거절」이 아니라 **무한 대기**가 된다. 그쪽은 자기 상한(`MAX_SESSIONS = 2`)
+ * 으로 즉시 거절한다 — 기다리게 하는 것보다 낫다. 합쳐서 최악 4개다.
  */
 const browser = new Semaphore("browser", 2);
 

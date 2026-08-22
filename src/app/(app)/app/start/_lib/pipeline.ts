@@ -80,6 +80,15 @@ export async function runStart(
   // 실행 중인 단계를 여기에 남긴다.
   let current: Stage = "intake";
   const ctx: Ctx = { log: (text) => emit({ type: "log", stage: current, text }) };
+  /**
+   * 단계 이름을 고정한 ctx.
+   *
+   * 두 단계가 **동시에** 돌면 `current` 하나로는 로그가 섞인다 — 계획이 쓴
+   * 줄이 서류 카드에 뜨는 식이다. 병렬 구간에서는 이걸 쓴다.
+   */
+  const ctxOf = (id: Stage): Ctx => ({
+    log: (text) => emit({ type: "log", stage: id, text }),
+  });
 
   /**
    * 서술자의 기억.
@@ -301,9 +310,16 @@ export async function runStart(
     gathered.pages[0]?.title ??
     "제목 미상";
 
-  // 7 — 계획. 마스터 테이블이 확정된 뒤에 세운다 — 무엇을 사용자에게 물어야
-  // 하는지가 계획의 일부이기 때문이다.
-  const plan = await stage("plan", () =>
+  /**
+   * 7·8 — 계획과 서류를 **나란히** 세운다.
+   *
+   * 둘 다 마스터 테이블이 확정된 뒤에 시작하지만, 서로의 출력은 안 본다 —
+   * `documents` 가 받는 것은 `{title, organization, brief, filled}` 뿐이고
+   * 계획은 거기 없다. 직렬로 두면 짧은 쪽만큼이 그냥 사라진다.
+   *
+   * `stage()` 가 각자 자기 실패를 삼키므로 `Promise.all` 이 던질 일은 없다.
+   */
+  const planTask = stage("plan", () =>
     makePlan(
       {
         title,
@@ -315,25 +331,12 @@ export async function runStart(
         needs: filled,
         today: new Date().toISOString().slice(0, 10),
       },
-      ctx,
+      ctxOf("plan"),
     ),
   );
-  if (plan) emit({ type: "plan", plan });
-  await tell(
-    "plan",
-    plan
-      ? [
-          `${plan.steps.length}단계로 세웠다.`,
-          ...plan.steps.map(
-            (step) =>
-              `  ${step.title} — 담당 ${step.owner}${step.dueDate ? ` · ${step.dueDate}` : ""}`,
-          ),
-        ].join("\n")
-      : "계획을 세우지 못했다.",
-  );
-
   // 8 — 서류 작성. 발급 서류는 손대지 않는다 — 만들면 위조다.
-  const artifacts = await stage("documents", async () => {
+  const documentsTask = stage("documents", async () => {
+    const ctx = ctxOf("documents");
     const brief = analysis?.brief ?? summary.markdown;
     const dir = artifactDir(runId);
 
@@ -402,6 +405,23 @@ export async function runStart(
     made.push(...written.flat());
     return made;
   });
+
+  const [plan, artifacts] = await Promise.all([planTask, documentsTask]);
+
+  if (plan) emit({ type: "plan", plan });
+  await tell(
+    "plan",
+    plan
+      ? [
+          `${plan.steps.length}단계로 세웠다.`,
+          ...plan.steps.map(
+            (step) =>
+              `  ${step.title} — 담당 ${step.owner}${step.dueDate ? ` · ${step.dueDate}` : ""}`,
+          ),
+        ].join("\n")
+      : "계획을 세우지 못했다.",
+  );
+
   if (artifacts?.length) emit({ type: "artifacts", artifacts });
   await tell(
     "file",

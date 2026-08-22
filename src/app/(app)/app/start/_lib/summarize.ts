@@ -1,6 +1,7 @@
 import { generateObject, generateText } from "ai";
 import { z } from "zod";
 
+import { lanes } from "@/lib/ai/lanes";
 import { env } from "@/lib/env";
 import { parseDocument } from "@/lib/upstage";
 import { findStep, runAgent, stepOutputs } from "@/lib/upstage-studio";
@@ -33,35 +34,47 @@ export type Summary = { markdown: string; via: string; parts: SummaryPart[] };
 const SECTIONS = "'# 문서 요약', '## 핵심 내용', '## 실행 정보', '## 확인 필요'";
 
 export async function summarize(intake: Intake, ctx: Ctx): Promise<Summary> {
-  const parts: SummaryPart[] = [];
-
-  for (const file of intake.files) {
-    parts.push(await summarizeFile(file, ctx));
-  }
-  for (const page of intake.pages) {
-    const name = page.title || page.url;
-    if (page.text.length < 20) {
-      parts.push({ name, markdown: "", via: "fetch", chars: page.text.length });
-      ctx.log(`페이지 본문이 비어 있음: ${name}`);
-      continue;
-    }
-    ctx.log(`페이지 요약 (Solar): ${name}`);
-    parts.push({
-      name,
-      markdown: await solarSummary(page.text, `웹페이지 「${name}」`),
-      via: "solar",
-      chars: page.text.length,
-    });
-  }
-  if (intake.sourceText && intake.sourceText.length >= 20) {
-    ctx.log("입력한 문장 요약 (Solar)");
-    parts.push({
-      name: "입력한 내용",
-      markdown: await solarSummary(intake.sourceText, "사용자가 직접 쓴 설명"),
-      via: "solar",
-      chars: intake.sourceText.length,
-    });
-  }
+  /**
+   * 나란히 돌린다.
+   *
+   * 파일·페이지·문장은 서로의 출력을 참조하지 않는데 직렬로 돌고 있었다.
+   * Studio job 하나가 45~180초라 이건 단순히 느린 게 아니라 **런을 죽인다** —
+   * `stage("summarize")` 는 240초에 잘리므로 파일 2~3개면 요약이 통째로
+   * 실패하고 파이프라인이 「요약에 실패했습니다」로 끝난다.
+   *
+   * 상한은 레인이 건다. 무제한으로 풀면 상류 rate limit 과 컨테이너 메모리를
+   * 동시에 건드린다. 순서는 `Promise.all` 이 보존한다.
+   */
+  const parts: SummaryPart[] = await Promise.all([
+    ...intake.files.map((file) => lanes.studio(() => summarizeFile(file, ctx))),
+    ...intake.pages.map(async (page): Promise<SummaryPart> => {
+      const name = page.title || page.url;
+      if (page.text.length < 20) {
+        ctx.log(`페이지 본문이 비어 있음: ${name}`);
+        return { name, markdown: "", via: "fetch", chars: page.text.length };
+      }
+      ctx.log(`페이지 요약 (Solar): ${name}`);
+      return lanes.interactive(async () => ({
+        name,
+        markdown: await solarSummary(page.text, `웹페이지 「${name}」`),
+        via: "solar",
+        chars: page.text.length,
+      }));
+    }),
+    ...(intake.sourceText && intake.sourceText.length >= 20
+      ? [
+          lanes.interactive(async (): Promise<SummaryPart> => {
+            ctx.log("입력한 문장 요약 (Solar)");
+            return {
+              name: "입력한 내용",
+              markdown: await solarSummary(intake.sourceText!, "사용자가 직접 쓴 설명"),
+              via: "solar",
+              chars: intake.sourceText!.length,
+            };
+          }),
+        ]
+      : []),
+  ]);
 
   const usable = parts.filter((part) => part.markdown.trim());
   const markdown =
