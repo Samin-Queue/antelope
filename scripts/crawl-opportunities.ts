@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { chromium, type Browser } from "playwright";
 import { z } from "zod";
@@ -21,6 +22,21 @@ const LINK_SOURCES = [
   },
   { category: "주택 청약", source: "LH 청약센터", url: "https://apply.lh.or.kr/" },
 ] as const;
+
+const SYSTEM_CHROMIUM = "/usr/bin/chromium";
+
+export function crawlerBrowserOptions() {
+  const executablePath = existsSync(SYSTEM_CHROMIUM) ? SYSTEM_CHROMIUM : undefined;
+  return {
+    headless: true,
+    ...(executablePath
+      ? {
+          executablePath,
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        }
+      : {}),
+  };
+}
 
 const examItemSchema = z.object({
   implYy: z.string(),
@@ -228,7 +244,7 @@ export async function crawlOpportunities(closeDb = false): Promise<void> {
   if (!run) throw new Error("크롤 실행을 만들지 못했습니다.");
   console.info("[crawler] 수집 시작", { runId: run.id });
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch(crawlerBrowserOptions());
   try {
     const sources = await Promise.all([
       fetchJobOpportunities(),
