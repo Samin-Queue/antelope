@@ -40,6 +40,14 @@ type Session = {
 
 const sessions = new Map<string, Session>();
 const SESSION_TTL_MS = 15 * 60 * 1000;
+/**
+ * 동시에 띄울 수 있는 데스크톱 수.
+ *
+ * Xvfb + Chromium 한 벌이 수백 MB 를 쓴다. 상한이 없으면 동시 신청 두어 건에
+ * 컨테이너가 OOM 으로 죽는데, 그때 죽는 건 그 세션이 아니라 **서버 전체**다.
+ * 거절이 전체 장애보다 낫다.
+ */
+const MAX_SESSIONS = 2;
 let nextDisplay = 100;
 
 function sweep() {
@@ -68,6 +76,11 @@ export async function openSession(
   sweep();
   const existing = sessions.get(id);
   if (existing) return existing;
+  if (sessions.size >= MAX_SESSIONS) {
+    throw new Error(
+      `브라우저 세션이 이미 ${sessions.size}개 떠 있습니다. 진행 중인 신청이 끝난 뒤 다시 시도하세요.`,
+    );
+  }
 
   const display = `:${nextDisplay++}`;
   const xvfb = spawn(
@@ -81,9 +94,10 @@ export async function openSession(
       "tcp",
       "-ac",
     ],
-    { stdio: "ignore" },
+    { stdio: ["ignore", "ignore", "pipe"] },
   );
-  await waitForDisplay(display);
+  const xvfbLog = tapStderr(xvfb);
+  await waitForDisplay(display, 8_000, xvfbLog);
 
   const profileDir = await mkdtemp(join(tmpdir(), "antelope-chromium-"));
   // 바이너리 이름은 리터럴이어야 한다. 변수로 넘기면 Turbopack 이 "동적 파일 접근"
@@ -107,10 +121,20 @@ export async function openSession(
       // 이 플래그는 페이지에서 감지되지 않는다 — 프로세스 격리 얘기지 지문이 아니다.
       "--no-sandbox",
       "--disable-dev-shm-usage",
+      // 컨테이너는 GPU 도 없고 메모리도 빠듯하다. 기동 때 하는 일을 줄이면
+      // 첫 창이 그만큼 빨리 뜬다 — 여기서 늦어져 타임아웃으로 죽었었다.
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-extensions",
+      "--metrics-recording-only",
+      "--mute-audio",
       startUrl,
     ],
-    { env: envFor(display), stdio: "ignore" },
+    { env: envFor(display), stdio: ["ignore", "ignore", "pipe"] },
   );
+  const chromiumLog = tapStderr(chromium);
 
   const session: Session = {
     id,
@@ -126,7 +150,13 @@ export async function openSession(
   };
   sessions.set(id, session);
 
-  await waitForWindow(display);
+  try {
+    await waitForWindow(display, 45_000, chromium, chromiumLog);
+  } catch (error) {
+    // 실패한 세션을 남겨두면 다음 요청이 죽은 세션을 그대로 물려받는다.
+    await closeSession(id);
+    throw error;
+  }
   return session;
 }
 
@@ -162,7 +192,33 @@ export async function waitForSession(id: string, timeoutMs = 120_000) {
   return null;
 }
 
-async function waitForDisplay(display: string, timeoutMs = 5_000) {
+/**
+ * 자식 프로세스의 stderr 를 붙잡아 둔다.
+ *
+ * 예전에는 `stdio: "ignore"` 였다. 그래서 「Chromium 창이 뜨지 않았다」만 남고
+ * 왜 안 떴는지는 영영 알 수 없었다 — 바이너리가 없는 건지, 메모리가 모자란
+ * 건지, 샌드박스에 막힌 건지 구분이 안 된다. 마지막 2KB 만 들고 있으면 된다.
+ */
+function tapStderr(child: ChildProcess): () => string {
+  let buffer = "";
+  child.stderr?.on("data", (chunk: Buffer) => {
+    buffer = (buffer + chunk.toString("utf8")).slice(-2048);
+  });
+  // ⚠ 리스너가 없으면 spawn 실패(ENOENT 등)가 **처리되지 않은 error 이벤트**가
+  // 되어 Node 프로세스를 통째로 죽인다. 브라우저 하나 못 띄운 일로 서버가
+  // 내려가서는 안 된다. 여기서 붙잡아 진단 문구로만 남긴다.
+  child.on("error", (error) => {
+    buffer = (buffer + `\nspawn 실패: ${error.message}`).slice(-2048);
+  });
+  return () => buffer.trim();
+}
+
+/** spawn 이 아예 실패했는지. exitCode 는 null 이라 이걸로 따로 본다 */
+function spawnFailed(child: ChildProcess): boolean {
+  return child.pid === undefined;
+}
+
+async function waitForDisplay(display: string, timeoutMs = 8_000, log?: () => string) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
@@ -172,12 +228,32 @@ async function waitForDisplay(display: string, timeoutMs = 5_000) {
       await sleep(100);
     }
   }
-  throw new Error(`Xvfb ${display} 가 뜨지 않았다.`);
+  throw new Error(`Xvfb ${display} 가 뜨지 않았다.${detail(log?.())}`);
 }
 
-async function waitForWindow(display: string, timeoutMs = 15_000) {
+/**
+ * Chromium 창을 기다린다.
+ *
+ * 프로세스가 먼저 죽으면 기다릴 이유가 없다 — 타임아웃을 다 쓰고 나서 엉뚱한
+ * 말을 하는 대신 종료 코드와 stderr 를 그대로 올린다. 컨테이너 첫 기동은
+ * 페이지 캐시가 차갑고 메모리도 빠듯해 15초로는 모자랐다.
+ */
+async function waitForWindow(
+  display: string,
+  timeoutMs = 45_000,
+  child?: ChildProcess,
+  log?: () => string,
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (child && spawnFailed(child)) {
+      throw new Error(`Chromium 을 실행하지 못했다.${detail(log?.())}`);
+    }
+    if (child && child.exitCode !== null) {
+      throw new Error(
+        `Chromium 이 시작하자마자 종료했다 (code ${child.exitCode}).${detail(log?.())}`,
+      );
+    }
     try {
       const { stdout } = await run(
         "xdotool",
@@ -194,7 +270,14 @@ async function waitForWindow(display: string, timeoutMs = 15_000) {
     }
     await sleep(150);
   }
-  throw new Error("Chromium 창이 뜨지 않았다.");
+  throw new Error(
+    `Chromium 창이 ${Math.round(timeoutMs / 1000)}초 안에 뜨지 않았다.${detail(log?.())}`,
+  );
+}
+
+function detail(stderr: string | undefined): string {
+  if (!stderr) return " (stderr 없음 — 바이너리 자체가 없거나 즉시 죽었을 수 있다)";
+  return `\nstderr: ${stderr.slice(-600)}`;
 }
 
 /* ------------------------------------------------------------------ */
