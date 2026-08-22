@@ -6,15 +6,7 @@ import { runStart } from "@/app/(app)/app/start/_lib/pipeline";
 import type { Incoming, RelayChannel } from "./channel";
 import { acquire } from "./queue";
 import { makeSink } from "./sink";
-import { slackDm, slackProfile } from "./slack";
-import {
-  autoLinkByEmail,
-  consumeLinkCode,
-  findIdentity,
-  openThread,
-  updateThread,
-  type ThreadRow,
-} from "./store";
+import { findIdentity, openThread, updateThread, type ThreadRow } from "./store";
 
 /**
  * 실행 호스트 — 채널에서 들어온 말 하나를 처리한다.
@@ -26,16 +18,6 @@ import {
  * ⚠ **`runStart` 를 부르는 유일한 자리다.** LLM 계층 개편이 그 시그니처를
  * 바꿔도 고칠 곳이 아래 한 줄이 되도록 다른 곳에서 부르지 않는다.
  */
-
-/** 연동 코드 — `relay_link_codes` 의 알파벳과 같은 집합, 8자 */
-const CODE = /\b([A-HJ-NP-Z2-9]{8})\b/;
-
-const LINK_GUIDE = [
-  "이 계정이 아직 Antelope 에 연결되어 있지 않습니다.",
-  "",
-  "1. Antelope 워크스페이스 → 설정 · 연동 에서 *슬랙 연동 코드*를 받으세요.",
-  "2. 여기(봇과의 1:1 대화)에 그 코드를 그대로 보내면 연결됩니다.",
-].join("\n");
 
 function appUrl(path = "/app"): string {
   const base = (env.BETTER_AUTH_URL || "https://antelope.up.railway.app").replace(
@@ -70,38 +52,22 @@ export async function handle(channel: RelayChannel, incoming: Incoming): Promise
     return;
   }
 
-  let identity = await findIdentity(channel.id, incoming.from, incoming.ref.workspaceId);
+  const identity = await findIdentity(
+    channel.id,
+    incoming.from,
+    incoming.ref.workspaceId,
+  );
 
   /**
-   * 이메일이 같으면 그 자리에서 잇는다.
-   *
-   * 채널에서 멘션 한 번으로 일을 시키려면 「먼저 DM 으로 코드를 보내세요」가
-   * 중간에 끼면 안 된다. 슬랙이 확인한 프로필 이메일이라 남의 것을 적을 수 없고,
-   * 같은 이메일로 로그인한 Antelope 계정이 있을 때만 붙는다.
+   * 연결은 **동의 화면 한 번**이다. 코드를 손으로 옮기게 하거나 이메일이 같기를
+   * 바라지 않는다 — 어느 슬랙 계정을 잇는지는 사용자가 그 화면에서 직접 고른다.
+   * 링크는 공개돼도 무해하다. 로그인한 사람만 열 수 있다.
    */
   if (!identity) {
-    const profile =
-      channel.id === "slack"
-        ? await slackProfile(incoming.from)
-        : { displayName: incoming.displayName, email: null };
-    identity = await autoLinkByEmail({
-      channel: channel.id,
-      externalId: incoming.from,
-      workspaceId: incoming.ref.workspaceId,
-      email: profile.email,
-      displayName: profile.displayName,
-    });
-    if (identity) {
-      // 조용히 잇지 않는다. 자기 계정이 붙었다는 사실은 보여야 한다.
-      void channel.post(
-        incoming.ref,
-        `${profile.email} 계정으로 연결했습니다. 바로 시작합니다.`,
-      );
-    }
-  }
-
-  if (!identity) {
-    await tryLink(channel, incoming);
+    await channel.post(
+      incoming.ref,
+      `${channel.mention(incoming.from)} 이 슬랙 계정이 아직 Antelope 에 연결되어 있지 않습니다.\n${appUrl("/app/settings")} 에서 「슬랙 연결」을 한 번 누르면 됩니다.`,
+    );
     return;
   }
 
@@ -250,58 +216,3 @@ function closing(
 }
 
 type Sink = ReturnType<typeof makeSink>;
-
-/**
- * 연동.
- *
- * **1:1 대화에서만 받는다.** 공개 채널에 적힌 코드는 그것을 먼저 본 사람이
- * 써서 남의 계정에 자기 슬랙 id 를 붙일 수 있다.
- */
-async function tryLink(channel: RelayChannel, incoming: Incoming): Promise<void> {
-  const match = incoming.isDirect ? CODE.exec(incoming.text) : null;
-  if (!match) {
-    if (incoming.isDirect) {
-      await channel.post(incoming.ref, LINK_GUIDE);
-      return;
-    }
-    /**
-     * 공개 채널이다. **코드를 여기 적게 하지 않는다** — 먼저 본 사람이 써서
-     * 남의 계정에 자기 슬랙 id 를 붙일 수 있다. 안내는 1:1 로 보내고
-     * 스레드에는 그 사실만 남긴다.
-     */
-    const sent =
-      channel.id === "slack" ? await slackDm(incoming.from, LINK_GUIDE) : false;
-    await channel.post(
-      incoming.ref,
-      sent
-        ? `${channel.mention(incoming.from)} 이 계정이 아직 연결되지 않았습니다. 개인 메시지로 연결 방법을 보냈습니다.`
-        : `${channel.mention(incoming.from)} 이 계정이 아직 연결되지 않았습니다. 저와의 1:1 대화에서 연결해 주세요.`,
-    );
-    return;
-  }
-
-  const result = await consumeLinkCode(match[1], {
-    channel: channel.id,
-    externalId: incoming.from,
-    workspaceId: incoming.ref.workspaceId,
-    displayName:
-      incoming.displayName ??
-      (channel.id === "slack" ? (await slackProfile(incoming.from)).displayName : null),
-  });
-
-  if (result.ok) {
-    await channel.post(
-      incoming.ref,
-      "연결됐습니다. 이제 공고 링크나 원하는 것을 보내면 여기서 바로 준비를 시작합니다.",
-    );
-    return;
-  }
-
-  // 만료와 재사용을 구분해 말한다. 뭉치면 코드를 다시 받을 생각을 못 한다.
-  const why = {
-    unknown: "그런 코드가 없습니다. 설정 · 연동 에서 다시 받아 주세요.",
-    expired: "코드가 만료됐습니다(10분). 설정 · 연동 에서 다시 받아 주세요.",
-    used: "이미 사용된 코드입니다. 설정 · 연동 에서 새로 받아 주세요.",
-  }[result.why];
-  await channel.post(incoming.ref, why);
-}

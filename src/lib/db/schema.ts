@@ -303,27 +303,6 @@ export const relayIdentities = pgTable(
   ],
 );
 
-/**
- * 연동 코드.
- *
- * `/app/settings` 에서 발급해 채널에서 봇에게 전달한다. 서명 토큰 대신 짧은
- * 코드를 쓰는 이유는 **사람이 손으로 옮겨 적기 때문**이다 — 슬랙 DM 창에
- * base64 를 붙여 넣게 만들 수는 없다.
- */
-export const relayLinkCodes = pgTable(
-  "relay_link_codes",
-  {
-    /** 대문자·숫자 8자. 사람이 읽고 치는 값이라 혼동 문자(O·0·I·1)를 뺀다 */
-    code: text("code").primaryKey(),
-    userId: text("user_id").notNull(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    /** 쓰고 나면 채운다. 재사용을 막되 「이미 쓴 코드」를 구분해 말해 준다 */
-    usedAt: timestamp("used_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [index("relay_link_code_user_idx").on(table.userId)],
-);
-
 export const relayThreadStatus = pgEnum("relay_thread_status", [
   "queued", // 자리를 기다린다
   "running", // 준비 파이프라인이 돈다

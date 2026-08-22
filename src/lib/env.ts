@@ -93,6 +93,12 @@ const schema = z.object({
   SLACK_SIGNING_SECRET: z.string().optional(),
   /** `xoxb-…`. 단일 워크스페이스 지름길 — 여러 워크스페이스는 OAuth 설치가 필요하다 */
   SLACK_BOT_TOKEN: z.string().optional(),
+  /**
+   * 「슬랙 계정 연결」 동의 화면(OIDC)에 쓴다. Basic Information 의 App Credentials.
+   * 없으면 설정 화면에 연결 버튼이 그려지지 않는다 — 구글 연동과 같은 방식이다.
+   */
+  SLACK_CLIENT_ID: z.string().optional(),
+  SLACK_CLIENT_SECRET: z.string().optional(),
 });
 
 export const env = schema.parse(process.env);

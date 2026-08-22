@@ -1,5 +1,4 @@
-import { randomInt } from "node:crypto";
-import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { getDb, hasDb, schema } from "@/lib/db";
 
@@ -74,42 +73,7 @@ export async function identitiesOf(userId: string) {
     .orderBy(desc(schema.relayIdentities.createdAt));
 }
 
-/**
- * 이메일이 같으면 자동으로 잇는다.
- *
- * 연동 코드를 없애기 위한 것이다 — 채널에서 멘션 한 번으로 일을 시키려면
- * 「먼저 DM 으로 코드를 보내세요」가 중간에 끼면 안 된다.
- *
- * **이메일은 슬랙이 확인한 값이다.** 워크스페이스가 소유한 계정의 프로필
- * 이메일이라 사용자가 임의로 남의 것을 적을 수 없다. 같은 이메일로 로그인한
- * Antelope 계정이 있을 때만 잇고, 없으면 조용히 실패한다.
- */
-export async function autoLinkByEmail(args: {
-  channel: ChannelId;
-  externalId: string;
-  workspaceId: string | null;
-  email: string | null;
-  displayName: string | null;
-}): Promise<Identity | null> {
-  if (!hasDb() || !args.email) return null;
-  const [row] = await getDb()
-    .select({ id: schema.user.id })
-    .from(schema.user)
-    .where(eq(schema.user.email, args.email.toLowerCase()))
-    .limit(1);
-  if (!row) return null;
-
-  await linkIdentity({
-    userId: row.id,
-    channel: args.channel,
-    externalId: args.externalId,
-    workspaceId: args.workspaceId,
-    displayName: args.displayName,
-  });
-  return { userId: row.id, displayName: args.displayName };
-}
-
-async function linkIdentity(args: {
+export async function linkIdentity(args: {
   userId: string;
   channel: ChannelId;
   externalId: string;
@@ -137,73 +101,6 @@ export async function unlinkIdentity(userId: string, id: string): Promise<void> 
     .where(
       and(eq(schema.relayIdentities.id, id), eq(schema.relayIdentities.userId, userId)),
     );
-}
-
-/* ── 연동 코드 ─────────────────────────────────────────────────────────── */
-
-/** 혼동 문자(I·O·0·1)를 뺀다. 사람이 슬랙 DM 창에 손으로 옮겨 적는 값이다 */
-const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const CODE_TTL_MS = 10 * 60 * 1000;
-
-export async function issueLinkCode(userId: string): Promise<string> {
-  const code = Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join(
-    "",
-  );
-  await getDb()
-    .insert(schema.relayLinkCodes)
-    .values({ code, userId, expiresAt: new Date(Date.now() + CODE_TTL_MS) });
-  return code;
-}
-
-export type CodeResult =
-  { ok: true; userId: string } | { ok: false; why: "unknown" | "expired" | "used" };
-
-/**
- * 코드를 쓴다.
- *
- * 만료·재사용을 **구분해서** 돌려준다. 「코드가 올바르지 않습니다」 하나로
- * 뭉치면 10분이 지난 사람이 코드를 다시 발급받을 생각을 못 한다.
- */
-export async function consumeLinkCode(
-  code: string,
-  target: {
-    channel: ChannelId;
-    externalId: string;
-    workspaceId: string | null;
-    displayName: string | null;
-  },
-): Promise<CodeResult> {
-  if (!hasDb()) return { ok: false, why: "unknown" };
-  const db = getDb();
-
-  // 아직 안 쓰였고 만료 전인 행만 표시한다. 두 요청이 겹쳐도 하나만 이긴다.
-  const [claimed] = await db
-    .update(schema.relayLinkCodes)
-    .set({ usedAt: new Date() })
-    .where(
-      and(
-        eq(schema.relayLinkCodes.code, code),
-        isNull(schema.relayLinkCodes.usedAt),
-        gt(schema.relayLinkCodes.expiresAt, new Date()),
-      ),
-    )
-    .returning({ userId: schema.relayLinkCodes.userId });
-
-  if (!claimed) {
-    const [row] = await db
-      .select({
-        usedAt: schema.relayLinkCodes.usedAt,
-        expiresAt: schema.relayLinkCodes.expiresAt,
-      })
-      .from(schema.relayLinkCodes)
-      .where(eq(schema.relayLinkCodes.code, code))
-      .limit(1);
-    if (!row) return { ok: false, why: "unknown" };
-    return { ok: false, why: row.usedAt ? "used" : "expired" };
-  }
-
-  await linkIdentity({ userId: claimed.userId, ...target });
-  return { ok: true, userId: claimed.userId };
 }
 
 /* ── 스레드 ────────────────────────────────────────────────────────────── */
@@ -294,9 +191,6 @@ export async function markLostThreads(): Promise<ThreadRow[]> {
 export async function sweep(): Promise<void> {
   if (!hasDb()) return;
   const db = getDb();
-  await db
-    .delete(schema.relayLinkCodes)
-    .where(sql`${schema.relayLinkCodes.createdAt} < now() - interval '1 day'`);
   await db
     .delete(schema.relayEvents)
     .where(sql`${schema.relayEvents.receivedAt} < now() - interval '2 days'`);

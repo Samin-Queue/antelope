@@ -291,28 +291,3 @@ export async function slackProfile(
 export async function slackDisplayName(userId: string): Promise<string | null> {
   return (await slackProfile(userId)).displayName;
 }
-
-/**
- * 1:1 대화를 연다.
- *
- * 공개 채널에서 연동 안내를 하면 코드가 남에게 보인다. 안내는 DM 으로 보내고
- * 스레드에는 한 줄만 남긴다.
- */
-export async function slackOpenDm(userId: string): Promise<string | null> {
-  const result = await call<{ channel?: { id?: string } }>("conversations.open", {
-    users: userId,
-  });
-  return result?.channel?.id ?? null;
-}
-
-/** DM 한 통. 스레드가 아니라 대화창에 직접 쓴다 */
-export async function slackDm(userId: string, text: string): Promise<boolean> {
-  const channel = await slackOpenDm(userId);
-  if (!channel) return false;
-  const sent = await call("chat.postMessage", {
-    channel,
-    text: text.slice(0, MAX_TEXT),
-    unfurl_links: false,
-  });
-  return Boolean(sent);
-}
