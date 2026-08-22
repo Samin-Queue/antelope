@@ -285,7 +285,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
 
       <div className="space-y-6">
         {error && (
-          <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words text-destructive">
+          <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap text-destructive">
             {error}
           </p>
         )}

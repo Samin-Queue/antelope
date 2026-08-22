@@ -102,7 +102,19 @@ export function ComposerBox({
 
   const trimmed = text.trim();
   const isUrl = /^https?:\/\/\S+$/i.test(trimmed);
-  const ready = Boolean(file) || trimmed.length >= 20 || isUrl;
+  /**
+   * 보낼 수 있는 최소 길이.
+   *
+   * 20자였을 때 「이 공고 신청해줘」(9자) 같은 자연스러운 한국어 요청이 전부
+   * 막혔다. 버튼만 흐려질 뿐 이유를 말해주지 않아서 눌러도 아무 일이 없는
+   * 것처럼 보인다 — 실제로 "아무것도 안 된다" 는 제보가 여기였다.
+   * 한국어는 글자당 정보량이 커서 8자면 의도가 드러난다.
+   */
+  const MIN_TEXT = 8;
+  const ready = Boolean(file) || trimmed.length >= MIN_TEXT || isUrl;
+  /** 왜 못 보내는지. 죽은 버튼만 두지 않는다 */
+  const blocked =
+    !ready && trimmed.length > 0 ? `${MIN_TEXT - trimmed.length}자 더 필요합니다` : null;
 
   function submit() {
     if (!ready) return;
@@ -192,6 +204,7 @@ export function ComposerBox({
               링크로 인식됨
             </span>
           )}
+          {blocked && <span className="text-xs text-muted-foreground">{blocked}</span>}
 
           <div className="ml-auto flex items-center gap-2">
             {models.length > 0 && (

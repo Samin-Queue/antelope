@@ -24,6 +24,13 @@ export type Intake = {
   links: Link[];
   /** 사용자가 직접 쓴 문장 (링크만 있던 게 아니면) */
   sourceText: string | null;
+  /**
+   * 가져오지 못한 링크와 이유.
+   *
+   * 접힌 로그에만 남기면 화면에는 「읽을 수 있는 게 없습니다」만 뜨고 사용자는
+   * 아무 일도 안 일어난 것으로 본다. 실패는 이유째로 위로 올린다.
+   */
+  failures: Array<{ url: string; reason: string }>;
 };
 
 export type Ctx = { log: (text: string) => void };
@@ -33,6 +40,7 @@ const MAX_URLS = 3;
 const MAX_ATTACHMENTS = 3;
 
 export async function intake(input: IntakeInput, ctx: Ctx): Promise<Intake> {
+  const failures: Array<{ url: string; reason: string }> = [];
   const files: IntakeFile[] = [];
   const pages: Page[] = [];
   let intent = "";
@@ -78,7 +86,9 @@ export async function intake(input: IntakeInput, ctx: Ctx): Promise<Intake> {
         );
       }
     } catch (error) {
-      ctx.log(`링크 실패: ${error instanceof Error ? error.message : String(error)}`);
+      const reason = error instanceof Error ? error.message : String(error);
+      failures.push({ url, reason });
+      ctx.log(`링크 실패: ${url} — ${reason}`);
     }
   }
   if (urls.length > MAX_URLS)
@@ -104,7 +114,7 @@ export async function intake(input: IntakeInput, ctx: Ctx): Promise<Intake> {
     }
   }
 
-  return { intent, files, pages, links, sourceText };
+  return { intent, files, pages, links, sourceText, failures };
 }
 
 const readSchema = z.object({

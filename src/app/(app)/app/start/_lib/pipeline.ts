@@ -55,7 +55,23 @@ export async function runStart(
     gathered.pages.length === 0 &&
     !gathered.sourceText
   ) {
-    emit({ type: "error", error: "읽을 수 있는 파일·페이지·문장이 없습니다." });
+    // 왜 못 읽었는지까지 말한다. 「읽을 게 없다」만 띄우면 아무 일도 안 일어난
+    // 것으로 보이고, 정작 원인(차단·타임아웃)은 접힌 로그 안에 숨는다.
+    const why = gathered.failures
+      .map((item) => `${item.url} — ${friendly(item.reason)}`)
+      .join("\n");
+    emit({
+      type: "stage",
+      stage: "intake",
+      status: "error",
+      detail: gathered.failures.length ? "링크를 가져오지 못함" : "읽을 내용 없음",
+    });
+    emit({
+      type: "error",
+      error: why
+        ? `링크를 가져오지 못했습니다.\n${why}\n\n페이지를 저장해 파일로 올리거나, 공고 내용을 붙여넣어 주세요.`
+        : "읽을 수 있는 파일·페이지·문장이 없습니다.",
+    });
     return;
   }
   emit({ type: "files", files: fileInfos(gathered.files) });
@@ -116,6 +132,23 @@ export async function runStart(
     applyUrl: found?.applyUrl ?? null,
     needs: filled,
   });
+}
+
+/**
+ * fetch 가 던지는 말을 사람 말로 옮긴다.
+ * `fetch failed` 는 사용자에게 아무 정보도 아니다 — 대개 그 사이트가 우리를
+ * 막았거나(공공기관 사이트가 흔하다) 응답이 없는 것이다.
+ */
+function friendly(reason: string): string {
+  if (/timeout|timed out|abort/i.test(reason)) return "응답이 없어 시간 초과됐습니다";
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|certificate|TLS|SSL/i.test(reason)) {
+    return "접속이 막혔습니다 (사이트가 외부 접근을 차단했을 수 있습니다)";
+  }
+  if (/HTTP 4\d\d/.test(reason))
+    return `${reason} — 접근 권한이 없거나 주소가 틀렸습니다`;
+  if (/HTTP 5\d\d/.test(reason)) return `${reason} — 상대 서버 오류입니다`;
+  if (/25MB/.test(reason)) return reason;
+  return reason;
 }
 
 function fileInfos(files: IntakeFile[]): FileInfo[] {
