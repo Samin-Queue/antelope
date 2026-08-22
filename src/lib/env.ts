@@ -58,10 +58,41 @@ const schema = z.object({
   EXAM_CRAWLING_URL: z.string().optional(),
   EXAM_CRAWLING_API_KEY: z.string().optional(),
 
+  /**
+   * 킬스위치. 데모 당일 회귀를 배포 변수 하나로 5분 안에 되돌린다.
+   *
+   * ⚠ `env` 는 import 시점에 한 번만 parse 된다 — 런타임 토글은 안 된다.
+   * 재배포가 필요하다는 뜻이고, 그래도 코드를 되돌리는 것보다 빠르다.
+   *
+   * - `AI_PREPARE_STEP`   브라우저 루프의 컨텍스트 창 관리
+   * - `AI_TIER_ROUTING`   작업별 모델 티어링
+   * - `AI_REPAIR`         구조화 출력 복구 루프
+   * - `AI_VERIFY`         의미 검증(날짜·단위·플레이스홀더)
+   * - `AI_SUBMIT_GATE`    제출 전 값 대조 게이트
+   */
+  AI_PREPARE_STEP: z.enum(["on", "off"]).default("on"),
+  AI_TIER_ROUTING: z.enum(["on", "off"]).default("on"),
+  AI_REPAIR: z.enum(["on", "off"]).default("on"),
+  AI_VERIFY: z.enum(["on", "off"]).default("on"),
+  AI_SUBMIT_GATE: z.enum(["on", "off"]).default("on"),
+  /** 작은 모델의 배포 이름. Azure·custom 트랙에서 티어링을 살린다 */
+  LLM_MODEL_SMALL: z.string().optional(),
+
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GITHUB_CLIENT_ID: z.string().optional(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
+
+  /**
+   * 릴레이(슬랙) — `/api/relay/slack/events`.
+   *
+   * 둘 다 없으면 라우트가 503 을 돌려주고 앱은 그대로 뜬다. 하나만 있으면
+   * 서명 검증이나 발신 중 한쪽이 조용히 죽으므로 **둘을 함께 본다**
+   * (`lab/relay/_lib/slack.ts` 의 `ready()`).
+   */
+  SLACK_SIGNING_SECRET: z.string().optional(),
+  /** `xoxb-…`. 단일 워크스페이스 지름길 — 여러 워크스페이스는 OAuth 설치가 필요하다 */
+  SLACK_BOT_TOKEN: z.string().optional(),
 });
 
 export const env = schema.parse(process.env);

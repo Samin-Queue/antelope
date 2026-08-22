@@ -4,6 +4,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { z } from "zod";
 
 import { lanes } from "@/lib/ai/lanes";
+import { pruneToolResults } from "@/lib/ai/window";
 import { chatModel } from "@/lib/llm";
 
 import { findCaptcha } from "./captcha";
@@ -625,6 +626,24 @@ async function runPlaywrightAgentInLane(
       tools,
       stopWhen: stepCountIs(maxSteps),
       abortSignal: stop.signal,
+      /**
+       * 스텝 하나가 매달려도 루프 전체를 잡아먹지 않게.
+       * 도구는 각자 이미 상한이 있지만(`fill`·`click` 10초), 모델 왕복에는
+       * 없었다.
+       */
+      timeout: { stepMs: 90_000 },
+      /**
+       * 지나간 화면을 버린다. 이게 없으면 스냅샷이 무한 누적돼 마지막 요청
+       * 입력이 100KB 를 넘고, 그 대부분이 이미 없는 화면의 ref 목록이다.
+       * `read()` 출력이 `URL:` 로 시작하므로 판별에 파서가 필요 없다.
+       */
+      prepareStep: ({ messages }) => ({
+        messages: pruneToolResults(messages, {
+          keep: 2,
+          isBulky: (text) => text.startsWith("URL: "),
+          stub: "[지나간 화면 — 여기 있던 ref 는 이미 무효다. 필요하면 read 를 다시 부른다]",
+        }),
+      }),
       system: systemPrompt(allowSubmit, artifacts.length > 0),
       prompt: promptFor(goal, startUrl, facts, plan, artifacts),
     });

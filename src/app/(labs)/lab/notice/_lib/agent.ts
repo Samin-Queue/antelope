@@ -1,6 +1,7 @@
 import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 
+import { pruneToolResults } from "@/lib/ai/window";
 import { chatModel } from "@/lib/llm";
 
 import {
@@ -328,6 +329,19 @@ export async function runBrowserAgent(opts: {
     model: opts.model ?? chatModel(),
     tools,
     stopWhen: stepCountIs(maxSteps),
+    timeout: { stepMs: 90_000 },
+    /**
+     * 지나간 화면을 버린다. 수동 모드는 OCR 줄 목록이 스냅샷이고, 그 안의
+     * `t12` 같은 ref 는 화면이 바뀌는 순간 무효다 — 남겨 두면 크기만 늘리는
+     * 것이 아니라 모델을 없는 좌표로 유인한다.
+     */
+    prepareStep: ({ messages }) => ({
+      messages: pruneToolResults(messages, {
+        keep: 2,
+        isBulky: (text) => text.startsWith("제목: "),
+        stub: "[지나간 화면 — 여기 있던 t 번호는 이미 무효다. 필요하면 read 를 다시 부른다]",
+      }),
+    }),
     system: [
       "너는 웹페이지를 대신 조작하는 에이전트다. 화면에 보이는 글자 목록만으로 일한다.",
       "",
