@@ -62,3 +62,25 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Railway 의 GitHub 웹훅 자동배포는 워크스페이스 멤버가 아닌 계정의 push 를
+  # NEEDS_APPROVAL 로 막는다(Hobby 플랜이라 팀원을 초대할 수 없다). CI 를 통과한
+  # 커밋은 여기서 프로젝트 토큰으로 직접 배포해 그 게이트를 우회한다. 웹훅 연동은
+  # 그대로 둔다 — 팀원 커밋마다 대시보드에 쓰지 않는 NEEDS_APPROVAL 배포가 남지만
+  # 무해하다.
+  deploy:
+    name: railway deploy
+    needs: [build, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        run: railway up --service web --environment production --ci
