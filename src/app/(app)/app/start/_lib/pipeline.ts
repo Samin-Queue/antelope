@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+
 import { isAbort } from "@/lib/ai/gateway";
 import { lanes } from "@/lib/ai/lanes";
 import { table } from "@/lib/ai/ledger";
@@ -14,7 +16,7 @@ import {
   recallArtifacts,
   writeDocument,
 } from "./file-agent";
-import { intake, type Ctx, type IntakeInput } from "./intake";
+import { intake, type Ctx, type Intake, type IntakeInput } from "./intake";
 import { narrate, type NarrationTurn } from "./narrator";
 import { mergeNeeds } from "./needs";
 import { makePlan } from "./plan";
@@ -22,7 +24,7 @@ import { prefill } from "./prefill";
 import { reconcileNeeds } from "./reconcile";
 import { research } from "./research";
 import { createSession, updateSession } from "./session";
-import { judge, summarize } from "./summarize";
+import { judge, summarize, type Summary } from "./summarize";
 import {
   APPLY_URL_KEY,
   type Artifact,
@@ -78,7 +80,21 @@ function withTimeout<T>(task: Promise<T>, limitMs: number, label: string): Promi
 export async function runStart(
   input: IntakeInput,
   emit: Emit,
-  opts: { userId: string | null },
+  opts: {
+    userId: string | null;
+    /**
+     * 죽은 실행을 **이어서** 돈다.
+     *
+     * 프로세스가 죽거나 단계가 통째로 실패해도 세션 행에는 거기까지가 남아
+     * 있다(요약 직후부터 단계마다 덮어쓴다). 그 스냅샷을 넣으면 끝난 단계는
+     * 건너뛰고 안 끝난 것부터 다시 돈다.
+     *
+     * ⚠ 원본 파일의 **바이트는 안 남는다**(스냅샷은 목록만 담는다). 그래서
+     * 요약을 다시 만들 수는 없다 — 요약이 없는 스냅샷은 재개 대상이 아니고,
+     * 처음부터 다시 올려야 한다. 그 대신 요약 이후는 전부 이어진다.
+     */
+    resume?: { id: string; snapshot: SessionSnapshot };
+  },
 ): Promise<void> {
   // 로그가 어느 카드의 것인지 말해야 카드마다 흘릴 수 있다. `stage()` 가
   // 실행 중인 단계를 여기에 남긴다.
@@ -184,6 +200,29 @@ export async function runStart(
     emit({ type: "stage", stage: id, status, detail, ms });
   };
 
+  const restored = opts.resume?.snapshot ?? null;
+  /** 이전 실행에서 이미 끝난 단계인가 */
+  const already = (id: Stage) => restored?.stages[id] === "done";
+  /**
+   * 서류는 끝났다고 **다시 쓸 수 있는 게 아니다.**
+   *
+   * 산출물 경로는 컨테이너 임시 폴더라 재시작하면 사라진다. 스냅샷에 목록이
+   * 남아 있어도 실제 파일이 없으면 브라우저가 업로드할 것이 없다 — 그때는
+   * 아까워도 다시 만든다. 「있다고 말하고 없는 것」이 훨씬 나쁘다.
+   */
+  const alreadyUsable = (id: Stage) => {
+    if (!already(id)) return false;
+    if (id !== "documents") return true;
+    const made = restored?.artifacts ?? [];
+    return made.length > 0 && made.every((item) => existsSync(item.path));
+  };
+
+  /** 건너뛴다고 화면에 말한다. 조용히 넘기면 「안 했다」로 보인다 */
+  const reuse = (id: Stage) => {
+    stages[id] = "done";
+    emit({ type: "stage", stage: id, status: "done", detail: "이전 실행에서 끝났다" });
+  };
+
   const stage = async <T>(
     id: Stage,
     task: () => Promise<T>,
@@ -221,13 +260,35 @@ export async function runStart(
     }
   };
 
-  // 1 — 입력 정리
-  const gathered = await stage("intake", () => intake(input, ctx));
+  /**
+   * 재개는 **요약이 있는 스냅샷**만 받는다.
+   *
+   * 원본 파일의 바이트는 안 남으므로 요약을 다시 만들 수 없다. 요약 전에 죽은
+   * 실행은 처음부터 다시 올리는 것이 유일한 길이고, 그 사실을 그대로 말한다 —
+   * 「이어서 준비」를 눌렀는데 조용히 빈 결과가 나오는 것이 최악이다.
+   */
+  if (restored && !restored.summary?.markdown?.trim()) {
+    emit({
+      type: "end",
+      reason: "stopped",
+      detail:
+        "요약 전에 멈춘 실행이라 이어받을 수 없습니다. 파일이나 링크를 다시 넣어 주세요.",
+    });
+    return;
+  }
+
+  // 1 — 입력 정리. 재개면 원본이 없다 — 이후 단계는 요약으로 돈다.
+  const gathered: Intake = restored
+    ? { intent: "", files: [], pages: [], links: [], sourceText: null, failures: [] }
+    : ((await stage("intake", () => intake(input, ctx))) as Intake);
+  if (restored) reuse("intake");
   if (!gathered) {
     emit({ type: "error", error: "입력을 읽지 못했습니다." });
     return;
   }
+  // 재개는 원본이 없는 게 정상이다. 「읽을 게 없다」로 막으면 안 된다.
   if (
+    !restored &&
     gathered.files.length === 0 &&
     gathered.pages.length === 0 &&
     !gathered.sourceText
@@ -250,23 +311,35 @@ export async function runStart(
     });
     return;
   }
-  emit({ type: "files", files: fileInfos(gathered.files) });
+  emit({ type: "files", files: fileInfos(restored ? [] : gathered.files) });
   tell(
     "goal",
-    [
-      `사용자가 하려는 일: ${gathered.intent || "(문장 없음)"}`,
-      `받은 파일 ${gathered.files.length}개: ${gathered.files.map((f) => f.name).join(", ") || "없음"}`,
-      `읽은 페이지 ${gathered.pages.length}개: ${gathered.pages.map((p) => p.title || p.url).join(", ") || "없음"}`,
-      gathered.failures.length
-        ? `가져오지 못한 링크 ${gathered.failures.length}개: ${gathered.failures.map((f) => `${f.url} (${f.reason})`).join(" / ")}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join("\n"),
+    restored
+      ? [
+          `지난 준비를 이어받는다: ${restored.title}`,
+          `이미 끝난 단계: ${Object.entries(restored.stages)
+            .filter(([, state]) => state === "done")
+            .map(([id]) => id)
+            .join(", ")}`,
+          `입력 항목 ${restored.needs.length}개는 그대로 쓴다`,
+        ].join("\n")
+      : [
+          `사용자가 하려는 일: ${gathered.intent || "(문장 없음)"}`,
+          `받은 파일 ${gathered.files.length}개: ${gathered.files.map((f) => f.name).join(", ") || "없음"}`,
+          `읽은 페이지 ${gathered.pages.length}개: ${gathered.pages.map((p) => p.title || p.url).join(", ") || "없음"}`,
+          gathered.failures.length
+            ? `가져오지 못한 링크 ${gathered.failures.length}개: ${gathered.failures.map((f) => `${f.url} (${f.reason})`).join(" / ")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
   );
 
-  // 2 — 요약
-  const summary = await stage("summarize", () => summarize(gathered, ctx));
+  // 2 — 요약. 재개면 스냅샷에 있는 것을 그대로 쓴다.
+  const summary: Summary | null = restored
+    ? { markdown: restored.summary!.markdown, via: restored.summary!.via, parts: [] }
+    : await stage("summarize", () => summarize(gathered, ctx));
+  if (restored) reuse("summarize");
   if (!summary) {
     emit({ type: "error", error: "요약에 실패했습니다." });
     return;
@@ -297,7 +370,7 @@ export async function runStart(
   let title =
     gathered.files[0]?.name ?? gathered.pages[0]?.title ?? gathered.intent ?? "제목 미상";
 
-  let sessionId: string | null = null;
+  let sessionId: string | null = opts.resume?.id ?? null;
   const snapshotNow = (): SessionSnapshot => ({
     title,
     organization: found?.organization ?? null,
@@ -332,8 +405,11 @@ export async function runStart(
   };
   await checkpoint();
 
-  // 3 — 판정. bad 면 여기서 끝난다.
-  const verdict = await stage("judge", () => judge(summary, ctx.signal));
+  // 3 — 판정. bad 면 여기서 끝난다. 재개면 이미 통과한 판정이다.
+  const verdict = already("judge")
+    ? ({ verdict: "good", reason: "이전 실행에서 판정됨" } as const)
+    : await stage("judge", () => judge(summary, ctx.signal));
+  if (already("judge")) reuse("judge");
   if (!verdict) {
     // 예전엔 여기서 아무 말 없이 스트림이 닫혔다. 화면에는 「연결이 끊겨
     // 중단됐다」만 뜨고, 서버가 스스로 끝낸 것인지 연결이 죽은 것인지
@@ -360,8 +436,21 @@ export async function runStart(
     return;
   }
 
-  // 4 — 추가 조사
-  found = await stage("research", () => research(gathered, summary, ctx));
+  // 4 — 추가 조사. 재개면 제목·주관·마감·신청 URL 이 이미 스냅샷에 있다.
+  if (already("research") && restored) {
+    reuse("research");
+    found = {
+      files: [],
+      applyUrl: restored.applyUrl,
+      applyPage: null,
+      needs: [],
+      title: restored.title,
+      organization: restored.organization,
+      deadline: restored.deadline,
+    };
+  } else {
+    found = await stage("research", () => research(gathered, summary, ctx));
+  }
   allFiles = [...gathered.files, ...(found?.files ?? [])];
   if (found?.files.length) emit({ type: "files", files: fileInfos(allFiles) });
   tell(
@@ -375,8 +464,20 @@ export async function runStart(
     ].join("\n"),
   );
 
-  // 5 — 정밀 분석 (1·3단계가 모은 파일 전부)
-  analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
+  // 5 — 정밀 분석 (1·3단계가 모은 파일 전부). 재개면 준비 문서와 근거를 되살린다.
+  if (already("analyze") && restored) {
+    reuse("analyze");
+    analysis = {
+      needs: [],
+      applicationType: null,
+      title: restored.title,
+      brief: restored.brief,
+      via: "analysis",
+      evidence: restored.evidence ?? [],
+    };
+  } else {
+    analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
+  }
   if (analysis) emit({ type: "via", stage: "analyze", via: analysis.via });
   if (analysis?.brief) emit({ type: "brief", markdown: analysis.brief });
   tell(
@@ -393,74 +494,90 @@ export async function runStart(
       .join("\n"),
   );
 
-  // 병합 — 신청 링크를 묻는 항목은 맨 앞, 그다음 정보 분석, 그다음 research.
-  const researchNeeds = found?.needs ?? [];
-  const applyNeed = researchNeeds.find((need) => need.key === APPLY_URL_KEY);
-  // 단계 밖이라 `stage()` 의 보호를 못 받는다. 모델 호출이므로 여기도 상한을
-  // 건다 — 매달리면 카드는 하나도 안 도는데 화면만 멈춰 더 헷갈린다.
-  const reconciled = await withTimeout(
-    withTask({ task: "reconcile", runId }, () =>
-      reconcileNeeds(
-        analysis?.needs ?? [],
-        researchNeeds.filter((need) => need.key !== APPLY_URL_KEY),
-      ),
-    ),
-    STAGE_TIMEOUT_MS,
-    "항목 병합",
-  ).catch((error) => {
-    ctx.log(`항목 병합 실패: ${error instanceof Error ? error.message : error}`);
-    return [...(analysis?.needs ?? []), ...researchNeeds];
-  });
-  const merged = mergeNeeds(applyNeed ? [applyNeed] : [], reconciled);
-  ctx.log(`입력 항목 ${merged.length}개로 병합`);
-
   /**
-   * 항목마다 원문 근거를 붙인다.
+   * 재개면 **병합·선채움을 다시 하지 않는다.**
    *
-   * 「왜 이걸 묻나」에 문장이 아니라 **좌표**로 답할 수 있게 된다. 못 찾은
-   * 항목은 비워 둔다 — 그 사실이 화면에 그대로 보여야 한다.
+   * 마스터 테이블은 스냅샷에 통째로 있고, 사용자가 이미 채운 값도 거기 있다.
+   * 다시 돌리면 모델 호출 두 번을 더 쓰면서 **사용자가 채운 값을 지운다** —
+   * 그게 재개의 목적과 정반대다.
    */
-  evidence = analysis?.evidence ?? [];
-  const withEvidence = evidence.length
-    ? merged.map((need) => {
-        const hits = matchEvidence(evidence, need.why ?? need.label);
-        return hits.length
-          ? { ...need, evidenceIds: hits.map((hit) => hit.evidence.id) }
-          : need;
-      })
-    : merged;
-  if (evidence.length) {
-    const found = withEvidence.filter((need) => need.evidenceIds?.length).length;
-    ctx.log(`원문 근거를 ${found}/${withEvidence.length}개 항목에 붙였다`);
+  if (restored && restored.needs.length > 0) {
+    reuse("prefill");
+    filled = restored.needs;
+    evidence = restored.evidence ?? [];
+    title = restored.title;
+    ctx.log(`이전 실행의 입력 항목 ${filled.length}개를 그대로 이어받는다`);
+  } else {
+    // 병합 — 신청 링크를 묻는 항목은 맨 앞, 그다음 정보 분석, 그다음 research.
+    const researchNeeds = found?.needs ?? [];
+    const applyNeed = researchNeeds.find((need) => need.key === APPLY_URL_KEY);
+    // 단계 밖이라 `stage()` 의 보호를 못 받는다. 모델 호출이므로 여기도 상한을
+    // 건다 — 매달리면 카드는 하나도 안 도는데 화면만 멈춰 더 헷갈린다.
+    const reconciled = await withTimeout(
+      withTask({ task: "reconcile", runId }, () =>
+        reconcileNeeds(
+          analysis?.needs ?? [],
+          researchNeeds.filter((need) => need.key !== APPLY_URL_KEY),
+        ),
+      ),
+      STAGE_TIMEOUT_MS,
+      "항목 병합",
+    ).catch((error) => {
+      ctx.log(`항목 병합 실패: ${error instanceof Error ? error.message : error}`);
+      return [...(analysis?.needs ?? []), ...researchNeeds];
+    });
+    const merged = mergeNeeds(applyNeed ? [applyNeed] : [], reconciled);
+    ctx.log(`입력 항목 ${merged.length}개로 병합`);
+
+    /**
+     * 항목마다 원문 근거를 붙인다.
+     *
+     * 「왜 이걸 묻나」에 문장이 아니라 **좌표**로 답할 수 있게 된다. 못 찾은
+     * 항목은 비워 둔다 — 그 사실이 화면에 그대로 보여야 한다.
+     */
+    evidence = analysis?.evidence ?? [];
+    const withEvidence = evidence.length
+      ? merged.map((need) => {
+          const hits = matchEvidence(evidence, need.why ?? need.label);
+          return hits.length
+            ? { ...need, evidenceIds: hits.map((hit) => hit.evidence.id) }
+            : need;
+        })
+      : merged;
+    if (evidence.length) {
+      const found = withEvidence.filter((need) => need.evidenceIds?.length).length;
+      ctx.log(`원문 근거를 ${found}/${withEvidence.length}개 항목에 붙였다`);
+    }
+
+    // 6 — 선채움
+    filled =
+      (await stage("prefill", () => prefill(withEvidence, opts.userId, ctx))) ??
+      withEvidence;
+    const known = filled.filter((need) => need.value?.trim());
+    tell(
+      "data",
+      [
+        `필요한 항목 ${filled.length}개 · 지식베이스로 채운 것 ${known.length}개`,
+        // ⚠ **값을 넘기지 않는다.** 화면 문구 한 줄을 만드는 호출에 사업자등록
+        // 번호·생년월일·연락처를 실을 이유가 없다. 필요한 것은 무엇이 채워졌는가다.
+        known.length
+          ? `채운 항목: ${known.map((need) => need.label).join(", ")}`
+          : "채운 것이 없다 — 처음 신청이거나 로그인 전이다",
+        `물어야 하는 항목: ${filled
+          .filter((need) => !need.value?.trim())
+          .map((need) => need.label)
+          .join(", ")}`,
+      ].join("\n"),
+    );
   }
 
-  // 6 — 선채움
-  filled =
-    (await stage("prefill", () => prefill(withEvidence, opts.userId, ctx))) ??
-    withEvidence;
-  const known = filled.filter((need) => need.value?.trim());
-  tell(
-    "data",
-    [
-      `필요한 항목 ${filled.length}개 · 지식베이스로 채운 것 ${known.length}개`,
-      // ⚠ **값을 넘기지 않는다.** 화면 문구 한 줄을 만드는 호출에 사업자등록
-      // 번호·생년월일·연락처를 실을 이유가 없다. 필요한 것은 무엇이 채워졌는가다.
-      known.length
-        ? `채운 항목: ${known.map((need) => need.label).join(", ")}`
-        : "채운 것이 없다 — 처음 신청이거나 로그인 전이다",
-      `물어야 하는 항목: ${filled
-        .filter((need) => !need.value?.trim())
-        .map((need) => need.label)
-        .join(", ")}`,
-    ].join("\n"),
-  );
-
-  title =
-    (found?.title && found.title !== "제목 미상" ? found.title : null) ??
-    analysis?.title ??
-    gathered.files[0]?.name ??
-    gathered.pages[0]?.title ??
-    "제목 미상";
+  if (!restored || restored.needs.length === 0)
+    title =
+      (found?.title && found.title !== "제목 미상" ? found.title : null) ??
+      analysis?.title ??
+      gathered.files[0]?.name ??
+      gathered.pages[0]?.title ??
+      "제목 미상";
 
   // 여기까지가 「마스터 테이블이 처음 완성되는 순간」이다. 서류를 만들기 전에
   // 한 번 남긴다 — 문서 작성이 제일 오래 걸리고, 그동안 사용자는 대개 떠난다.
@@ -475,93 +592,104 @@ export async function runStart(
    *
    * `stage()` 가 각자 자기 실패를 삼키므로 `Promise.all` 이 던질 일은 없다.
    */
-  const planTask = stage("plan", () =>
-    makePlan(
-      {
-        title,
-        organization: found?.organization ?? null,
-        deadline: found?.deadline ?? null,
-        applyUrl: found?.applyUrl ?? null,
-        brief: analysis?.brief ?? null,
-        summary: summary.markdown,
-        needs: filled,
-        today: new Date().toISOString().slice(0, 10),
-      },
-      ctxOf("plan"),
-    ),
-  );
-  // 8 — 서류 작성. 발급 서류는 손대지 않는다 — 만들면 위조다.
-  const documentsTask = stage("documents", async () => {
-    const ctx = ctxOf("documents");
-    const brief = analysis?.brief ?? summary.markdown;
-    const dir = artifactDir(runId);
+  const planTask = already("plan")
+    ? (reuse("plan"), Promise.resolve(restored!.plan))
+    : stage("plan", () =>
+        makePlan(
+          {
+            title,
+            organization: found?.organization ?? null,
+            deadline: found?.deadline ?? null,
+            applyUrl: found?.applyUrl ?? null,
+            brief: analysis?.brief ?? null,
+            summary: summary.markdown,
+            needs: filled,
+            today: new Date().toISOString().slice(0, 10),
+          },
+          ctxOf("plan"),
+        ),
+      );
+  /**
+   * 8 — 서류 작성. 발급 서류는 손대지 않는다 — 만들면 위조다.
+   *
+   * ⚠ 재개해도 **파일은 다시 만든다.** 산출물 경로는 컨테이너의 임시 폴더라
+   * 재시작하면 사라진다 — 스냅샷에 이름만 남아 있고 바이트는 없다. 여기가
+   * 제일 오래 걸리는 단계이므로 아까운 자리지만, 없는 파일을 있다고 하는 것이
+   * 훨씬 나쁘다.
+   */
+  const documentsTask = alreadyUsable("documents")
+    ? (reuse("documents"), Promise.resolve(restored!.artifacts))
+    : stage("documents", async () => {
+        const ctx = ctxOf("documents");
+        const brief = analysis?.brief ?? summary.markdown;
+        const dir = artifactDir(runId);
 
-    /**
-     * 셋을 나란히 돌린다.
-     *
-     * 예전엔 `planDocuments` 가 맨 앞에 있고 try 도 없어서, 분류 모델이 한 번
-     * 흔들리면 그 뒤의 `fillTemplates` 까지 통째로 사라졌다 — 공고가 준 지정
-     * 서식은 모델과 아무 상관이 없는데도. `recallArtifacts` 만 분류 결과
-     * (`obtain`)에 의존하므로 그것만 뒤에 붙인다.
-     */
-    const [planned, filledIn] = await Promise.all([
-      planDocuments(filled, brief, ctx).catch((error) => {
-        ctx.log(
-          `작성/발급 분류 실패 — 지정 서식과 보관함만 쓴다: ${error instanceof Error ? error.message : error}`,
-        );
-        return { jobs: [], obtain: [] as string[] };
-      }),
-      // 공고가 준 지정 서식이 있으면 새로 쓰지 말고 그것을 채운다.
-      fillTemplates(allFiles, filled, dir, ctx).catch((error) => {
-        ctx.log(
-          `지정 서식 채우기 실패: ${error instanceof Error ? error.message : error}`,
-        );
-        return [] as Artifact[];
-      }),
-    ]);
-    const { jobs, obtain } = planned;
-
-    // 발급 서류는 만들지 않는다 — 보관함에 있으면 꺼내 쓴다.
-    const recalled = await recallArtifacts(obtain, opts.userId, dir, ctx).catch(
-      () => [] as Artifact[],
-    );
-    const made: Artifact[] = [...recalled, ...filledIn];
-    if (jobs.length === 0) return made;
-    // 문서끼리 서로를 참조하지 않는다. 직렬로 쓰면 편수만큼 곱해질 뿐이다.
-    const written = await Promise.all(
-      jobs.map((job) =>
-        lanes.batch(async () => {
-          try {
-            const { artifact, markdown } = await writeDocument(
-              job,
-              {
-                title,
-                organization: found?.organization ?? null,
-                brief,
-                needs: filled,
-                // 이게 없으면 서술형 기억(`memories.embedding`)이 한 번도 안 쓰인다.
-                userId: opts.userId,
-              },
-              dir,
-              ctx,
-            );
-            // 신청 페이지가 어떤 형식을 받는지는 여기서 알 수 없다. PDF 를 한 벌 더 둔다.
-            const copy = await pdfCopy(artifact, markdown, job.title, dir, ctx);
-            return copy ? [artifact, copy] : [artifact];
-          } catch (error) {
-            if (isAbort(error)) throw error;
-            // 한 문서가 실패해도 나머지는 만든다.
+        /**
+         * 셋을 나란히 돌린다.
+         *
+         * 예전엔 `planDocuments` 가 맨 앞에 있고 try 도 없어서, 분류 모델이 한 번
+         * 흔들리면 그 뒤의 `fillTemplates` 까지 통째로 사라졌다 — 공고가 준 지정
+         * 서식은 모델과 아무 상관이 없는데도. `recallArtifacts` 만 분류 결과
+         * (`obtain`)에 의존하므로 그것만 뒤에 붙인다.
+         */
+        const [planned, filledIn] = await Promise.all([
+          planDocuments(filled, brief, ctx).catch((error) => {
             ctx.log(
-              `${job.label} 작성 실패: ${error instanceof Error ? error.message : error}`,
+              `작성/발급 분류 실패 — 지정 서식과 보관함만 쓴다: ${error instanceof Error ? error.message : error}`,
+            );
+            return { jobs: [], obtain: [] as string[] };
+          }),
+          // 공고가 준 지정 서식이 있으면 새로 쓰지 말고 그것을 채운다.
+          fillTemplates(allFiles, filled, dir, ctx).catch((error) => {
+            ctx.log(
+              `지정 서식 채우기 실패: ${error instanceof Error ? error.message : error}`,
             );
             return [] as Artifact[];
-          }
-        }),
-      ),
-    );
-    made.push(...written.flat());
-    return made;
-  });
+          }),
+        ]);
+        const { jobs, obtain } = planned;
+
+        // 발급 서류는 만들지 않는다 — 보관함에 있으면 꺼내 쓴다.
+        const recalled = await recallArtifacts(obtain, opts.userId, dir, ctx).catch(
+          () => [] as Artifact[],
+        );
+        const made: Artifact[] = [...recalled, ...filledIn];
+        if (jobs.length === 0) return made;
+        // 문서끼리 서로를 참조하지 않는다. 직렬로 쓰면 편수만큼 곱해질 뿐이다.
+        const written = await Promise.all(
+          jobs.map((job) =>
+            lanes.batch(async () => {
+              try {
+                const { artifact, markdown } = await writeDocument(
+                  job,
+                  {
+                    title,
+                    organization: found?.organization ?? null,
+                    brief,
+                    needs: filled,
+                    // 이게 없으면 서술형 기억(`memories.embedding`)이 한 번도 안 쓰인다.
+                    userId: opts.userId,
+                  },
+                  dir,
+                  ctx,
+                );
+                // 신청 페이지가 어떤 형식을 받는지는 여기서 알 수 없다. PDF 를 한 벌 더 둔다.
+                const copy = await pdfCopy(artifact, markdown, job.title, dir, ctx);
+                return copy ? [artifact, copy] : [artifact];
+              } catch (error) {
+                if (isAbort(error)) throw error;
+                // 한 문서가 실패해도 나머지는 만든다.
+                ctx.log(
+                  `${job.label} 작성 실패: ${error instanceof Error ? error.message : error}`,
+                );
+                return [] as Artifact[];
+              }
+            }),
+          ),
+        );
+        made.push(...written.flat());
+        return made;
+      });
 
   const [madePlan, madeArtifacts] = await Promise.all([planTask, documentsTask]);
   plan = madePlan;

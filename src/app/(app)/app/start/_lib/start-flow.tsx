@@ -90,7 +90,15 @@ const TOOL_LABEL: Record<string, string> = {
   recover: "화면 복귀",
 };
 
-export function StartFlow({ initial }: { initial: ComposerSubmit }) {
+/**
+ * 워크벤치가 받는 것.
+ *
+ * 새 입력이거나, **죽은 실행을 이어받는 것**이거나 둘 중 하나다. 후자는
+ * 서버가 스냅샷에서 끝난 단계를 건너뛰고 안 끝난 것부터 다시 돈다.
+ */
+export type StartInput = ComposerSubmit | { kind: "resume"; goalId: string };
+
+export function StartFlow({ initial }: { initial: StartInput }) {
   const [cards, setCards] = useState<Cards>(emptyCards);
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [summary, setSummary] = useState<{ markdown: string; via: string } | null>(null);
@@ -243,6 +251,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     if (initial.kind === "file") body.append("file", initial.file);
     if (initial.kind === "url") body.append("url", initial.url);
     if (initial.kind === "text") body.append("text", initial.text);
+    if (initial.kind === "resume") body.append("resume", initial.goalId);
 
     void readStream<StartEvent>("/app/start/run", body, (event) => {
       switch (event.type) {
@@ -590,7 +599,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
      * 바깥에 패딩을 두지 않는다. 두 판이 각자 스크롤하고 가운데 선으로만
      * 갈리는 편이, 전체가 한 번에 스크롤되며 여백을 흘리는 것보다 낫다.
      */
-    <div className="flex h-[calc(100svh-3.5rem)] min-h-0 items-stretch">
+    <div className="flex h-full min-h-0 items-stretch">
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 lg:w-1/2 lg:flex-none">
         <div className="flex min-h-0 flex-1 flex-col space-y-4">
           <header className="flex flex-wrap items-center gap-2">

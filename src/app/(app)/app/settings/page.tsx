@@ -1,7 +1,7 @@
 import { googleConnections } from "@/lib/google";
 import { currentSession } from "@/lib/session";
 import { AppHeader } from "@/components/app/app-header";
-import { slack } from "@/app/(labs)/lab/relay/_lib/slack";
+import { oidcReady } from "@/app/(labs)/lab/relay/_lib/oidc";
 import { identitiesOf } from "@/app/(labs)/lab/relay/_lib/store";
 
 import { GoogleConnections } from "./_lib/google-connections";
@@ -45,7 +45,7 @@ export default async function SettingsPage() {
                 이어받는다.
               </p>
             </header>
-            <RelayConnections links={relayLinks} configured={slack.ready()} />
+            <RelayConnections links={relayLinks} configured={oidcReady()} />
           </section>
         )}
       </div>

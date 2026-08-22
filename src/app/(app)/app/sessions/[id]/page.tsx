@@ -25,10 +25,11 @@ export const dynamic = "force-dynamic";
  * 탭을 닫아도 준비는 끝까지 간다. 그러면 돌아온 사용자의 첫 질문이 「끝났나」다 —
  * 스냅샷의 `stages` 가 그 답인데 여태 아무도 안 읽고 있었다.
  */
-function Progress({ stages }: { stages: SessionSnapshot["stages"] }) {
+function Progress({ id, stages }: { id: string; stages: SessionSnapshot["stages"] }) {
   const done = STAGES.filter((id) => stages[id] === "done").length;
   const failed = STAGES.filter((id) => stages[id] === "error");
   const running = STAGES.filter((id) => !stages[id]);
+  const unfinished = running.length > 0 || failed.length > 0;
 
   return (
     <section>
@@ -40,6 +41,18 @@ function Progress({ stages }: { stages: SessionSnapshot["stages"] }) {
           </span>
         ) : (
           <span className="text-xs font-normal text-muted-foreground">끝났다</span>
+        )}
+        {/*
+          끝난 단계는 다시 안 돈다. 서버가 스냅샷을 보고 건너뛴다 —
+          사용자가 채운 값도 그대로 이어받는다.
+        */}
+        {unfinished && (
+          <a
+            href={`/app?resume=${id}`}
+            className="ml-auto rounded-md border border-border px-2 py-1 text-xs hover:border-brand hover:text-brand"
+          >
+            여기서 이어서 준비
+          </a>
         )}
       </h2>
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -137,7 +150,7 @@ export default async function SessionPage({
           </div>
         </header>
 
-        {snapshot?.stages ? <Progress stages={snapshot.stages} /> : null}
+        {snapshot?.stages ? <Progress id={goal.id} stages={snapshot.stages} /> : null}
 
         {snapshot?.plan?.steps?.length ? <PlanView plan={snapshot.plan} /> : null}
 

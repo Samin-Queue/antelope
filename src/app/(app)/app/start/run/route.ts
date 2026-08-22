@@ -7,7 +7,8 @@ import { guardProcess } from "@/lib/guard";
 import { MAX_FILE_BYTES } from "../_lib/fetch";
 import type { IntakeInput } from "../_lib/intake";
 import { runStart } from "../_lib/pipeline";
-import type { StartEvent } from "../_lib/types";
+import type { SessionSnapshot, StartEvent } from "../_lib/types";
+import { getGoal } from "../../_lib/goals";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 600;
@@ -46,7 +47,10 @@ export async function POST(req: Request) {
   const text = String(form.get("text") ?? "").trim();
   if (text) input.text = text;
 
-  if (!input.file && !input.url && !input.text) {
+  /** 죽은 실행을 이어받는다. 이때는 새 입력이 없어도 된다 */
+  const resumeId = String(form.get("resume") ?? "").trim();
+
+  if (!resumeId && !input.file && !input.url && !input.text) {
     return Response.json(
       { error: "파일, 링크, 문장 중 하나는 있어야 합니다." },
       { status: 400 },
@@ -57,6 +61,23 @@ export async function POST(req: Request) {
     ? await auth.api.getSession({ headers: await headers() })
     : null;
   const userId = session?.user.id ?? null;
+
+  /**
+   * 재개는 **자기 세션만** 된다. `getGoal` 이 userId 로 걸러 주므로 남의
+   * 스냅샷은 애초에 안 온다.
+   */
+  let resume: { id: string; snapshot: SessionSnapshot } | undefined;
+  if (resumeId) {
+    if (!userId) {
+      return Response.json({ error: "로그인이 필요합니다." }, { status: 401 });
+    }
+    const goal = await getGoal(userId, resumeId);
+    const snapshot = goal?.snapshot as SessionSnapshot | null;
+    if (!snapshot) {
+      return Response.json({ error: "이어받을 준비 기록이 없습니다." }, { status: 404 });
+    }
+    resume = { id: resumeId, snapshot };
+  }
 
   const encoder = new TextEncoder();
   /**
@@ -118,7 +139,7 @@ export async function POST(req: Request) {
             if (event.type === "end" || event.type === "error") closed = true;
             emit(event);
           },
-          { userId },
+          { userId, resume },
         );
       } catch (error) {
         // 서버 로그에도 남긴다. 화면 문구만으로는 스택을 볼 수 없다.
