@@ -33,6 +33,16 @@ export async function runBrowserAgent(opts: {
   goal: string;
   /** 폼에 채워 넣을 사실들. 여기 없는 값은 지어내지 말라고 지시한다 */
   facts?: Record<string, string>;
+  /**
+   * 계획 에이전트가 세운 순서.
+   *
+   * 타입이 아니라 **문자열 목록**으로 받는다 — 여기는 실험 폴더라 `app/start` 의
+   * `PlanStep` 을 import 하면 의존 방향이 거꾸로 선다. 호출부가 옮겨 적는다.
+   *
+   * `human` 은 「너는 하지 않는다」 목록이다. 사람 몫을 브라우저가 붙잡고
+   * 헤매는 것을 막는 게 계획서를 넘기는 가장 큰 이유다.
+   */
+  plan?: { browser?: string[]; human?: string[] };
   startUrl?: string;
   maxSteps?: number;
   model?: LanguageModel;
@@ -53,6 +63,7 @@ export async function runBrowserAgent(opts: {
     sessionId,
     goal,
     facts = {},
+    plan,
     startUrl,
     maxSteps = 24,
     allowSubmit = false,
@@ -326,6 +337,8 @@ export async function runBrowserAgent(opts: {
       "- 화면에 신청서가 안 보이고 「Search Google」·「New Tab」 같은 게 보이면 길을 잃은 것이다. 주소창에 URL 을 치려 하지 말고 **recover 를 부른다.**",
       "- 아래에 더 있을 것 같으면 scroll 한다. 화면은 1280×900 이라 긴 폼은 한 화면에 다 안 보인다.",
       "- 주어진 사실에 없는 값은 지어내지 않는다. 없으면 그 항목을 건너뛰고 마지막에 보고한다.",
+      "- **계획서가 주어지면 그 순서를 따른다.** 계획에 없는 곳으로 가지 않는다.",
+      "- **「사람이 직접 해야 하는 것」에 적힌 일은 시도하지 않는다.** 증명서 발급·본인인증·서류 작성은 네 몫이 아니다. 그 자리에 오면 건너뛰고 마지막에 보고한다.",
       allowSubmit
         ? "- 결제·회원 탈퇴처럼 되돌릴 수 없는 버튼은 누르지 않는다. 단, **신청서 제출 버튼은 누른다** — 제출까지가 목표다. 제출 후 접수 완료 화면이나 접수번호가 보이면 read 로 확인하고 보고한다."
         : "- 결제·최종 제출·회원 탈퇴처럼 되돌릴 수 없는 버튼은 누르지 않는다. 직전에서 멈추고 보고한다.",
@@ -335,6 +348,20 @@ export async function runBrowserAgent(opts: {
     prompt: [
       `목표: ${goal}`,
       startUrl ? `시작 URL: ${startUrl} (이미 열려 있다)` : "",
+      plan?.browser?.length
+        ? [
+            "",
+            "계획서 — 네가 할 순서:",
+            ...plan.browser.map((line, i) => `  ${i + 1}. ${line}`),
+          ].join("\n")
+        : "",
+      plan?.human?.length
+        ? [
+            "",
+            "사람이 직접 해야 하는 것 (너는 하지 않는다):",
+            ...plan.human.map((line) => `  - ${line}`),
+          ].join("\n")
+        : "",
       Object.keys(facts).length
         ? [
             "",

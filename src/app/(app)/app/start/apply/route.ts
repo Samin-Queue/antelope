@@ -16,6 +16,17 @@ const body = z.object({
   applyUrl: z.string().url(),
   title: z.string().min(1).max(200),
   facts: z.record(z.string(), z.string()),
+  /**
+   * 계획 에이전트가 세운 순서를 문자열로 옮긴 것.
+   * `human` 은 브라우저가 손대면 안 되는 일 — 이게 없으면 증명서 발급 화면
+   * 앞에서 붙잡혀 스텝을 태운다.
+   */
+  plan: z
+    .object({
+      browser: z.array(z.string().max(300)).max(8).optional(),
+      human: z.array(z.string().max(300)).max(8).optional(),
+    })
+    .optional(),
 });
 
 /** 신청이 끝난 뒤 화면을 이만큼 더 남긴다. 접수 완료 화면을 사람이 봐야 한다 */
@@ -40,7 +51,7 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const { applyUrl, title, facts } = parsed.data;
+  const { applyUrl, title, facts, plan } = parsed.data;
   const sessionId = `start-${Date.now()}`;
   const goal = `「${title}」 신청서를 작성하고 제출까지 완료하라. 회원가입·로그인이 필요하면 주어진 사실로 진행한다.`;
 
@@ -107,6 +118,7 @@ export async function POST(req: Request) {
           startUrl: applyUrl,
           goal,
           facts,
+          plan,
           maxSteps: 60,
           allowSubmit: true,
           onStep: step,

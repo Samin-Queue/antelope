@@ -220,7 +220,24 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     try {
       await readStream<ApplyEvent>(
         "/app/start/apply",
-        JSON.stringify({ applyUrl, title: target.title, facts }),
+        JSON.stringify({
+          applyUrl,
+          title: target.title,
+          facts,
+          // 계획서를 함께 넘긴다. 「사람 몫」을 알려 주지 않으면 브라우저가
+          // 증명서 발급 화면 앞에서 스텝을 태운다.
+          plan: plan
+            ? {
+                browser: plan.steps
+                  .filter((step) => step.owner === "browser")
+                  .map((step) => [step.title, step.detail].filter(Boolean).join(" — ")),
+                // file 도 지금은 사람 몫이다 — 파일 에이전트가 생기면 빼야 한다.
+                human: plan.steps
+                  .filter((step) => step.owner === "user" || step.owner === "file")
+                  .map((step) => step.title),
+              }
+            : undefined,
+        }),
         (event) => {
           if (event.type === "mode") {
             setApply((prev) => ({
