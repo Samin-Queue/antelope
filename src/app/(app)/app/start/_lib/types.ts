@@ -5,7 +5,16 @@
  * pipeline 을 import 하면 브라우저 에이전트(node:child_process)가 번들에 끌려 들어간다.
  */
 
-/** 준비 단계. 화면의 진행 레일이 이 순서로 그린다 */
+/**
+ * 화면의 카드 하나 = 에이전트 하나.
+ *
+ * 준비(`/run`)와 신청(`/apply`)은 **다른 스트림**이지만 같은 어휘를 쓴다.
+ * 그래야 브라우저가 도중에 데이터·파일·계획을 되부를 때 같은 그리드에서
+ * 여러 칸이 함께 켜진다 — 티키타카가 화면에 그대로 보이는 것이 요점이다.
+ *
+ * 8칸이 그리드(4×2), 브라우저는 그 아래 전폭이다. 1280×900 화면을 1/8 칸에
+ * 넣으면 무엇을 하는지 안 읽힌다.
+ */
 export type Stage =
   | "intake"
   | "summarize"
@@ -27,15 +36,19 @@ export const STAGES: Stage[] = [
   "documents",
 ];
 
-export const STAGE_LABEL: Record<Stage, { title: string; agent: string }> = {
+/** 브라우저까지 포함한 전체 어휘. 두 스트림이 이걸로 말한다 */
+export type AgentKey = Stage | "browser";
+
+export const STAGE_LABEL: Record<AgentKey, { title: string; agent: string }> = {
   intake: { title: "입력 정리", agent: "solar-mini" },
-  summarize: { title: "문서 요약", agent: "유효성 검사 에이전트" },
-  judge: { title: "요약 판정", agent: "solar-mini" },
-  research: { title: "추가 조사", agent: "solar-pro4" },
-  analyze: { title: "양식 분석", agent: "정보 분석 에이전트" },
-  prefill: { title: "지식베이스 선채움", agent: "memories" },
-  plan: { title: "진행 계획", agent: "계획 에이전트" },
-  documents: { title: "서류 작성", agent: "파일 에이전트" },
+  summarize: { title: "유효성 검사", agent: "Studio" },
+  judge: { title: "착수 판정", agent: "solar-mini" },
+  research: { title: "자료 조사", agent: "solar-pro4" },
+  analyze: { title: "정보 분석", agent: "Studio" },
+  prefill: { title: "데이터", agent: "지식베이스" },
+  plan: { title: "계획", agent: "solar-pro4" },
+  documents: { title: "파일", agent: "파일 에이전트" },
+  browser: { title: "브라우저", agent: "실제 사이트 조작" },
 };
 
 export type NeedKind =
@@ -155,7 +168,8 @@ export type StartEvent =
       status: "start" | "done" | "error" | "skip";
       detail?: string;
     }
-  | { type: "log"; text: string }
+  /** 어느 카드의 로그인지. 없으면 화면 전체 로그 */
+  | { type: "log"; stage?: Stage; text: string }
   | { type: "files"; files: FileInfo[] }
   | { type: "summary"; markdown: string; via: string }
   /** 정보 분석 의 신청 준비 문서 */
@@ -185,6 +199,19 @@ export type ApplyEvent =
    */
   | { type: "mode"; mode: "auto" | "manual"; reason: string }
   | { type: "session"; sessionId: string }
+  /**
+   * 브라우저가 도중에 되부른 에이전트의 상태.
+   * 브라우저 카드와 **함께** 켜져 「누가 누구를 부르는지」가 보인다.
+   */
+  | {
+      type: "agent";
+      agent: AgentKey;
+      status: "start" | "done" | "error";
+      detail?: string;
+    }
+  /** 값이 없어 사용자에게 묻는다. 답이 올 때까지 브라우저는 멈춰 기다린다 */
+  | { type: "ask"; id: string; label: string; why: string; kind: NeedKind }
+  | { type: "answered"; id: string; label: string }
   | { type: "step"; tool: string; detail: string; title: string }
   | { type: "frame"; image: string; title: string }
   | { type: "need:human"; reason: string }

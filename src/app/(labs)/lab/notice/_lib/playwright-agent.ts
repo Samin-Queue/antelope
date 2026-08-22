@@ -136,6 +136,23 @@ export async function runPlaywrightAgent(opts: {
    * 없으면 예전처럼 「사람이 올려야 한다」로 건너뛴다.
    */
   artifacts?: Array<{ label: string; filename: string; path: string }>;
+  /**
+   * 실행 도중 다른 에이전트를 되부르는 통로.
+   *
+   * 타입이 아니라 **콜백**으로 받는다 — 여기는 실험 폴더라 `app/start` 를
+   * import 하면 의존 방향이 거꾸로 선다. 무엇을 부를지는 호출부가 정한다.
+   *
+   * 이게 티키타카의 전부다. 브라우저가 막혔을 때 사람에게 떠넘기는 대신
+   * 값을 받아 오고, 서류를 만들어 오고, 계획을 다시 짠다.
+   */
+  helpers?: {
+    askUser?(req: { label: string; why: string }): Promise<string | null>;
+    makeFile?(req: {
+      label: string;
+      format: string;
+    }): Promise<{ filename: string; path: string } | null>;
+    replan?(req: { problem: string }): Promise<string | null>;
+  };
   startUrl: string;
   maxSteps?: number;
   model?: LanguageModel;
@@ -148,6 +165,7 @@ export async function runPlaywrightAgent(opts: {
     facts = {},
     plan,
     artifacts = [],
+    helpers = {},
     startUrl,
     maxSteps = 40,
     allowSubmit = false,
@@ -309,6 +327,86 @@ export async function runPlaywrightAgent(opts: {
           return message;
         },
       }),
+      askUser: tool({
+        description:
+          "채울 값이 없을 때 사용자에게 묻는다. 답이 올 때까지 기다린다 — 지어내지 말고 이걸 부른다.",
+        inputSchema: z.object({
+          label: z.string().describe("무엇을 묻는지. 화면의 칸 이름 그대로"),
+          why: z.string().describe("왜 필요한지 한 문장"),
+        }),
+        execute: async ({ label, why }) => {
+          if (!helpers.askUser) {
+            const message = `"${label}" 를 물을 통로가 없다. 비워 두고 마지막에 보고한다.`;
+            await record("askUser", { label }, message);
+            return message;
+          }
+          await record("askUser", { label, why }, `"${label}" 을 사용자에게 묻는다`);
+          const value = await helpers.askUser({ label, why });
+          if (value === null || !value.trim()) {
+            const message = `"${label}" 에 답을 받지 못했다. 비워 두고 보고한다.`;
+            await record("askUser", { label, empty: true }, message);
+            return message;
+          }
+          facts[label] = value.trim();
+          const message = `"${label}" = "${value.trim()}" 를 받았다. 이 값으로 채운다.`;
+          await record("askUser", { label, value: value.trim() }, message);
+          return message;
+        },
+      }),
+
+      makeFile: tool({
+        description:
+          "제출용 파일이 필요할 때 파일 에이전트에게 만들게 한다. 발급 서류(등록증·증명서)는 만들 수 없다.",
+        inputSchema: z.object({
+          label: z.string().describe("서류 이름. 업로드 칸의 라벨 그대로"),
+          format: z
+            .string()
+            .describe(
+              "받는 형식. 업로드 칸의 accept 를 보고 pdf|hwp|hwpx|docx|xlsx 중 하나",
+            ),
+        }),
+        execute: async ({ label, format }) => {
+          if (!helpers.makeFile) {
+            const message = `"${label}" 를 만들 통로가 없다. 건너뛰고 보고한다.`;
+            await record("makeFile", { label }, message);
+            return message;
+          }
+          await record("makeFile", { label, format }, `"${label}" 작성을 요청한다`);
+          const made = await helpers.makeFile({ label, format });
+          if (!made) {
+            const message = `"${label}" 는 만들 수 없다. 사람이 발급받아야 하는 서류라면 건너뛰고 보고한다.`;
+            await record("makeFile", { label, failed: true }, message);
+            return message;
+          }
+          artifacts.push({ label, filename: made.filename, path: made.path });
+          const message = `"${made.filename}" 를 만들었다. upload 로 올린다.`;
+          await record("makeFile", { label, filename: made.filename }, message);
+          return message;
+        },
+      }),
+
+      replan: tool({
+        description:
+          "계획대로 진행할 수 없을 때 계획 에이전트에게 다시 짜게 한다. 같은 곳에서 두 번 막혔으면 부른다.",
+        inputSchema: z.object({
+          problem: z.string().describe("무엇이 계획과 다른지 한두 문장"),
+        }),
+        execute: async ({ problem }) => {
+          if (!helpers.replan) {
+            const message = "계획을 고칠 통로가 없다. 지금 계획으로 계속한다.";
+            await record("replan", { problem }, message);
+            return message;
+          }
+          await record("replan", { problem }, "계획 에이전트에게 재계획을 요청한다");
+          const revised = await helpers.replan({ problem });
+          const message = revised
+            ? `새 계획:\n${revised}`
+            : "계획을 고치지 못했다. 지금 계획으로 계속한다.";
+          await record("replan", { revised: Boolean(revised) }, message);
+          return message;
+        },
+      }),
+
       fill: tool({
         description:
           "입력칸에 값을 넣는다. 날짜 칸에는 YYYY-MM-DD 로 준다 — 표기 변환은 브라우저가 한다. 기존 값은 지우고 넣는다.",
@@ -607,7 +705,9 @@ function systemPrompt(allowSubmit: boolean, hasArtifacts: boolean): string {
       ? "- **파일 업로드 칸에는 upload 를 쓴다.** 「준비된 파일」 목록에 있는 이름을 그대로 넘긴다. 목록에 없는 서류(발급받아야 하는 것)는 건너뛰고 마지막에 보고한다."
       : "- 파일 업로드 칸은 채울 수 없다. 건너뛰고 마지막에 무엇이 남았는지 보고한다.",
     "- 여러 단계로 나뉜 폼은 한 단계를 다 채우고 「다음」을 눌러 넘어간다. 남은 단계가 있으면 끝난 게 아니다.",
-    "- 값이 없는 항목은 비워 둔다. 지어내지 않는다.",
+    "- **값이 없으면 지어내지 말고 `askUser` 로 묻는다.** 사용자가 화면을 보고 있으므로 바로 답이 온다.",
+    "- **필요한 서류가 준비된 파일에 없으면 `makeFile` 로 만들게 한다.** 사업계획서·자기소개서처럼 작성하는 것은 만들어진다. 등록증·증명서 같은 발급 서류는 안 된다 — 그건 사람 몫이라고 보고한다.",
+    "- 같은 곳에서 두 번 막혔으면 `replan` 을 부른다. 같은 시도를 세 번 반복하지 않는다.",
     "- **라벨의 단위 표기를 그대로 따른다.** 「총사업비 (천원)」 에 1억을 넣으려면 `100000` 이다. 「%」·「백만원」·「개월」 도 같다.",
     "- **막히면 추측하지 말고 diagnose 를 부른다.** 무엇이 비었고 무엇이 막고 있는지 브라우저가 직접 답한다. 「이전」 을 눌러 앞 단계를 뒤지기 전에 이걸 먼저 한다.",
     "- diagnose 가 「사람이 발급받아야 한다」 고 하면 더 밀지 않는다. 무엇이 없어 못 냈는지 보고하고 끝낸다.",

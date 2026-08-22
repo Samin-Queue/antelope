@@ -7,7 +7,10 @@ import {
   runPlaywrightAgent,
 } from "@/app/(labs)/lab/notice/_lib/playwright-agent";
 
-import type { ApplyEvent } from "../_lib/types";
+import { artifactDir, writeDocument } from "../_lib/file-agent";
+import { makePlan } from "../_lib/plan";
+import { ask, closeRun, openRun } from "../_lib/run-registry";
+import type { AgentKey, ApplyEvent, Need, Plan } from "../_lib/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 900;
@@ -39,8 +42,15 @@ const body = z.object({
         path: z.string().max(500),
       }),
     )
-    .max(6)
+    .max(12)
     .optional(),
+  /** 사용자가 이 실행에 개입할 때 쓰는 id. 클라이언트가 만들어 보낸다 */
+  runId: z.string().min(8).max(64),
+  /** 되부르기에 필요한 재료 — 마스터 테이블과 준비 문서 */
+  needs: z.array(z.record(z.string(), z.unknown())).max(200).optional(),
+  brief: z.string().max(40_000).optional(),
+  organization: z.string().max(200).nullish(),
+  deadline: z.string().max(40).nullish(),
 });
 
 /** 신청이 끝난 뒤 화면을 이만큼 더 남긴다. 접수 완료 화면을 사람이 봐야 한다 */
@@ -65,7 +75,10 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const { applyUrl, title, facts, plan, artifacts } = parsed.data;
+  const { applyUrl, title, facts, plan, runId, brief, organization, deadline } =
+    parsed.data;
+  const artifacts = [...(parsed.data.artifacts ?? [])];
+  const needs = (parsed.data.needs ?? []) as unknown as Need[];
   const sessionId = `start-${Date.now()}`;
   const goal = `「${title}」 신청서를 작성하고 제출까지 완료하라. 회원가입·로그인이 필요하면 주어진 사실로 진행한다.`;
 
@@ -87,6 +100,99 @@ export async function POST(req: Request) {
           title: entry.url ?? "",
         });
 
+      /** 되부른 에이전트의 카드를 켰다 끈다. 브라우저 카드와 함께 켜진다 */
+      const lit = async <T>(agent: AgentKey, detail: string, task: () => Promise<T>) => {
+        emit({ type: "agent", agent, status: "start", detail });
+        try {
+          const value = await task();
+          emit({ type: "agent", agent, status: "done" });
+          return value;
+        } catch (error) {
+          emit({
+            type: "agent",
+            agent,
+            status: "error",
+            detail: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        }
+      };
+
+      openRun(runId);
+      emit({ type: "agent", agent: "browser", status: "start" });
+
+      /**
+       * 브라우저가 막혔을 때 되부르는 통로.
+       *
+       * 이 셋이 티키타카의 전부다 — 사람에게 떠넘기는 대신 값을 받아 오고,
+       * 서류를 만들어 오고, 계획을 다시 짠다. 각각 카드가 켜지므로 화면에
+       * 브라우저 → 데이터/파일/계획 → 브라우저 왕복이 그대로 보인다.
+       */
+      const helpers = {
+        async askUser({ label, why }: { label: string; why: string }) {
+          const id = `${runId}-${Date.now()}`;
+          emit({ type: "agent", agent: "prefill", status: "start", detail: label });
+          emit({ type: "ask", id, label, why, kind: "text" });
+          const value = await ask(runId, { id, label });
+          emit({ type: "answered", id, label });
+          emit({ type: "agent", agent: "prefill", status: "done" });
+          return value;
+        },
+
+        async makeFile({ label, format }: { label: string; format: string }) {
+          const made = await lit("documents", label, () =>
+            writeDocument(
+              {
+                needKey: `browser-${label}`,
+                label,
+                title: label,
+                sections: [],
+                format: (["pdf", "hwp", "hwpx", "docx", "xlsx"] as const).includes(
+                  format as never,
+                )
+                  ? (format as "pdf")
+                  : "pdf",
+              },
+              { title, organization: organization ?? null, brief: brief ?? "", needs },
+              artifactDir(runId),
+              {
+                log: (text) =>
+                  emit({ type: "step", tool: "file", detail: text, title: "" }),
+              },
+            ),
+          );
+          if (!made) return null;
+          artifacts.push({
+            label,
+            filename: made.artifact.filename,
+            path: made.artifact.path,
+          });
+          return { filename: made.artifact.filename, path: made.artifact.path };
+        },
+
+        async replan({ problem }: { problem: string }) {
+          const revised = await lit("plan", problem, () =>
+            makePlan(
+              {
+                title,
+                organization: organization ?? null,
+                deadline: deadline ?? null,
+                applyUrl,
+                brief: brief ?? null,
+                summary: `신청 도중 막혔다: ${problem}`,
+                needs,
+                today: new Date().toISOString().slice(0, 10),
+              },
+              {
+                log: (text) =>
+                  emit({ type: "step", tool: "plan", detail: text, title: "" }),
+              },
+            ),
+          );
+          return revised ? summarizePlan(revised) : null;
+        },
+      };
+
       let usedDesktop = false;
       try {
         const probe = await probeCaptcha(applyUrl);
@@ -103,6 +209,7 @@ export async function POST(req: Request) {
             facts,
             plan,
             artifacts,
+            helpers,
             maxSteps: 60,
             allowSubmit: true,
             onStep: step,
@@ -154,6 +261,8 @@ export async function POST(req: Request) {
         } catch {
           /* 이미 닫힘 */
         }
+        emit({ type: "agent", agent: "browser", status: "done" });
+        closeRun(runId);
         // Xvfb·Chromium 은 프로세스다. 안 닫으면 신청 한 번마다 하나씩 남는다.
         // 자동 모드로만 끝났으면 띄운 적이 없으니 건드릴 것도 없다.
         if (usedDesktop) {
@@ -170,4 +279,12 @@ export async function POST(req: Request) {
       Connection: "keep-alive",
     },
   });
+}
+
+/** 새 계획을 브라우저가 읽을 몇 줄로 줄인다. 전문을 넘기면 프롬프트가 넘친다 */
+function summarizePlan(plan: Plan): string {
+  return plan.steps
+    .filter((step) => step.owner === "browser")
+    .map((step, index) => `${index + 1}. ${step.title}`)
+    .join("\n");
 }
