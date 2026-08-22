@@ -1,15 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  CheckCircle2,
-  CircleDashed,
-  FileText,
-  Link2,
-  Loader2,
-  MinusCircle,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, Link2, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -17,34 +9,36 @@ import { cn } from "@/lib/utils";
 import type { ComposerSubmit } from "@/components/app/composer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { LiveScreen } from "@/app/(labs)/lab/notice/_lib/run-view";
 
+import { AgentCard, AgentGrid, emptyCards, type Cards } from "./agent-grid";
+import { AskDialog, type AskItem } from "./ask-dialog";
 import { NeedsForm } from "./needs-form";
+import { SteerBox } from "./steer-box";
 import {
   APPLY_URL_KEY,
   PLAN_OWNER_LABEL,
-  STAGE_LABEL,
-  STAGES,
+  type AgentKey,
   type ApplyEvent,
   type Artifact,
   type FileInfo,
   type Need,
   type Plan,
-  type Stage,
   type StartEvent,
 } from "./types";
 
 /**
- * 「목표 시작하기」 — 입력 하나로 요약부터 신청까지.
+ * 「세션 시작하기」 — 입력 하나로 요약부터 신청까지.
  *
- * 서버 스트림이 둘이다. /app/start/run 이 1~5 단계를, /app/start/apply 가 9단계를
- * 흘린다. 그 사이(6~8)는 여기서 정한다: 빈 항목이 없으면 사람을 안 거치고 바로 신청한다.
+ * 화면의 요점은 **무엇이 지금 돌고 있는지가 보이는 것**이다. 진행 막대 하나로는
+ * 잘 가고 있는지 멈춘 건지 알 수 없다 — CLI 가 모델의 사고를 흘리는 것과 같은
+ * 이유로 카드마다 그 에이전트가 방금 한 일을 흘린다.
+ *
+ * 서버 스트림이 둘이다. `/run` 이 준비 8단계를, `/apply` 가 신청을 흘린다.
+ * 둘이 같은 `AgentKey` 어휘를 쓰므로 하나의 격자가 이어서 그려진다 — 브라우저가
+ * 도중에 데이터·파일·계획을 되부르면 그 칸이 함께 켜진다.
  */
-type StageState = {
-  status: "idle" | "running" | "done" | "error" | "skip";
-  detail?: string;
-};
-
 type Prepared = {
   title: string;
   organization: string | null;
@@ -69,33 +63,33 @@ const TOOL_LABEL: Record<string, string> = {
   read: "화면 읽기",
   click: "클릭",
   click_at: "좌표 클릭",
+  fill: "입력",
   type: "입력",
   select: "선택",
   press: "키",
   scroll: "스크롤",
+  upload: "파일 첨부",
+  diagnose: "막힌 이유 확인",
+  askUser: "사용자에게 질문",
+  makeFile: "서류 작성 요청",
+  replan: "계획 재수립",
   "need:human": "사람 호출",
   recover: "화면 복귀",
 };
 
-const IDLE_STAGES = Object.fromEntries(
-  STAGES.map((stage) => [stage, { status: "idle" }]),
-) as Record<Stage, StageState>;
-
 export function StartFlow({ initial }: { initial: ComposerSubmit }) {
-  const [stages, setStages] = useState<Record<Stage, StageState>>(IDLE_STAGES);
-  const [logs, setLogs] = useState<string[]>([]);
+  const [cards, setCards] = useState<Cards>(emptyCards);
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [summary, setSummary] = useState<{ markdown: string; via: string } | null>(null);
+  const [brief, setBrief] = useState<string | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
-  const [verdict, setVerdict] = useState<{
-    verdict: "good" | "bad";
-    reason: string;
-  } | null>(null);
   const [prepared, setPrepared] = useState<Prepared | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(true);
+  const [needsOpen, setNeedsOpen] = useState(false);
+  const [ask, setAsk] = useState<AskItem | null>(null);
   const [apply, setApply] = useState<ApplyState>({
     status: "idle",
     mode: null,
@@ -106,11 +100,21 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     summary: null,
     error: null,
   });
-  // 서버가 만든 세션 id. 저장 책임은 서버에 있고 여기서는 갱신만 한다.
   const [sessionId, setSessionId] = useState<string | null>(null);
   const startedRef = useRef(false);
 
-  // 1~5 단계 — 컴포저 입력으로 한 번만 시작한다.
+  /** 카드 하나를 고친다. 다른 카드는 건드리지 않는다 */
+  const patch = (agent: AgentKey, next: Partial<Cards[AgentKey]>) =>
+    setCards((prev) => ({ ...prev, [agent]: { ...prev[agent], ...next } }));
+
+  const pushLog = (agent: AgentKey, text: string) =>
+    setCards((prev) => ({
+      ...prev,
+      // 카드 안쪽만 스크롤하므로 다 쌓아도 되지만, 긴 실행에서 메모리가 는다.
+      [agent]: { ...prev[agent], logs: [...prev[agent].logs, text].slice(-60) },
+    }));
+
+  // 준비 — 컴포저 입력으로 한 번만 시작한다.
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
@@ -121,64 +125,89 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     if (initial.kind === "text") body.append("text", initial.text);
 
     void readStream<StartEvent>("/app/start/run", body, (event) => {
-      if (event.type === "stage") {
-        setStages((prev) => ({
-          ...prev,
-          [event.stage]: {
+      switch (event.type) {
+        case "stage":
+          patch(event.stage, {
             status: event.status === "start" ? "running" : event.status,
             detail: event.detail,
-          },
-        }));
-      } else if (event.type === "log") {
-        setLogs((prev) => [...prev, event.text]);
-      } else if (event.type === "files") {
-        setFiles(event.files);
-      } else if (event.type === "summary") {
-        setSummary({ markdown: event.markdown, via: event.via });
-      } else if (event.type === "verdict") {
-        setVerdict({ verdict: event.verdict, reason: event.reason });
-      } else if (event.type === "plan") {
-        setPlan(event.plan);
-      } else if (event.type === "artifacts") {
-        setArtifacts(event.artifacts);
-      } else if (event.type === "run") {
-        setRunId(event.runId);
-      } else if (event.type === "session") {
-        setSessionId(event.id);
-      } else if (event.type === "needs") {
-        setPrepared({
-          title: event.title,
-          organization: event.organization,
-          deadline: event.deadline,
-          applyUrl: event.applyUrl,
-          needs: event.needs,
-        });
-      } else if (event.type === "error") {
-        setError(event.error);
+          });
+          break;
+        case "log":
+          if (event.stage) pushLog(event.stage, event.text);
+          break;
+        case "files":
+          setFiles(event.files);
+          patch("research", { output: `자료 ${event.files.length}개` });
+          break;
+        case "summary":
+          setSummary({ markdown: event.markdown, via: event.via });
+          patch("summarize", { output: `요약 ${event.via}` });
+          break;
+        case "brief":
+          setBrief(event.markdown);
+          patch("analyze", {
+            output: `준비 문서 ${event.markdown.length.toLocaleString()}자`,
+          });
+          break;
+        case "verdict":
+          patch("judge", {
+            output: event.verdict === "good" ? "착수 가능" : "정보 부족",
+          });
+          break;
+        case "plan":
+          setPlan(event.plan);
+          patch("plan", { output: `${event.plan.steps.length}단계` });
+          break;
+        case "artifacts":
+          setArtifacts(event.artifacts);
+          patch("documents", { output: `파일 ${event.artifacts.length}개` });
+          break;
+        case "run":
+          setRunId(event.runId);
+          break;
+        case "session":
+          setSessionId(event.id);
+          break;
+        case "needs": {
+          setPrepared({
+            title: event.title,
+            organization: event.organization,
+            deadline: event.deadline,
+            applyUrl: event.applyUrl,
+            needs: event.needs,
+          });
+          const filled = event.needs.filter((need) => need.value?.trim()).length;
+          patch("prefill", { output: `${filled}/${event.needs.length} 채움` });
+          break;
+        }
+        case "error":
+          setError(event.error);
+          break;
       }
     })
       .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setPreparing(false));
   }, [initial]);
 
-  // 7단계 — 빈 항목이 없으면 사람을 거치지 않는다.
+  // 빈 항목이 없으면 사람을 거치지 않는다. 있으면 다이얼로그를 띄운다.
   const autoRef = useRef(false);
   useEffect(() => {
     if (!prepared || autoRef.current) return;
+    autoRef.current = true;
     const missing = prepared.needs.filter(
       (need) => need.kind !== "file" && !need.value?.trim(),
     );
     if (missing.length === 0 && prepared.applyUrl) {
-      autoRef.current = true;
       void startApply(
         prepared,
         Object.fromEntries(
           prepared.needs.filter((n) => n.value).map((n) => [n.label, n.value ?? ""]),
         ),
       );
+    } else {
+      setNeedsOpen(true);
     }
-    // startApply 는 렌더마다 새로 만들어진다. 의존성에 넣으면 매 렌더 재실행되고,
-    // autoRef 가 막더라도 의도가 흐려진다. prepared 가 정해질 때 한 번만 돈다.
+    // startApply 는 매 렌더 새로 만들어진다. prepared 가 올 때 한 번만 돈다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prepared]);
 
@@ -188,7 +217,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
       setApply((prev) => ({ ...prev, status: "error", error: "신청 URL 이 없습니다." }));
       return;
     }
-    // 입력한 값은 지식베이스에 남긴다 — 다음 공고에서 다시 묻지 않기 위해서다.
+    setNeedsOpen(false);
+
     const facts: Record<string, string> = {};
     const filled = target.needs.map((need) => {
       const value = values[need.key] ?? values[need.label] ?? need.value ?? "";
@@ -199,12 +229,13 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         ? { ...need, value: value.trim(), from: "user" as const }
         : need;
     });
+
+    // 입력한 값은 지식베이스에 남긴다 — 다음 공고에서 다시 묻지 않기 위해서다.
     void fetch("/lab/notice/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ profile: facts, sourceNotice: target.title }),
     }).catch(() => {});
-    // 마스터 테이블을 최신으로. 브라우저가 읽는 단일 진실이다.
     if (sessionId) {
       void fetch("/app/start/needs", {
         method: "POST",
@@ -231,8 +262,11 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           applyUrl,
           title: target.title,
           facts,
-          // 계획서를 함께 넘긴다. 「사람 몫」을 알려 주지 않으면 브라우저가
-          // 증명서 발급 화면 앞에서 스텝을 태운다.
+          runId,
+          needs: filled,
+          brief,
+          organization: target.organization,
+          deadline: target.deadline,
           plan: plan
             ? {
                 browser: plan.steps
@@ -244,7 +278,6 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
                   .map((step) => step.title),
               }
             : undefined,
-          // 만들어 둔 파일. 브라우저가 업로드 칸에 그대로 넣는다.
           artifacts: artifacts.map((item) => ({
             label: item.label,
             filename: item.filename,
@@ -252,32 +285,54 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           })),
         }),
         (event) => {
-          if (event.type === "mode") {
-            setApply((prev) => ({
-              ...prev,
-              mode: { mode: event.mode, reason: event.reason },
-            }));
-          } else if (event.type === "session") {
-            setApply((prev) => ({ ...prev, sessionId: event.sessionId }));
-          } else if (event.type === "frame") {
-            setApply((prev) => ({
-              ...prev,
-              frame: { image: event.image, url: event.title },
-            }));
-          } else if (event.type === "step") {
-            const label = TOOL_LABEL[event.tool] ?? event.tool;
-            setApply((prev) => ({
-              ...prev,
-              steps: [...prev.steps, `${label} ${event.detail}`].slice(-40),
-            }));
-          } else if (event.type === "need:human") {
-            setApply((prev) => ({ ...prev, needHuman: event.reason }));
-          } else if (event.type === "human:done") {
-            setApply((prev) => ({ ...prev, needHuman: null }));
-          } else if (event.type === "done") {
-            setApply((prev) => ({ ...prev, status: "done", summary: event.summary }));
-          } else if (event.type === "error") {
-            setApply((prev) => ({ ...prev, status: "error", error: event.error }));
+          switch (event.type) {
+            case "mode":
+              setApply((prev) => ({ ...prev, mode: event }));
+              break;
+            case "session":
+              setApply((prev) => ({ ...prev, sessionId: event.sessionId }));
+              break;
+            case "agent":
+              // 브라우저가 되부른 에이전트. 브라우저 카드와 함께 켜진다.
+              patch(event.agent, {
+                status: event.status === "start" ? "running" : event.status,
+                detail: event.detail,
+              });
+              if (event.status === "start" && event.detail) {
+                pushLog(event.agent, event.detail);
+              }
+              break;
+            case "ask":
+              setAsk({ id: event.id, label: event.label, why: event.why });
+              break;
+            case "answered":
+              setAsk((prev) => (prev?.id === event.id ? null : prev));
+              break;
+            case "frame":
+              setApply((prev) => ({
+                ...prev,
+                frame: { image: event.image, url: event.title },
+              }));
+              break;
+            case "step": {
+              const label = TOOL_LABEL[event.tool] ?? event.tool;
+              const line = `${label} ${event.detail}`;
+              setApply((prev) => ({ ...prev, steps: [...prev.steps, line].slice(-60) }));
+              pushLog("browser", line);
+              break;
+            }
+            case "need:human":
+              setApply((prev) => ({ ...prev, needHuman: event.reason }));
+              break;
+            case "human:done":
+              setApply((prev) => ({ ...prev, needHuman: null }));
+              break;
+            case "done":
+              setApply((prev) => ({ ...prev, status: "done", summary: event.summary }));
+              break;
+            case "error":
+              setApply((prev) => ({ ...prev, status: "error", error: event.error }));
+              break;
           }
         },
         { "Content-Type": "application/json" },
@@ -305,186 +360,57 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     }).catch(() => {});
   }, [sessionId, apply.status, apply.summary]);
 
-  const missingCount =
-    prepared?.needs.filter((need) => need.kind !== "file" && !need.value?.trim())
-      .length ?? 0;
-  const showForm =
-    prepared && apply.status === "idle" && (missingCount > 0 || !prepared.applyUrl);
+  const answer = (id: string, value: string | null) => {
+    setAsk(null);
+    void fetch("/app/start/steer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "answer", runId, id, value }),
+    }).catch(() => {});
+  };
+
+  const steer = (text: string, mode: "now" | "next") => {
+    pushLog("browser", `사용자 지시: ${text}`);
+    void fetch("/app/start/steer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "steer", runId, text, mode }),
+    }).catch(() => {});
+  };
+
+  const running = preparing || apply.status === "running";
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[16rem_1fr] lg:items-start">
-      <aside className="space-y-4 lg:sticky lg:top-6">
-        <StageRail stages={stages} />
-        {files.length > 0 && <FileList files={files} />}
-        {logs.length > 0 && (
-          <details className="rounded-xl border border-border bg-card px-3 py-2 text-xs">
-            <summary className="cursor-pointer text-muted-foreground">
-              에이전트 기록 {logs.length}
-            </summary>
-            <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto font-mono text-[11px] text-muted-foreground">
-              {logs.map((line, index) => (
-                <li key={index}>· {line}</li>
-              ))}
-            </ul>
-          </details>
+    <div className="mx-auto w-full max-w-6xl space-y-4 px-6 py-6">
+      <header className="flex flex-wrap items-center gap-2">
+        <h1 className="text-base font-medium">{prepared?.title ?? "공고를 읽는 중"}</h1>
+        {prepared?.organization && (
+          <span className="text-sm text-muted-foreground">{prepared.organization}</span>
         )}
-      </aside>
-
-      <div className="space-y-6">
-        {error && (
-          <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap text-destructive">
-            {error}
-          </p>
+        {prepared?.deadline && (
+          <Badge variant="secondary">{prepared.deadline.replace("T", " ")}</Badge>
         )}
-
-        {preparing && !summary && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin text-brand" />
-            입력을 읽고 요약하는 중
-          </p>
+        {prepared?.applyUrl && (
+          <a
+            href={prepared.applyUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-xs text-brand hover:underline"
+          >
+            <Link2 className="size-3" />
+            신청 페이지
+          </a>
         )}
+        {running && <Loader2 className="ml-auto size-4 animate-spin text-brand" />}
+      </header>
 
-        {summary && (
-          <section className="rounded-2xl border border-border bg-card p-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">요약 · {summary.via}</Badge>
-              {verdict && (
-                <Badge variant={verdict.verdict === "good" ? "default" : "destructive"}>
-                  {verdict.verdict === "good" ? "good" : "bad"}
-                </Badge>
-              )}
-              {verdict && (
-                <span className="text-xs text-muted-foreground">{verdict.reason}</span>
-              )}
-            </div>
-            <article className="mt-4 max-w-none text-sm leading-6 break-words [&_a]:text-brand [&_a]:underline [&_h1]:mb-4 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-4 [&_h3]:mb-1 [&_h3]:font-medium [&_li]:pl-1 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_table]:my-3 [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:p-1.5 [&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-1.5 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {summary.markdown}
-              </ReactMarkdown>
-            </article>
-          </section>
-        )}
+      <AgentGrid cards={cards} />
 
-        {plan && (plan.markdown || plan.steps.length > 0) && (
-          <section className="rounded-2xl border border-border bg-card p-6">
-            <Badge variant="secondary">진행 계획</Badge>
-            {plan.steps.length > 0 && (
-              <ol className="mt-4 space-y-2">
-                {plan.steps.map((step, index) => (
-                  <li
-                    key={step.id}
-                    className="flex flex-wrap items-start gap-2 rounded-lg bg-muted/40 px-3 py-2.5"
-                  >
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm">{step.title}</p>
-                      {step.detail && (
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {step.detail}
-                        </p>
-                      )}
-                    </div>
-                    <Badge variant={step.owner === "user" ? "default" : "outline"}>
-                      {PLAN_OWNER_LABEL[step.owner]}
-                    </Badge>
-                    {step.dueDate && (
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {step.dueDate}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
-            {plan.markdown && (
-              <details className="mt-4">
-                <summary className="cursor-pointer text-xs text-muted-foreground">
-                  계획서 전문
-                </summary>
-                <article className="mt-3 max-w-none text-sm leading-6 break-words [&_a]:text-brand [&_a]:underline [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_li]:pl-1 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {plan.markdown}
-                  </ReactMarkdown>
-                </article>
-              </details>
-            )}
-          </section>
-        )}
+      <SteerBox disabled={!runId || apply.status !== "running"} onSend={steer} />
 
-        {artifacts.length > 0 && (
-          <section className="rounded-2xl border border-border bg-card p-6">
-            <Badge variant="secondary">작성한 서류 {artifacts.length}</Badge>
-            <ul className="mt-4 space-y-1.5">
-              {artifacts.map((item) => (
-                <li
-                  key={item.needKey}
-                  className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm"
-                >
-                  <span className="truncate">{item.filename}</span>
-                  <span className="text-xs text-muted-foreground">{item.label}</span>
-                  <span className="ml-auto font-mono text-xs text-muted-foreground">
-                    {(item.bytes / 1024).toFixed(0)}KB
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 text-xs text-muted-foreground">
-              근거가 없는 항목은 「확인 필요」로 남겨 뒀다. 제출 전에 열어 보라.
-            </p>
-          </section>
-        )}
-
-        {prepared && (
-          <section className="rounded-2xl border border-border bg-card p-6">
-            <h2 className="text-lg font-medium">{prepared.title}</h2>
-            <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
-              <Meta label="주관" value={prepared.organization} />
-              <Meta label="마감" value={prepared.deadline?.replace("T", " ") ?? null} />
-              <Meta
-                label="신청 페이지"
-                value={prepared.applyUrl}
-                icon={<Link2 className="size-3" />}
-              />
-            </dl>
-          </section>
-        )}
-
-        {showForm && (
-          <NeedsForm
-            needs={prepared.needs}
-            artifacts={artifacts}
-            runId={runId}
-            sourceNotice={prepared.title}
-            onUpload={(artifact) =>
-              setArtifacts((prev) => [
-                ...prev.filter((item) => item.needKey !== artifact.needKey),
-                artifact,
-              ])
-            }
-            onSubmit={(values) => void startApply(prepared, values)}
-          />
-        )}
-
-        {prepared && apply.status !== "idle" && (
-          <section className="space-y-4">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-medium">자동 신청</h2>
-              {apply.mode && (
-                <Badge variant={apply.mode.mode === "auto" ? "default" : "secondary"}>
-                  {apply.mode.mode === "auto" ? "자동 · Playwright" : "직접 조작 · 캡챠"}
-                </Badge>
-              )}
-              {missingCount === 0 && !apply.mode && (
-                <span className="text-xs text-muted-foreground">
-                  입력할 게 없어 바로 진행했다
-                </span>
-              )}
-              {apply.status === "running" && (
-                <Loader2 className="ml-auto size-4 animate-spin text-brand" />
-              )}
-            </div>
+      {(apply.status !== "idle" || cards.browser.status !== "idle") && (
+        <div className="grid gap-3 lg:grid-cols-[1fr_20rem]">
+          <div className="space-y-2">
             {apply.mode && (
               <p className="text-xs text-muted-foreground">{apply.mode.reason}</p>
             )}
@@ -495,59 +421,210 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
               needHuman={apply.needHuman}
               onHumanDone={() => setApply((prev) => ({ ...prev, needHuman: null }))}
             />
-            {apply.steps.length > 0 && (
-              <ul className="max-h-40 space-y-1 overflow-y-auto rounded-xl border border-border bg-card px-3 py-2 font-mono text-[11px] text-muted-foreground">
-                {apply.steps.map((step, index) => (
-                  <li key={index} className="truncate">
-                    {step}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {apply.summary && (
-              <div className="rounded-xl border border-brand/40 bg-brand/5 p-4 text-sm">
-                <p className="flex items-center gap-1.5 font-medium text-brand">
-                  <CheckCircle2 className="size-4" />
-                  신청 완료
-                </p>
-                <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
-                  {apply.summary}
-                </p>
-              </div>
-            )}
-            {apply.error && (
-              <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words text-destructive">
-                {apply.error}
-              </p>
-            )}
-            {apply.status === "error" && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  void startApply(
-                    prepared,
-                    Object.fromEntries(
-                      prepared.needs
-                        .filter((n) => n.value)
-                        .map((n) => [n.key, n.value ?? ""]),
-                    ),
-                  )
-                }
-              >
-                다시 시도
-              </Button>
-            )}
-          </section>
-        )}
-      </div>
+          </div>
+          <AgentCard agent="browser" state={cards.browser} className="h-full min-h-56" />
+        </div>
+      )}
+
+      {apply.summary && (
+        <section className="rounded-xl border border-brand/40 bg-brand/5 p-4 text-sm">
+          <p className="flex items-center gap-1.5 font-medium text-brand">
+            <CheckCircle2 className="size-4" />
+            신청 결과
+          </p>
+          <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+            {apply.summary}
+          </p>
+        </section>
+      )}
+
+      {(apply.error || error) && (
+        <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words text-destructive">
+          {apply.error ?? error}
+        </p>
+      )}
+
+      {prepared && !needsOpen && apply.status === "idle" && (
+        <Button onClick={() => setNeedsOpen(true)}>입력 확인하고 신청</Button>
+      )}
+
+      <Details
+        summary={summary}
+        brief={brief}
+        plan={plan}
+        files={files}
+        artifacts={artifacts}
+      />
+
+      <Dialog open={needsOpen} onOpenChange={setNeedsOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>신청에 필요한 정보</DialogTitle>
+          </DialogHeader>
+          {prepared && (
+            <NeedsForm
+              needs={prepared.needs}
+              artifacts={artifacts}
+              runId={runId}
+              sourceNotice={prepared.title}
+              onUpload={(artifact) =>
+                setArtifacts((prev) => [
+                  ...prev.filter((item) => item.needKey !== artifact.needKey),
+                  artifact,
+                ])
+              }
+              onSubmit={(values) => void startApply(prepared, values)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AskDialog item={ask} onAnswer={answer} />
     </div>
   );
 }
 
-/**
- * SSE 를 직접 읽는다. EventSource 는 POST 를 못 보내고, 파일은 POST 로만 간다.
- */
+/** 산출물 전문. 카드에는 한 줄 요약만 두고 자세한 건 여기서 편다 */
+function Details({
+  summary,
+  brief,
+  plan,
+  files,
+  artifacts,
+}: {
+  summary: { markdown: string; via: string } | null;
+  brief: string | null;
+  plan: Plan | null;
+  files: FileInfo[];
+  artifacts: Artifact[];
+}) {
+  if (!summary && !brief && !plan && files.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      {plan && plan.steps.length > 0 && (
+        <Block title={`진행 계획 ${plan.steps.length}단계`} open>
+          <ol className="space-y-1.5">
+            {plan.steps.map((step, index) => (
+              <li
+                key={step.id}
+                className="flex flex-wrap items-start gap-2 rounded-lg bg-muted/40 px-3 py-2"
+              >
+                <span className="font-mono text-xs text-muted-foreground">
+                  {index + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm">{step.title}</p>
+                  {step.detail && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">{step.detail}</p>
+                  )}
+                </div>
+                <Badge variant={step.owner === "user" ? "default" : "outline"}>
+                  {PLAN_OWNER_LABEL[step.owner]}
+                </Badge>
+                {step.dueDate && (
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {step.dueDate}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </Block>
+      )}
+
+      {artifacts.length > 0 && (
+        <Block title={`작성한 서류 ${artifacts.length}`}>
+          <ul className="space-y-1.5">
+            {artifacts.map((item) => (
+              <li
+                key={item.needKey}
+                className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm"
+              >
+                <span className="truncate">{item.filename}</span>
+                <span className="text-xs text-muted-foreground">{item.label}</span>
+                <span className="ml-auto font-mono text-xs text-muted-foreground">
+                  {(item.bytes / 1024).toFixed(0)}KB
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Block>
+      )}
+
+      {brief && (
+        <Block title="신청 준비 문서">
+          <Prose markdown={brief} />
+        </Block>
+      )}
+
+      {summary && (
+        <Block title={`요약 · ${summary.via}`}>
+          <Prose markdown={summary.markdown} />
+        </Block>
+      )}
+
+      {files.length > 0 && (
+        <Block title={`모아 온 자료 ${files.length}`}>
+          <ul className="space-y-1 text-sm">
+            {files.map((file) => (
+              <li
+                key={`${file.origin}-${file.name}`}
+                className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-3 py-2"
+              >
+                <span className="truncate">{file.name}</span>
+                <Badge variant="outline">{file.origin}</Badge>
+                <span className="ml-auto font-mono text-xs text-muted-foreground">
+                  {(file.bytes / 1024).toFixed(0)}KB
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Block>
+      )}
+    </div>
+  );
+}
+
+function Block({
+  title,
+  open,
+  children,
+}: {
+  title: string;
+  open?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details
+      open={open}
+      className="rounded-xl border border-border bg-card px-4 py-3 [&[open]>summary]:mb-3"
+    >
+      <summary className="cursor-pointer text-sm font-medium">{title}</summary>
+      {children}
+    </details>
+  );
+}
+
+function Prose({ markdown }: { markdown: string }) {
+  return (
+    <article
+      className={cn(
+        "max-w-none text-sm leading-6 break-words",
+        "[&_a]:text-brand [&_a]:underline [&_h1]:mb-3 [&_h1]:text-base [&_h1]:font-semibold",
+        "[&_h2]:mt-4 [&_h2]:mb-1.5 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:pl-1",
+        "[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5",
+        "[&_table]:my-2 [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:p-1.5",
+        "[&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-1.5",
+        "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5",
+      )}
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
+    </article>
+  );
+}
+
+/** SSE 를 직접 읽는다. EventSource 는 POST 를 못 보내고, 파일은 POST 로만 간다. */
 async function readStream<T>(
   url: string,
   body: BodyInit,
@@ -562,123 +639,16 @@ async function readStream<T>(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
+
+  while (true) {
+    const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      onEvent(JSON.parse(line.slice(6)) as T);
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
+    for (const chunk of chunks) {
+      const line = chunk.trim();
+      if (line.startsWith("data: ")) onEvent(JSON.parse(line.slice(6)) as T);
     }
   }
-}
-
-function StageRail({ stages }: { stages: Record<Stage, StageState> }) {
-  return (
-    <ol className="space-y-1 rounded-xl border border-border bg-card p-2">
-      {STAGES.map((id, index) => {
-        const state = stages[id];
-        const Icon =
-          state.status === "done"
-            ? CheckCircle2
-            : state.status === "error"
-              ? XCircle
-              : state.status === "skip"
-                ? MinusCircle
-                : state.status === "running"
-                  ? Loader2
-                  : CircleDashed;
-        return (
-          <li
-            key={id}
-            className={cn(
-              "flex items-start gap-2 rounded-lg px-2 py-1.5 text-xs",
-              state.status === "running" && "bg-brand/5",
-            )}
-          >
-            <Icon
-              className={cn(
-                "mt-0.5 size-3.5 shrink-0",
-                state.status === "done" && "text-brand",
-                state.status === "error" && "text-destructive",
-                state.status === "running" && "animate-spin text-brand",
-                (state.status === "idle" || state.status === "skip") &&
-                  "text-muted-foreground/50",
-              )}
-            />
-            <div className="min-w-0">
-              <p
-                className={cn(
-                  state.status === "idle" && "text-muted-foreground",
-                  state.status === "skip" && "text-muted-foreground line-through",
-                )}
-              >
-                {index + 1}. {STAGE_LABEL[id].title}
-              </p>
-              <p className="font-mono text-[10px] text-muted-foreground">
-                {STAGE_LABEL[id].agent}
-              </p>
-              {state.detail && (
-                <p className="mt-0.5 text-[10px] break-words text-destructive">
-                  {state.detail}
-                </p>
-              )}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-const ORIGIN_LABEL: Record<FileInfo["origin"], string> = {
-  upload: "업로드",
-  url: "링크",
-  crawl: "조사",
-};
-
-function FileList({ files }: { files: FileInfo[] }) {
-  return (
-    <ul className="space-y-1 rounded-xl border border-border bg-card p-2 text-xs">
-      {files.map((file) => (
-        <li
-          key={`${file.origin}:${file.name}`}
-          className="flex items-center gap-1.5 px-2 py-1"
-        >
-          <FileText className="size-3.5 shrink-0 text-brand" />
-          <span className="truncate">{file.name}</span>
-          <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
-            {ORIGIN_LABEL[file.origin]}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function Meta({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string | null;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd
-        className={cn(
-          "flex items-center gap-1 truncate text-sm",
-          !value && "text-muted-foreground",
-        )}
-      >
-        {icon}
-        {value ?? "미확인"}
-      </dd>
-    </div>
-  );
 }

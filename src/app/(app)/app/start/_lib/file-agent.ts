@@ -1,9 +1,7 @@
-import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateObject, generateText } from "ai";
-import { chromium } from "playwright";
 import { z } from "zod";
 
 import { documentBytes, documentKey, recallDocuments } from "./documents";

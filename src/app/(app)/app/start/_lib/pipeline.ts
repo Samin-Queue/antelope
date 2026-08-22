@@ -42,7 +42,10 @@ export async function runStart(
   emit: Emit,
   opts: { userId: string | null },
 ): Promise<void> {
-  const ctx: Ctx = { log: (text) => emit({ type: "log", text }) };
+  // 로그가 어느 카드의 것인지 말해야 카드마다 흘릴 수 있다. `stage()` 가
+  // 실행 중인 단계를 여기에 남긴다.
+  let current: Stage = "intake";
+  const ctx: Ctx = { log: (text) => emit({ type: "log", stage: current, text }) };
   // 이번 실행이 만든 파일을 담을 곳. 세션 id 는 아직 없다(맨 끝에 만든다).
   const runId = crypto.randomUUID();
   emit({ type: "run", runId });
@@ -55,6 +58,7 @@ export async function runStart(
   };
 
   const stage = async <T>(id: Stage, task: () => Promise<T>): Promise<T | null> => {
+    current = id;
     emit({ type: "stage", stage: id, status: "start" });
     try {
       const value = await task();
