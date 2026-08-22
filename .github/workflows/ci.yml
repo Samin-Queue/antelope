@@ -82,5 +82,10 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
+      # railway up 은 GitHub 웹훅 배포와 달리 RAILWAY_GIT_COMMIT_SHA 를 채우지
+      # 않는다 — /api/health 가 그 값으로 배포된 커밋을 보여주므로 직접 주입한다.
+      - name: Set commit SHA
+        run: railway variable set "RAILWAY_GIT_COMMIT_SHA=${{ github.sha }}" --service web --environment production --skip-deploys
+
       - name: Deploy to Railway
         run: railway up --service web --environment production --ci
