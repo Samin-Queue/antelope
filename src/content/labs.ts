@@ -51,4 +51,11 @@ export const labs: Lab[] = [
     status: "exploring",
     owner: "Samin Queue",
   },
+  {
+    slug: "crawler",
+    title: "공고 수집기",
+    hypothesis: "공식 출처의 공고를 URL·원문·캡처와 함께 카드로 축적할 수 있는가",
+    status: "exploring",
+    owner: "Samin Queue",
+  },
 ];
