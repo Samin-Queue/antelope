@@ -246,7 +246,7 @@ export function RunView({
  * 붙어 가상 데스크톱을 그대로 스트리밍하고, 「직접 조작」을 켜면 클릭·키·스크롤이
  * 그 데스크톱의 X 서버로 들어간다. 캡챠가 뜨면 에이전트가 먼저 멈추고 이걸 켠다.
  */
-function LiveScreen({
+export function LiveScreen({
   frame,
   running,
   sessionId,

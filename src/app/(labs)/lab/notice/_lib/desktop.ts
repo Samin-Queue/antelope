@@ -99,7 +99,8 @@ export async function openSession(
       "--no-default-browser-check",
       "--disable-infobars",
       "--disable-session-crashed-bubble",
-      "--disable-features=TranslateUI",
+      "--disable-features=Translate,TranslateUI",
+      "--disable-translate",
       "--force-device-scale-factor=1",
       "--lang=ko-KR",
       // 컨테이너 안에서는 user namespace 가 막혀 있어 샌드박스가 못 뜬다.

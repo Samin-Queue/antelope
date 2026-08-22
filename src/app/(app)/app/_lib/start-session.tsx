@@ -9,7 +9,8 @@ import {
 } from "@/components/app/composer";
 import { takePendingInput } from "@/components/app/pending-input";
 import { Button } from "@/components/ui/button";
-import { NoticeWorkbench } from "@/app/(labs)/lab/notice/_lib/workbench";
+
+import { StartFlow } from "../start/_lib/start-flow";
 
 /** 세션 하나 = 공고 하나에 대한 도전. 입력을 받으면 그 자리에서 워크벤치로 바뀐다. */
 export function StartSession({
@@ -61,7 +62,7 @@ export function StartSession({
         </Button>
       </div>
       <div className="mt-6">
-        <NoticeWorkbench initial={input} />
+        <StartFlow initial={input} />
       </div>
     </div>
   );

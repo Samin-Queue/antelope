@@ -52,11 +52,16 @@ export async function readScreen(png: Buffer): Promise<ScreenRead> {
 /* Upstage OCR                                                          */
 /* ------------------------------------------------------------------ */
 
+type Vertices = { vertices?: Array<{ x: number; y: number }> };
+
 type UpstageOcr = {
   pages?: Array<{
     words?: Array<{
       text?: string;
-      boundingBoxes?: { vertices?: Array<{ x: number; y: number }> };
+      // 실측 응답은 `boundingBox`(단수)다. 스펙 문서의 `boundingBoxes`(복수)와
+      // 다르다 — 둘 다 받는다. 이걸 놓치면 모든 단어가 버려져 화면이 빈 것처럼 보인다.
+      boundingBox?: Vertices;
+      boundingBoxes?: Vertices;
     }>;
   }>;
 };
@@ -81,7 +86,7 @@ async function upstageWords(png: Buffer): Promise<Word[]> {
   const out: Word[] = [];
   for (const page of data.pages ?? []) {
     for (const word of page.words ?? []) {
-      const v = word.boundingBoxes?.vertices;
+      const v = (word.boundingBox ?? word.boundingBoxes)?.vertices;
       if (!word.text || !v || v.length < 2) continue;
       const xs = v.map((p) => p.x);
       const ys = v.map((p) => p.y);

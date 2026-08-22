@@ -167,6 +167,12 @@ Chromium 을 띄우고 xdotool 로 마우스·키보드를 넣는다** (`_lib/de
 - OCR 은 `UPSTAGE_API_KEY` 가 있으면 Upstage, 없으면 **tesseract** 로 떨어진다.
   키 없이도 실험이 돌아야 해서다. tesseract 한국어는 음절 사이에 공백을 끼우므로
   (`다 온 소프트`) 한글 사이 공백은 걷어낸다.
+- ⚠ Upstage OCR 응답의 단어 좌표는 **`boundingBox`(단수)** 다. 스펙 문서의
+  `boundingBoxes` 와 다르고, 잘못 읽으면 단어가 전부 버려져 **화면이 빈 것처럼**
+  보인다 — 에이전트는 그때 좌표를 짐작해 찍기 시작하고 회복하지 못한다(실측).
+- 첫 read 전에 `settle` 로 로딩을 기다린다. 빈 화면을 한 번 읽은 모델은 그 뒤
+  ref 를 안 믿는다. 프롬프트에도 「페이지를 벗어나지 말 것」「click_at 은 최후
+  수단」이 박혀 있다 — 뒤로가기·주소창을 눌러 구글 검색으로 새면 reCAPTCHA 만 만난다.
 
 Chromium 은 **kiosk** 로 띄운다. 주소창이 없어야 페이지 좌표 = 화면 좌표가 된다.
 한글 입력은 xdotool 키심 매핑이 불안정해 **클립보드(xclip) + Ctrl+V** 로 넣는다.
@@ -250,6 +256,32 @@ instruct 응답에는 `additional_values.citations` 로 **원문 좌표가 따�
 Parse → Classify → Extract → Instruct 를 구성하고 저장하면 Config ID 가 생긴다.
 
 `UPSTAGE_AGENT_ID` 가 없으면 v1 직접 호출로 떨어지므로 앱은 계속 동작한다.
+
+### 워크스페이스 「목표 시작하기」 플로우
+
+`/app` 의 첫 탭. 컴포저 입력 하나로 요약 → 조사 → 양식 분석 → 선채움 → 자동
+신청까지 잇는다. 코드는 `src/app/(app)/app/start/`, 설계는
+`docs/superpowers/specs/2026-08-22-start-flow-design.md`.
+
+```
+run/route.ts   1~5단계 SSE:  intake(solar-mini) → summarize(Samson) → judge
+               → research(크롤링+solar) → analyze(Michael) → prefill(memories)
+apply/route.ts 9단계 SSE:    runBrowserAgent(allowSubmit) — lab/notice 재사용
+```
+
+- 에이전트 ID 는 `UPSTAGE_SAMSON_AGENT_ID` / `UPSTAGE_MICHAEL_AGENT_ID`
+  (`pnpm studio:provision:samson` / `:michael` 로 만든다). **없어도 돈다** —
+  파일이 없거나 ID 가 없으면 Solar 직접 호출로 떨어지고 화면 `via` 에 표시된다.
+- 입력 항목은 두 출처를 **모델이 병합**한다(`_lib/reconcile.ts`). Michael 의
+  "성명" 과 신청 폼의 "이름" 은 같은 항목이다 — 키 병합으로는 못 합쳐서
+  같은 걸 두 번 묻게 된다(실측 26개 → 11개). 라벨은 폼 쪽 글자를 남긴다.
+- 폼 라벨과 **플레이스홀더를 섞지 않는다.** 플레이스홀더는 예시 값이라 항목으로
+  올리면 "010-0000-0000" 을 묻게 된다. `fetch.ts` 가 둘을 갈라 준다.
+- 신청 URL 을 못 찾으면 「신청 페이지 링크」를 필수 항목으로 사람에게 묻는다.
+- 빈 항목이 0 이고 URL 이 있으면 **사람을 거치지 않고 바로 신청한다**(7단계).
+  제출한 값은 `/lab/notice/save` 로 지식베이스에 남아 다음 공고에서 선채움된다.
+- lab/notice 는 부품으로 **읽어서 쓴다.** 이번에 lab 쪽에 더한 것은
+  `LiveScreen` export 와 `runBrowserAgent` 의 `allowSubmit` 옵션뿐이다.
 
 ### 근거 하이라이트
 

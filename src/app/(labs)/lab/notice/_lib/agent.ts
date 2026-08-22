@@ -43,9 +43,24 @@ export async function runBrowserAgent(opts: {
   /** 캡챠처럼 사람이 필요할 때. 돌아오면 사람이 끝낸 것이다 */
   onNeedHuman?: (reason: string) => void;
   onHumanDone?: () => void;
+  /**
+   * 최종 제출까지 누른다. 기본은 직전에서 멈춘다 — 되돌릴 수 없는 조작은
+   * 사람이 허락한 경우에만 한다.
+   */
+  allowSubmit?: boolean;
 }) {
-  const { sessionId, goal, facts = {}, startUrl, maxSteps = 24 } = opts;
+  const {
+    sessionId,
+    goal,
+    facts = {},
+    startUrl,
+    maxSteps = 24,
+    allowSubmit = false,
+  } = opts;
   await openSession(sessionId, startUrl ?? "about:blank");
+  // 첫 read 가 로딩 중 빈 화면을 읽으면 모델이 "화면이 비었다" 고 판단해 좌표를
+  // 찍기 시작하고 회복하지 못한다. 화면이 멈출 때까지 한 번 더 기다린다.
+  await settle(sessionId, 6_000);
 
   const trace: TraceEntry[] = [];
   let step = 0;
@@ -233,6 +248,10 @@ export async function runBrowserAgent(opts: {
       "",
       "규칙:",
       "- 조작하기 전에 반드시 read 를 먼저 호출한다. ref 는 직전 read 에 있던 것만 쓴다.",
+      "- **거의 모든 조작은 click·type·select 로 한다. ref(t1, t2 …)를 반드시 쓴다.** click_at 은 글자가 전혀 없는 아이콘·빈 체크박스에만 쓰는 최후 수단이다. 좌표를 짐작해서 찍지 않는다.",
+      "- read 결과에 글자 목록이 비어 있으면 페이지가 아직 로딩 중이다. 좌표를 찍지 말고 read 를 한 번 더 호출해 기다린다.",
+      "- **이 페이지를 절대 벗어나지 않는다.** 뒤로가기(←)·목록으로·주소창·새 탭·검색은 누르지 않는다. 현재 폼을 채우는 것이 전부다.",
+      "- 화면의 항목을 다 채웠으면 scroll down 으로 아래를 확인한다. 폼은 한 화면보다 길다 — 제출 버튼은 맨 아래에 있다.",
       "- 입력칸은 그 칸의 라벨 글자나 플레이스홀더 글자를 ref 로 type 한다. 칸 자체를 찾으려 하지 않는다.",
       "- 폼을 채울 때는 **체크박스와 라디오를 먼저 처리한다.** 라벨 글자를 click 하면 선택된다.",
       "- 페이지가 바뀌었을 수 있는 조작(click, press) 뒤에는 다시 read 한다.",
@@ -240,7 +259,9 @@ export async function runBrowserAgent(opts: {
       "- 같은 칸에 같은 값을 두 번 넣지 않는다. read 에 이미 그 값이 보이면 건너뛴다.",
       "- 아래에 더 있을 것 같으면 scroll 한다. 화면은 1280×900 이라 긴 폼은 한 화면에 다 안 보인다.",
       "- 주어진 사실에 없는 값은 지어내지 않는다. 없으면 그 항목을 건너뛰고 마지막에 보고한다.",
-      "- 결제·최종 제출·회원 탈퇴처럼 되돌릴 수 없는 버튼은 누르지 않는다. 직전에서 멈추고 보고한다.",
+      allowSubmit
+        ? "- 결제·회원 탈퇴처럼 되돌릴 수 없는 버튼은 누르지 않는다. 단, **신청서 제출 버튼은 누른다** — 제출까지가 목표다. 제출 후 접수 완료 화면이나 접수번호가 보이면 read 로 확인하고 보고한다."
+        : "- 결제·최종 제출·회원 탈퇴처럼 되돌릴 수 없는 버튼은 누르지 않는다. 직전에서 멈추고 보고한다.",
       "- 캡챠가 보이면 기다리라는 안내가 온다. 그때는 아무것도 하지 말고 다음 결과를 기다린다.",
       "- 목표를 달성했거나 더 진행할 수 없으면 도구 호출을 멈추고 무엇을 했는지 한국어로 요약한다.",
     ].join("\n"),
