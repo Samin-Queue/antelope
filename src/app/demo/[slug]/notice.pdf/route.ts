@@ -1,42 +1,28 @@
+import { chromium } from "playwright";
+
 import { demoSites } from "@/app/demo/_lib/sites";
 
 export const runtime = "nodejs";
 
-function pdfEscape(value: string): string {
-  return value.replace(/[\\()]/g, "\\$&").replace(/[^\x20-\x7E]/g, "?");
-}
-
-function createPdf(lines: readonly string[]): Uint8Array {
-  const stream = [
-    "BT",
-    "/F1 16 Tf",
-    "72 760 Td",
-    ...lines.flatMap((line, index) => [
-      index === 0 ? `(${pdfEscape(line)}) Tj` : `0 -24 Td (${pdfEscape(line)}) Tj`,
-    ]),
-    "ET",
-  ].join("\n");
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
-  ];
-  let output = "%PDF-1.4\n";
-  const offsets = [0];
-  for (const [index, object] of objects.entries()) {
-    offsets.push(output.length);
-    output += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  }
-  const start = output.length;
-  output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  output += offsets
-    .slice(1)
-    .map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`)
-    .join("");
-  output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${start}\n%%EOF`;
-  return new TextEncoder().encode(output);
+function noticeHtml(site: (typeof demoSites)[number]): string {
+  return `<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><style>
+  @page { size: A4; margin: 22mm 20mm; }
+  * { box-sizing: border-box; }
+  body { color: #171717; font-family: "Noto Sans CJK KR", "Nanum Gothic", sans-serif; line-height: 1.7; }
+  h1 { font-size: 23px; line-height: 1.45; margin: 8px 0 24px; }
+  .kind { color: #555; font-size: 12px; font-weight: 700; }
+  dl { border-top: 1px solid #d4d4d4; margin: 0; }
+  div { border-bottom: 1px solid #e5e5e5; display: flex; gap: 24px; padding: 10px 0; }
+  dt { color: #737373; min-width: 76px; } dd { margin: 0; }
+  h2 { font-size: 15px; margin: 32px 0 8px; } p { font-size: 13px; margin: 0; }
+  .apply { background: #f5f5f5; margin-top: 28px; padding: 16px; }
+</style></head><body>
+  <p class="kind">${site.klass}</p><h1>${site.title}</h1>
+  <dl><div><dt>주관 기관</dt><dd>${site.org}</dd></div><div><dt>접수 마감</dt><dd>${site.deadline}</dd></div></dl>
+  <h2>공고 안내</h2><p>${site.mechanism}</p>
+  <section class="apply"><strong>온라인 신청</strong><p>https://antelope.up.railway.app/demo/${site.slug}/apply</p></section>
+</body></html>`;
 }
 
 export async function GET(
@@ -48,13 +34,18 @@ export async function GET(
   if (!site) return new Response("Not found", { status: 404 });
 
   const fileName = `${site.slug}-notice.pdf`;
-  // `TextEncoder.encode` 는 `Uint8Array<ArrayBufferLike>` 를 낸다. `BodyInit` 은
-  // `ArrayBuffer` 를 요구하고, 타입만으로는 SharedArrayBuffer 가 아님을 못 보인다.
-  // 바이트를 새 `ArrayBuffer` 로 옮겨 담아 그 모호함을 없앤다.
-  const bytes = createPdf([site.org, site.title, `Deadline: ${site.deadline}`]);
-  const pdf = new Uint8Array(bytes.length);
-  pdf.set(bytes);
-  return new Response(pdf, {
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+  const page = await browser.newPage();
+  let pdf: Uint8Array;
+  try {
+    await page.setContent(noticeHtml(site), { waitUntil: "load" });
+    pdf = await page.pdf({ format: "A4", printBackground: true });
+  } finally {
+    await browser.close();
+  }
+  const body = new Uint8Array(pdf.length);
+  body.set(pdf);
+  return new Response(body, {
     headers: {
       "Content-Disposition": `attachment; filename="${fileName}"`,
       "Content-Type": "application/pdf",
