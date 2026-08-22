@@ -1,8 +1,11 @@
+import { existsSync } from "node:fs";
 import { chromium } from "playwright";
 
 import { demoSites } from "@/app/demo/_lib/sites";
 
 export const runtime = "nodejs";
+
+const SYSTEM_CHROMIUM = "/usr/bin/chromium";
 
 function detailUrl(slug: string): string {
   return `http://localhost:${process.env.PORT ?? "3000"}/demo/${slug}`;
@@ -17,7 +20,13 @@ export async function GET(
   if (!site) return new Response("Not found", { status: 404 });
 
   const fileName = `${site.slug}-notice.pdf`;
-  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+  const executablePath = existsSync(SYSTEM_CHROMIUM) ? SYSTEM_CHROMIUM : undefined;
+  const browser = await chromium.launch({
+    headless: true,
+    ...(executablePath
+      ? { executablePath, args: ["--no-sandbox", "--disable-dev-shm-usage"] }
+      : {}),
+  });
   const page = await browser.newPage();
   let pdf: Uint8Array;
   try {
