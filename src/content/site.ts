@@ -34,6 +34,7 @@ export const site = {
     { label: "특징", href: "#features" },
     { label: "지식 베이스", href: "#memory" },
     { label: "기술", href: "#pipeline" },
+    { label: "엔진", href: "/engine" },
     { label: "소개", href: "#about" },
   ],
 

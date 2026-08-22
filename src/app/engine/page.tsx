@@ -1,0 +1,697 @@
+import Link from "next/link";
+
+import { noticeWorkflow } from "@/lib/studio-workflow";
+import { SiteFooter } from "@/components/site-footer";
+import { SiteHeader } from "@/components/site-header";
+import { Button } from "@/components/ui/button";
+import { analysisWorkflow } from "@/app/(labs)/lab/analysis/_lib/workflow";
+import { validationWorkflow } from "@/app/(labs)/lab/validation/_lib/workflow";
+import { engine } from "@/content/engine";
+
+import { Dag, StepTally } from "./_lib/dag";
+import {
+  DualVector,
+  GatewayLoop,
+  LaneBars,
+  PipelineRail,
+  StudioSequence,
+  WindowStrip,
+} from "./_lib/diagrams";
+import {
+  Card,
+  DefGrid,
+  Measured,
+  Mono,
+  Section,
+  Source,
+  Sub,
+  T,
+  Table,
+} from "./_lib/parts";
+
+export const metadata = {
+  title: "엔진",
+  description: engine.sub,
+  alternates: { canonical: "/engine" },
+};
+
+/**
+ * 엔진 해부.
+ *
+ * 랜딩은 「무엇을 해 주는가」를 말한다. 여기는 **「그래서 무엇으로 도는가」**를
+ * 말한다 — Upstage 트랙 심사가 「Studio 가 문서 처리의 중심인가」를 확인하러
+ * 오는 자리다. 그래서 규칙이 하나 더 붙는다: 주장마다 파일 경로나 실측값을
+ * 같이 낸다. 대조할 수 없는 문장은 넣지 않는다.
+ *
+ * Studio 구성도는 **실제 워크플로 정의 함수에서 그린다**(`Dag`). 손으로 그린
+ * 그림은 워크플로를 고친 날 혼자 옛말을 하고, 검증하러 온 사람에게 그건 틀린
+ * 문서보다 나쁘다.
+ */
+export default function EnginePage() {
+  const workflows = [
+    { agent: engine.studio.agents[0], steps: noticeWorkflow() },
+    { agent: engine.studio.agents[1], steps: validationWorkflow() },
+    { agent: engine.studio.agents[2], steps: analysisWorkflow() },
+  ];
+
+  return (
+    <>
+      <SiteHeader />
+      <main className="flex-1">
+        {/* ── 표지 ─────────────────────────────────────────────── */}
+        <section className="mx-auto w-full max-w-6xl px-5 pt-16 pb-4">
+          <p className="font-mono text-xs tracking-wide text-brand">
+            <T>{engine.eyebrow}</T>
+          </p>
+          <h1 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+            <T>{engine.headline}</T>
+          </h1>
+          <p className="mt-5 max-w-3xl text-sm leading-relaxed text-pretty text-muted-foreground">
+            <T>{engine.sub}</T>
+          </p>
+
+          <ul className="mt-10 grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-3">
+            {engine.metrics.map((metric) => (
+              <li key={metric.label} className="bg-background p-5">
+                <p className="font-mono text-2xl text-brand">{metric.value}</p>
+                <p className="mt-1 text-sm font-medium">
+                  <T>{metric.label}</T>
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  <T>{metric.sub}</T>
+                </p>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
+            <T>{engine.note}</T>
+          </p>
+        </section>
+
+        {/* ── 1. 준비 파이프라인 ───────────────────────────────── */}
+        <Section
+          id="flow"
+          eyebrow={engine.flow.eyebrow}
+          headline={engine.flow.headline}
+          sub={engine.flow.sub}
+        >
+          <PipelineRail />
+
+          <div className="mt-10 grid gap-3 md:grid-cols-3">
+            {engine.flow.parallel.map((item) => (
+              <Card key={item.title}>
+                <p className="text-sm font-medium">
+                  <T>{item.title}</T>
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  <T>{item.body}</T>
+                </p>
+              </Card>
+            ))}
+          </div>
+
+          <ul className="mt-6 space-y-2">
+            {engine.flow.resilience.map((line) => (
+              <li
+                key={line}
+                className="flex gap-2.5 text-xs leading-relaxed text-muted-foreground"
+              >
+                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-brand" />
+                <T>{line}</T>
+              </li>
+            ))}
+          </ul>
+
+          <Source path={engine.flow.file} />
+        </Section>
+
+        {/* ── 2. Upstage Studio ────────────────────────────────── */}
+        <Section
+          id="studio"
+          eyebrow={engine.studio.eyebrow}
+          headline={engine.studio.headline}
+          sub={engine.studio.sub}
+        >
+          <Table
+            head={["에이전트", "하는 일", "Agent ID", "Config ID", "스텝", "프로비저닝"]}
+            rows={engine.studio.agents.map((agent) => [
+              agent.name,
+              agent.purpose,
+              <span key="a" className="font-mono text-[11px] break-all">
+                {agent.agentId}
+              </span>,
+              <span key="c" className="font-mono text-[11px] break-all">
+                {agent.configId}
+              </span>,
+              agent.steps,
+              <span key="p" className="font-mono text-[11px]">
+                {agent.provision}
+              </span>,
+            ])}
+          />
+
+          <div className="mt-12 space-y-10">
+            {workflows.map(({ agent, steps }) => (
+              <div key={agent.name}>
+                <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                  <Sub>
+                    {agent.name}{" "}
+                    <span className="ml-1 font-mono text-xs font-normal text-muted-foreground">
+                      {agent.envKey}
+                    </span>
+                  </Sub>
+                  <span className="font-mono text-[11px] break-all text-muted-foreground/70">
+                    {agent.source}
+                  </span>
+                </div>
+                <Dag steps={steps} title={agent.name} />
+                <StepTally steps={steps} />
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+            점선은 <Mono>document-classify</Mono> 결과로 갈라지는 조건부 경로입니다. 노드
+            아래 대문자가 그 분기를 여는 클래스 값입니다 — 요청마다 에이전트를 새로 만들
+            필요가 없는 이유가 이 갈래입니다.
+          </p>
+
+          <div className="mt-12">
+            <Sub>스텝 유형</Sub>
+            <div className="mt-4">
+              <DefGrid
+                items={engine.studio.stepTypes.map((step) => ({
+                  name: step.type,
+                  body: step.body,
+                  tag: step.opts,
+                }))}
+              />
+            </div>
+          </div>
+
+          <div className="mt-10">
+            <Card>
+              <Sub>Config 스키마 제약</Sub>
+              <ul className="mt-4 space-y-2">
+                {engine.studio.schemaRules.map((rule) => (
+                  <li
+                    key={rule}
+                    className="flex gap-2.5 text-xs leading-relaxed text-muted-foreground"
+                  >
+                    <span className="mt-1.5 size-1 shrink-0 rounded-full bg-border" />
+                    <T>{rule}</T>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </div>
+
+          <div className="mt-10">
+            <Sub>
+              <T>{engine.studio.run.headline}</T>
+            </Sub>
+            <div className="mt-4">
+              <StudioSequence />
+            </div>
+          </div>
+
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.studio.gotchas.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.studio.gotchas.sub}</T>
+            </p>
+            <div className="mt-5">
+              <Table
+                head={["자리", "문서", "실제", "안 지키면"]}
+                rows={engine.studio.gotchas.items.map((item) => [
+                  item.where,
+                  <span key="d" className="font-mono text-[11px] line-through opacity-60">
+                    {item.doc}
+                  </span>,
+                  <span key="r" className="font-mono text-[11px] text-brand">
+                    {item.real}
+                  </span>,
+                  item.symptom,
+                ])}
+              />
+            </div>
+          </div>
+
+          <div className="mt-8 grid gap-3 md:grid-cols-3">
+            {engine.studio.warnings.map((warning) => (
+              <Card key={warning.title} className="border-brand/25 bg-brand/5">
+                <p className="text-sm font-medium">
+                  <T>{warning.title}</T>
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  <T>{warning.body}</T>
+                </p>
+              </Card>
+            ))}
+          </div>
+        </Section>
+
+        {/* ── 3. 게이트웨이 ─────────────────────────────────────── */}
+        <Section
+          id="gateway"
+          eyebrow={engine.gateway.eyebrow}
+          headline={engine.gateway.headline}
+          sub={engine.gateway.sub}
+        >
+          <GatewayLoop />
+
+          <div className="mt-8 grid gap-3 md:grid-cols-2">
+            <Card>
+              <Sub>
+                <T>{engine.gateway.contract.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.gateway.contract.body}</T>
+              </p>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.gateway.contract.extra}</T>
+              </p>
+              <Source path={engine.gateway.contract.file} />
+            </Card>
+            <Card>
+              <Sub>
+                <T>{engine.gateway.loose.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.gateway.loose.body}</T>
+              </p>
+              <div className="mt-5 border-t border-border pt-4">
+                <Sub>
+                  <T>{engine.gateway.repair.headline}</T>
+                </Sub>
+                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                  <T>{engine.gateway.repair.body}</T>
+                </p>
+                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                  <T>{engine.gateway.repair.severity}</T>
+                </p>
+              </div>
+            </Card>
+          </div>
+
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.gateway.verify.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.gateway.verify.sub}</T>
+            </p>
+            <div className="mt-5">
+              <DefGrid
+                columns={3}
+                items={engine.gateway.verify.rules.map((rule) => ({
+                  name: rule.name,
+                  body: rule.body,
+                  tag: rule.severity,
+                }))}
+              />
+            </div>
+            <Source path={engine.gateway.verify.file} />
+          </div>
+
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.gateway.tiers.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.gateway.tiers.body}</T>
+            </p>
+            <div className="mt-5">
+              <Table
+                head={["LLM_PROVIDER", "base URL", "tier: large", "tier: small"]}
+                rows={engine.gateway.tiers.rows.map((row) => [
+                  row.provider,
+                  <span key="b" className="font-mono text-[11px] break-all">
+                    {row.base}
+                  </span>,
+                  <span key="l" className="font-mono text-[11px] text-brand">
+                    {row.large}
+                  </span>,
+                  <span key="s" className="font-mono text-[11px]">
+                    {row.small}
+                  </span>,
+                ])}
+              />
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+              <T>{engine.gateway.tiers.note}</T>
+            </p>
+          </div>
+
+          <div className="mt-10">
+            <Sub>
+              <T>{engine.gateway.tasks.headline}</T>
+            </Sub>
+            <div className="mt-4">
+              <DefGrid items={engine.gateway.tasks.rows} />
+            </div>
+          </div>
+
+          <Source path={engine.gateway.file} />
+        </Section>
+
+        {/* ── 4. 자원 · 계측 ────────────────────────────────────── */}
+        <Section
+          id="runtime"
+          eyebrow={engine.runtime.eyebrow}
+          headline={engine.runtime.headline}
+          sub={engine.runtime.sub}
+        >
+          <LaneBars />
+          <Source path={engine.runtime.lanesFile} />
+
+          <div className="mt-12 grid gap-3 lg:grid-cols-2">
+            <Card>
+              <Sub>
+                <T>{engine.runtime.ledger.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.runtime.ledger.body}</T>
+              </p>
+              <ul className="mt-4 space-y-2">
+                {engine.runtime.ledger.points.map((point) => (
+                  <li
+                    key={point}
+                    className="flex gap-2.5 text-xs leading-relaxed text-muted-foreground"
+                  >
+                    <span className="mt-1.5 size-1 shrink-0 rounded-full bg-border" />
+                    <T>{point}</T>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.runtime.ledger.health}</T>
+              </p>
+            </Card>
+            <div className="space-y-3">
+              <Card>
+                <Sub>
+                  <T>{engine.runtime.killswitches.headline}</T>
+                </Sub>
+                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                  <T>{engine.runtime.killswitches.sub}</T>
+                </p>
+                <ul className="mt-4 space-y-2">
+                  {engine.runtime.killswitches.items.map((item) => (
+                    <li key={item.key} className="flex flex-wrap items-baseline gap-x-3">
+                      <Mono tone="brand">{item.key}</Mono>
+                      <span className="text-xs text-muted-foreground">
+                        <T>{item.body}</T>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+              <Card>
+                <Sub>
+                  <T>{engine.runtime.evals.headline}</T>
+                </Sub>
+                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                  <T>{engine.runtime.evals.body}</T>
+                </p>
+              </Card>
+            </div>
+          </div>
+        </Section>
+
+        {/* ── 5. 브라우저 하네스 ────────────────────────────────── */}
+        <Section
+          id="browser"
+          eyebrow={engine.browser.eyebrow}
+          headline={engine.browser.headline}
+          sub={engine.browser.sub}
+        >
+          <div className="grid gap-3 md:grid-cols-2">
+            {[engine.browser.modes.auto, engine.browser.modes.manual].map(
+              (mode, index) => (
+                <Card
+                  key={mode.title}
+                  className={index === 0 ? "border-brand/30 bg-brand/5" : undefined}
+                >
+                  <p className="text-sm font-medium">
+                    <T>{mode.title}</T>
+                  </p>
+                  <dl className="mt-4 space-y-2">
+                    {mode.rows.map(([key, value]) => (
+                      <div key={key} className="flex gap-3 text-xs">
+                        <dt className="w-20 shrink-0 text-muted-foreground">{key}</dt>
+                        <dd className="font-mono text-[11px] break-all">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </Card>
+              ),
+            )}
+          </div>
+          <p className="mt-5 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+            <T>{engine.browser.why}</T>
+          </p>
+
+          <div className="mt-12">
+            <Sub>도구</Sub>
+            <div className="mt-4">
+              <DefGrid columns={3} items={engine.browser.tools} />
+            </div>
+            <p className="mt-4 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+              <span className="font-medium text-foreground">
+                <T>{engine.browser.serial.headline}</T>
+              </span>{" "}
+              <T>{engine.browser.serial.body}</T>
+            </p>
+          </div>
+
+          <div className="mt-12 grid gap-3 lg:grid-cols-2">
+            <Card>
+              <Sub>
+                <T>{engine.browser.validity.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.browser.validity.body}</T>
+              </p>
+              <ul className="mt-4 space-y-2">
+                {engine.browser.validity.points.map((point) => (
+                  <li
+                    key={point}
+                    className="flex gap-2.5 text-xs leading-relaxed text-muted-foreground"
+                  >
+                    <span className="mt-1.5 size-1 shrink-0 rounded-full bg-brand" />
+                    <T>{point}</T>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+            <Card>
+              <Sub>
+                <T>{engine.browser.captcha.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.browser.captcha.body}</T>
+              </p>
+              <ul className="mt-4 space-y-2">
+                {engine.browser.captcha.points.map((point) => (
+                  <li
+                    key={point}
+                    className="flex gap-2.5 text-xs leading-relaxed text-muted-foreground"
+                  >
+                    <span className="mt-1.5 size-1 shrink-0 rounded-full bg-brand" />
+                    <T>{point}</T>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.browser.captcha.manualNote}</T>
+              </p>
+            </Card>
+          </div>
+
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.browser.window.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.browser.window.body}</T>
+            </p>
+            <div className="mt-5">
+              <WindowStrip />
+            </div>
+            <p className="mt-4 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+              <T>{engine.browser.window.cache}</T>
+            </p>
+            <Source path={engine.browser.window.file} />
+          </div>
+
+          <p className="mt-10 rounded-xl border border-brand/25 bg-brand/5 px-4 py-3 text-sm leading-relaxed">
+            <T>{engine.browser.stop}</T>
+          </p>
+        </Section>
+
+        {/* ── 6. 지식베이스 · 근거 ──────────────────────────────── */}
+        <Section
+          id="memory"
+          eyebrow={engine.memory.eyebrow}
+          headline={engine.memory.headline}
+          sub={engine.memory.sub}
+        >
+          <Sub>
+            <T>{engine.memory.dual.headline}</T>
+          </Sub>
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+            <T>{engine.memory.dual.body}</T>
+          </p>
+          <div className="mt-5">
+            <Table
+              head={engine.memory.dual.table.head}
+              rows={engine.memory.dual.table.rows.map((row) => [
+                row[0],
+                row[1],
+                <span key="a" className="font-mono text-xs font-medium text-brand">
+                  {row[2]}
+                </span>,
+                <span key="b" className="font-mono text-xs">
+                  {row[3]}
+                </span>,
+              ])}
+            />
+          </div>
+          <Measured>
+            <T>{engine.memory.dual.threshold}</T>
+          </Measured>
+          <div className="mt-6">
+            <DualVector />
+          </div>
+
+          <div className="mt-12 grid gap-3 lg:grid-cols-2">
+            <Card>
+              <Sub>
+                <T>{engine.memory.index.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.memory.index.body}</T>
+              </p>
+              <Measured>
+                <T>{engine.memory.index.measured}</T>
+              </Measured>
+            </Card>
+            <Card>
+              <Sub>
+                <T>{engine.memory.curator.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.memory.curator.body}</T>
+              </p>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.memory.curator.graph}</T>
+              </p>
+            </Card>
+          </div>
+
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.memory.evidence.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.memory.evidence.sub}</T>
+            </p>
+            <div className="mt-5">
+              <DefGrid columns={2} items={engine.memory.evidence.steps} />
+            </div>
+            <Measured>
+              <T>{engine.memory.evidence.measured}</T>
+            </Measured>
+            <div className="mt-6 grid gap-3 md:grid-cols-2">
+              <Card>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  <T>{engine.memory.evidence.citations}</T>
+                </p>
+              </Card>
+              <Card className="border-brand/25 bg-brand/5">
+                <p className="text-xs leading-relaxed">
+                  <T>{engine.memory.evidence.honesty}</T>
+                </p>
+              </Card>
+            </div>
+          </div>
+        </Section>
+
+        {/* ── 7. 산출물 ────────────────────────────────────────── */}
+        <Section
+          id="artifacts"
+          eyebrow={engine.artifacts.eyebrow}
+          headline={engine.artifacts.headline}
+          sub={engine.artifacts.sub}
+        >
+          <DefGrid
+            columns={2}
+            items={engine.artifacts.formats.map((format) => ({
+              name: format.ext,
+              body: format.body,
+            }))}
+          />
+          <div className="mt-6 grid gap-3 lg:grid-cols-2">
+            <Card>
+              <Sub>
+                <T>{engine.artifacts.hwp.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.artifacts.hwp.body}</T>
+              </p>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.artifacts.hwp.fill}</T>
+              </p>
+            </Card>
+            <Card>
+              <Sub>보관함</Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.artifacts.recall}</T>
+              </p>
+            </Card>
+          </div>
+        </Section>
+
+        {/* ── 8. 폴백 ──────────────────────────────────────────── */}
+        <Section
+          id="fallback"
+          eyebrow={engine.fallback.eyebrow}
+          headline={engine.fallback.headline}
+          sub={engine.fallback.sub}
+        >
+          <Table
+            head={["무엇이 죽으면", "무엇으로", "무엇을 잃는가"]}
+            rows={engine.fallback.rows.map((row) => [row.when, row.then, row.cost])}
+          />
+        </Section>
+
+        {/* ── CTA ──────────────────────────────────────────────── */}
+        <section className="mx-auto w-full max-w-6xl px-5 pt-8 pb-24">
+          <div className="rounded-3xl border border-border bg-card/40 px-6 py-12 text-center sm:px-10">
+            <h2 className="text-2xl font-semibold tracking-tight text-balance">
+              <T>{engine.cta.headline}</T>
+            </h2>
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-pretty text-muted-foreground">
+              <T>{engine.cta.sub}</T>
+            </p>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <Button render={<Link href={engine.cta.primary.href} />}>
+                <T>{engine.cta.primary.label}</T>
+              </Button>
+              <Button
+                render={<Link href={engine.cta.secondary.href} />}
+                variant="outline"
+              >
+                <T>{engine.cta.secondary.label}</T>
+              </Button>
+            </div>
+          </div>
+        </section>
+      </main>
+      <SiteFooter />
+    </>
+  );
+}
