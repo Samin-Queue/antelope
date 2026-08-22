@@ -17,7 +17,7 @@ jobs:
   # 팀원이 Railway 콘솔 없이도 자기 코드가 깨졌는지 여기서 확인한다.
   build:
     name: format · lint · build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -48,7 +48,7 @@ jobs:
 
   docker:
     name: docker image
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -72,7 +72,7 @@ jobs:
     name: railway deploy
     needs: [build, docker]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
     env:
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
