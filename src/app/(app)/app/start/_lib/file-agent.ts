@@ -1,6 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { generateObject, generateText } from "ai";
 import { z } from "zod";
 
@@ -111,7 +111,13 @@ export async function planDocuments(
   // 정확 일치로 잡으면 모델이 라벨을 조금만 다듬어도 통째로 빠진다 — 실측에서
   // 「작성 0 · 발급 3」 이 나왔고, 사업계획서가 목록에서 사라졌다.
   // 서류 이름 정규화(「사본·1부·서류」 제거)로 맞춘다.
-  const keyed = files.map((need) => ({ need, key: documentKey(need.label) }));
+  // ⚠ 빈 키는 **와일드카드가 된다.** `documentKey("제출 서류")` 는 NOISE 가
+  // 「제출」·「서류」를 다 털어내 `""` 이고, 아래 `key.includes(item.key)` 는
+  // 빈 문자열에 대해 항상 참이다 — 실측: `pick("사업계획서")` 가 정확일치에
+  // 실패하면 「제출 서류」를 돌려줬다. 후보 쪽에서 미리 거른다.
+  const keyed = files
+    .map((need) => ({ need, key: documentKey(need.label) }))
+    .filter((item) => item.key);
   const pick = (label: string): Need | undefined => {
     const key = documentKey(label);
     if (!key) return undefined;
@@ -357,7 +363,7 @@ export async function fillTemplates(
 
   for (const template of templates) {
     const format: HwpFormat = /\.hwpx$/i.test(template.name) ? "hwpx" : "hwp";
-    const source = join(dir, `template-${template.name}`);
+    const source = artifactPath(dir, `template-${template.name}`);
     try {
       await writeFile(source, Buffer.from(await template.blob.arrayBuffer()));
       const result = await fillHwp(source, format, values);
@@ -365,8 +371,8 @@ export async function fillTemplates(
         ctx.log(`${template.name}: 채울 칸을 못 찾음 — 서식이 아닌 듯하다`);
         continue;
       }
-      const filename = `작성_${template.name}`;
-      const path = join(dir, filename);
+      const filename = safeName(`작성_${template.name}`);
+      const path = artifactPath(dir, filename);
       await writeFile(path, result.bytes);
       ctx.log(
         `${template.name} 서식에 ${result.filled.length}칸 채움` +
@@ -417,7 +423,7 @@ export async function recallArtifacts(
   for (const [label, stored] of hits) {
     const file = await documentBytes(userId, stored.id);
     if (!file) continue;
-    const path = join(dir, file.filename);
+    const path = artifactPath(dir, file.filename);
     await writeFile(path, file.data);
     out.push({
       needKey: documentKeyOf(label),
@@ -444,14 +450,80 @@ function documentKeyOf(label: string): string {
 }
 
 /** 세션마다 따로 둔다. 컨테이너가 재시작하면 사라지고, 그때는 다시 만든다. */
+/** 이번 실행의 파일이 모이는 곳. 여기 밖으로는 한 글자도 못 나간다 */
+export const ARTIFACT_ROOT = join(tmpdir(), "antelope-artifacts");
+
+/**
+ * `runId` 는 요청 본문·폼 필드로 들어온다 — 즉 **클라이언트가 정한다.**
+ * 그대로 `join` 하면 `../../` 하나로 컨테이너 아무 데나 쓸 수 있다.
+ * 위생 처리 후 결과가 루트 안인지 다시 확인한다. 검사에 실패하면 던진다 —
+ * 조용히 다른 곳에 쓰는 것보다 낫다.
+ */
 export function artifactDir(runId: string): string {
-  return join(tmpdir(), "antelope-artifacts", runId);
+  const dir = join(ARTIFACT_ROOT, safeName(runId));
+  if (relative(ARTIFACT_ROOT, dir).startsWith("..") || !dir.startsWith(ARTIFACT_ROOT)) {
+    throw new Error(`[artifacts] 잘못된 runId: ${runId.slice(0, 40)}`);
+  }
+  void sweepArtifacts();
+  return dir;
 }
 
-function safeName(title: string): string {
+/**
+ * 남은 실행 디렉터리를 치운다.
+ *
+ * 정상 경로는 신청이 끝나면 자기 것을 지우지만, 준비만 하고 떠난 실행·재시작
+ * 중에 끊긴 실행은 아무도 안 지운다. 상시 컨테이너라 그게 그대로 쌓인다.
+ * 요청마다 돌 필요는 없어 한 시간에 한 번으로 묶는다.
+ */
+const SWEEP_EVERY_MS = 60 * 60 * 1000;
+const KEEP_MS = 24 * 60 * 60 * 1000;
+let sweptAt = 0;
+
+export async function sweepArtifacts(now = Date.now()): Promise<number> {
+  if (now - sweptAt < SWEEP_EVERY_MS) return 0;
+  sweptAt = now;
+  let removed = 0;
+  try {
+    for (const name of await readdir(ARTIFACT_ROOT)) {
+      const dir = join(ARTIFACT_ROOT, name);
+      try {
+        const info = await stat(dir);
+        if (now - info.mtimeMs < KEEP_MS) continue;
+        await rm(dir, { recursive: true, force: true });
+        removed += 1;
+      } catch {
+        /* 다른 요청이 방금 지웠을 수 있다 */
+      }
+    }
+  } catch {
+    /* 아직 루트가 없다 */
+  }
+  return removed;
+}
+
+/**
+ * 이 디렉터리 안의 파일 하나를 가리키는 경로.
+ *
+ * 파일명도 사용자가 정한다(업로드 파일명·모델이 지은 제목). 같은 이유로
+ * 위생 처리하고, 확장자만 살려 둔다.
+ */
+export function artifactPath(dir: string, filename: string): string {
+  const ext = (filename.match(/\.[A-Za-z0-9]{1,8}$/)?.[0] ?? "").toLowerCase();
+  const base = safeName(filename.slice(0, filename.length - ext.length));
+  const path = join(dir, `${base}${ext}`);
+  if (relative(dir, path).startsWith("..") || !path.startsWith(dir)) {
+    throw new Error(`[artifacts] 잘못된 파일명: ${filename.slice(0, 60)}`);
+  }
+  return path;
+}
+
+export function safeName(title: string): string {
   return (
     title
+      // 경로 구분자와 상위 이동을 먼저 없앤다. 그 뒤에야 나머지를 다듬는다.
       .replace(/[\\/:*?"<>|]/g, "")
+      .replace(/\.{2,}/g, ".")
+      .replace(/^\.+/, "")
       .replace(/\s+/g, "_")
       .slice(0, 60) || "문서"
   );

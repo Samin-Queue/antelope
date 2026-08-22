@@ -1,3 +1,5 @@
+import { lanes } from "@/lib/ai/lanes";
+
 import { analyze } from "./analyze";
 import type { IntakeFile } from "./fetch";
 import {
@@ -315,34 +317,71 @@ export async function runStart(
   // 8 — 서류 작성. 발급 서류는 손대지 않는다 — 만들면 위조다.
   const artifacts = await stage("documents", async () => {
     const brief = analysis?.brief ?? summary.markdown;
-    const { jobs, obtain } = await planDocuments(filled, brief, ctx);
     const dir = artifactDir(runId);
 
+    /**
+     * 셋을 나란히 돌린다.
+     *
+     * 예전엔 `planDocuments` 가 맨 앞에 있고 try 도 없어서, 분류 모델이 한 번
+     * 흔들리면 그 뒤의 `fillTemplates` 까지 통째로 사라졌다 — 공고가 준 지정
+     * 서식은 모델과 아무 상관이 없는데도. `recallArtifacts` 만 분류 결과
+     * (`obtain`)에 의존하므로 그것만 뒤에 붙인다.
+     */
+    const [planned, filledIn] = await Promise.all([
+      planDocuments(filled, brief, ctx).catch((error) => {
+        ctx.log(
+          `작성/발급 분류 실패 — 지정 서식과 보관함만 쓴다: ${error instanceof Error ? error.message : error}`,
+        );
+        return { jobs: [], obtain: [] as string[] };
+      }),
+      // 공고가 준 지정 서식이 있으면 새로 쓰지 말고 그것을 채운다.
+      fillTemplates(allFiles, filled, dir, ctx).catch((error) => {
+        ctx.log(
+          `지정 서식 채우기 실패: ${error instanceof Error ? error.message : error}`,
+        );
+        return [] as Artifact[];
+      }),
+    ]);
+    const { jobs, obtain } = planned;
+
     // 발급 서류는 만들지 않는다 — 보관함에 있으면 꺼내 쓴다.
-    const recalled = await recallArtifacts(obtain, opts.userId, dir, ctx);
-    // 공고가 준 지정 서식이 있으면 새로 쓰지 말고 그것을 채운다.
-    const filledIn = await fillTemplates(allFiles, filled, dir, ctx);
+    const recalled = await recallArtifacts(obtain, opts.userId, dir, ctx).catch(
+      () => [] as Artifact[],
+    );
     const made: Artifact[] = [...recalled, ...filledIn];
     if (jobs.length === 0) return made;
-    for (const job of jobs) {
-      try {
-        const { artifact, markdown } = await writeDocument(
-          job,
-          { title, organization: found?.organization ?? null, brief, needs: filled },
-          dir,
-          ctx,
-        );
-        made.push(artifact);
-        // 신청 페이지가 어떤 형식을 받는지는 여기서 알 수 없다. PDF 를 한 벌 더 둔다.
-        const copy = await pdfCopy(artifact, markdown, job.title, dir, ctx);
-        if (copy) made.push(copy);
-      } catch (error) {
-        // 한 문서가 실패해도 나머지는 만든다.
-        ctx.log(
-          `${job.label} 작성 실패: ${error instanceof Error ? error.message : error}`,
-        );
-      }
-    }
+    // 문서끼리 서로를 참조하지 않는다. 직렬로 쓰면 편수만큼 곱해질 뿐이다.
+    const written = await Promise.all(
+      jobs.map((job) =>
+        lanes.batch(async () => {
+          try {
+            const { artifact, markdown } = await writeDocument(
+              job,
+              {
+                title,
+                organization: found?.organization ?? null,
+                brief,
+                needs: filled,
+                // 이게 없으면 서술형 기억(`memories.embedding`)이 한 번도 안 쓰인다.
+                userId: opts.userId,
+              },
+              dir,
+              ctx,
+            );
+            // 신청 페이지가 어떤 형식을 받는지는 여기서 알 수 없다. PDF 를 한 벌 더 둔다.
+            const copy = await pdfCopy(artifact, markdown, job.title, dir, ctx);
+            return copy ? [artifact, copy] : [artifact];
+          } catch (error) {
+            // 한 문서가 실패해도 나머지는 만든다.
+            ctx.log(
+              `${job.label} 작성 실패: ${error instanceof Error ? error.message : error}`,
+            );
+            return [] as Artifact[];
+          }
+        }),
+      ),
+    );
+    made.push(...written.flat());
     return made;
   });
   if (artifacts?.length) emit({ type: "artifacts", artifacts });

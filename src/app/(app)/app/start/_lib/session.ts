@@ -82,6 +82,14 @@ export async function saveApplyResult(
     mode: "auto" | "manual" | null;
     finishedAt: string;
     error?: string;
+    /**
+     * 무엇을 눌렀고 무엇이 돌아왔는가.
+     *
+     * 감사 추적이다. 사용자 명의로 실제 접수를 하는 이상, 「엉뚱한 값이
+     * 들어갔다」는 신고를 재구성할 수 있어야 한다. 두 에이전트가 이미 성실히
+     * 쌓고 있던 것을 여기서 버리고 있었다.
+     */
+    trace?: unknown[];
   },
 ): Promise<boolean> {
   if (!hasDb()) return false;

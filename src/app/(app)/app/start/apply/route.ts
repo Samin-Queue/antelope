@@ -1,16 +1,23 @@
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { headers } from "next/headers";
 import { z } from "zod";
 
+import { auth } from "@/lib/auth";
+import { hasDb } from "@/lib/db";
 import { runBrowserAgent } from "@/app/(labs)/lab/notice/_lib/agent";
 import { closeSession } from "@/app/(labs)/lab/notice/_lib/desktop";
 import {
   probeCaptcha,
   runPlaywrightAgent,
 } from "@/app/(labs)/lab/notice/_lib/playwright-agent";
+import type { TraceEntry } from "@/app/(labs)/lab/notice/_lib/types";
 
-import { artifactDir, writeDocument } from "../_lib/file-agent";
+import { artifactDir, artifactPath, writeDocument } from "../_lib/file-agent";
 import { narrate, type NarrationTurn } from "../_lib/narrator";
 import { makePlan } from "../_lib/plan";
 import { ask, closeRun, openRun } from "../_lib/run-registry";
+import { saveApplyResult } from "../_lib/session";
 import type { AgentKey, ApplyEvent, CardKey, Need, Plan } from "../_lib/types";
 
 export const dynamic = "force-dynamic";
@@ -60,21 +67,32 @@ const body = z.object({
     })
     .nullish(),
   /**
-   * 파일 에이전트가 만들어 둔 파일. `path` 는 컨테이너 안 경로라 같은
-   * 인스턴스에서만 유효하다 — 없으면 업로드 칸을 건너뛴다.
+   * 파일 에이전트가 만들어 둔 파일.
+   *
+   * ⚠ **`path` 를 받지 않는다.** 받던 시절에는 클라이언트가 정한 임의
+   * 파일시스템 경로가 검증 없이 `setInputFiles` 로 들어가, 로그인한 사용자
+   * 한 명이 컨테이너의 아무 파일이나 자기 서버(`applyUrl` 도 이 요청이 정한다)
+   * 로 올릴 수 있었다. 이름만 받고 경로는 서버가 `artifactDir(runId)` 안에서
+   * 복원한다 — 그 밖은 애초에 만들어지지 않는다.
    */
   artifacts: z
     .array(
       z.object({
         label: clamped(120),
         filename: clamped(200),
-        path: clamped(500),
       }),
     )
     .nullish()
     .transform((list) => list?.slice(0, 12) ?? undefined),
   /** 사용자가 이 실행에 개입할 때 쓰는 id. 클라이언트가 만들어 보낸다 */
   runId: z.string().min(8).max(64),
+  /**
+   * 이 신청이 속한 세션(`goals.id`). 결과를 여기에 남긴다.
+   *
+   * 없으면 기록만 건너뛰고 신청은 그대로 돈다 — 로그인 전이거나 DB 가 없는
+   * 환경에서도 데모가 돌아야 한다.
+   */
+  sessionId: z.string().uuid().nullish(),
   /** 되부르기에 필요한 재료 — 마스터 테이블과 준비 문서 */
   needs: z
     .array(z.record(z.string(), z.unknown()))
@@ -173,10 +191,45 @@ export async function POST(req: Request) {
   const plan = parsed.data.plan ?? undefined;
   const title = parsed.data.title?.trim() || "제목 미상";
   const history = (parsed.data.narration ?? []) as NarrationTurn[];
-  const artifacts = [...(parsed.data.artifacts ?? [])];
   const needs = (parsed.data.needs ?? []) as unknown as Need[];
-  const sessionId = `start-${Date.now()}`;
+  /** Xvfb 데스크톱 세션 id. `goals.id` 인 `parsed.data.sessionId` 와 다른 것이다 */
+  const desktopId = `start-${Date.now()}`;
+  const goalId = parsed.data.sessionId ?? null;
+
+  /**
+   * 파일 경로는 **서버가 만든다.** 이름만 받아 이번 실행의 디렉터리 안에서
+   * 되짚고, 실제로 있는 것만 남긴다. 없는 이름은 조용히 빠지고 브라우저는
+   * 그 칸을 「사람이 올려야 한다」로 보고한다 — 그 동작은 예전과 같다.
+   */
+  let runDir: string;
+  try {
+    runDir = artifactDir(runId);
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : "runId 가 올바르지 않습니다." },
+      { status: 400 },
+    );
+  }
+  const artifacts: Array<{ label: string; filename: string; path: string }> = [];
+  for (const item of parsed.data.artifacts ?? []) {
+    try {
+      const path = artifactPath(runDir, item.filename);
+      if (existsSync(path)) artifacts.push({ ...item, path });
+    } catch {
+      /* 경로로 성립하지 않는 이름은 버린다 */
+    }
+  }
   const goal = `「${title}」 신청서를 작성하고 제출까지 완료하라. 회원가입·로그인이 필요하면 주어진 사실로 진행한다.`;
+
+  /**
+   * 누구의 신청인가.
+   *
+   * 결과를 `goals` 에 남기려면 필요하고, `runId` 소유권 검사에도 쓴다.
+   * 이 라우트는 프록시가 인증을 강제하는 `/app/*` 아래에 있지만, **어느
+   * 사용자인지**는 여기서 직접 봐야 안다.
+   */
+  const authed = hasDb() ? await auth.api.getSession({ headers: await headers() }) : null;
+  const userId = authed?.user.id ?? null;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -201,13 +254,22 @@ export async function POST(req: Request) {
         }
       }, 15_000);
 
-      const step = (entry: { tool: string; input: unknown; url?: string }) =>
+      /**
+       * 조작 하나하나. 화면으로 흘리고 **동시에 붙잡아 둔다**.
+       *
+       * 사용자 명의로 실제 접수를 하면서 무엇을 눌렀는지 아무 데도 남기지
+       * 않으면, 「엉뚱한 값이 들어갔다」는 신고를 재구성할 방법이 없다.
+       */
+      const trace: TraceEntry[] = [];
+      const step = (entry: TraceEntry) => {
+        trace.push(entry);
         emit({
           type: "step",
           tool: entry.tool,
           detail: JSON.stringify(entry.input).slice(0, 160),
           title: entry.url ?? "",
         });
+      };
 
       /** 되부른 에이전트의 카드를 켰다 끈다. 브라우저 카드와 함께 켜진다 */
       const lit = async <T>(agent: AgentKey, detail: string, task: () => Promise<T>) => {
@@ -248,7 +310,7 @@ export async function POST(req: Request) {
         }
       };
 
-      openRun(runId);
+      openRun(runId, userId);
       emit({ type: "agent", agent: "browser", status: "start" });
 
       /**
@@ -288,7 +350,14 @@ export async function POST(req: Request) {
                   ? (format as "pdf")
                   : "pdf",
               },
-              { title, organization: organization ?? null, brief: brief ?? "", needs },
+              {
+                title,
+                organization: organization ?? null,
+                brief: brief ?? "",
+                needs,
+                // 서술형 기억을 꺼내는 유일한 열쇠. 없으면 그 벡터가 안 쓰인다.
+                userId,
+              },
               artifactDir(runId),
               {
                 log: (text) =>
@@ -341,6 +410,13 @@ export async function POST(req: Request) {
       };
 
       let usedDesktop = false;
+      /** 무엇으로 끝났는가. `finally` 가 이걸 그대로 DB 에 쓴다 */
+      let outcome: {
+        summary: string | null;
+        steps: number;
+        mode: "auto" | "manual" | null;
+        error?: string;
+      } = { summary: null, steps: 0, mode: null, error: "신청이 끝나지 않았다." };
       try {
         await tell(
           "browser",
@@ -372,6 +448,7 @@ export async function POST(req: Request) {
           });
 
           if (!run.captcha) {
+            outcome = { summary: run.summary, steps: run.steps, mode: "auto" };
             await tell(
               "browser",
               `신청을 마쳤다. ${run.steps}번 조작했다. ${run.summary}`,
@@ -394,9 +471,9 @@ export async function POST(req: Request) {
         }
 
         usedDesktop = true;
-        emit({ type: "session", sessionId });
+        emit({ type: "session", sessionId: desktopId });
         const run = await runBrowserAgent({
-          sessionId,
+          sessionId: desktopId,
           startUrl: applyUrl,
           goal,
           facts,
@@ -408,30 +485,66 @@ export async function POST(req: Request) {
           onNeedHuman: (reason) => emit({ type: "need:human", reason }),
           onHumanDone: () => emit({ type: "human:done" }),
         });
+        outcome = { summary: run.summary, steps: run.steps, mode: "manual" };
         await tell(
           "browser",
           `직접 조작 모드로 신청을 마쳤다. ${run.steps}번 조작했다. ${run.summary}`,
         );
         emit({ type: "done", summary: run.summary, steps: run.steps });
       } catch (error) {
-        emit({
-          type: "error",
-          error: error instanceof Error ? error.message : String(error),
-        });
+        const text = error instanceof Error ? error.message : String(error);
+        outcome = {
+          summary: null,
+          steps: trace.length,
+          mode: usedDesktop ? "manual" : "auto",
+          error: text,
+        };
+        console.error("[start/apply] 신청 실패", error);
+        emit({ type: "error", error: text });
       } finally {
         clearInterval(beat);
+        // ⚠ 순서가 중요하다. 닫은 뒤에 emit 하면 `enqueue` 가 던지고 catch 가
+        // 삼켜, 브라우저 카드가 running 인 채로 스트림이 끝난다 — 클라이언트는
+        // 그걸 「연결이 끊겨 중단됐다」로 칠한다. 접수까지 마친 신청이 화면에서
+        // 실패로 보이던 원인이 이 두 줄의 순서였다.
+        emit({ type: "agent", agent: "browser", status: "done" });
         try {
           controller.close();
         } catch {
           /* 이미 닫힘 */
         }
-        emit({ type: "agent", agent: "browser", status: "done" });
+
+        /**
+         * **서버가 기록한다.** 사용자가 화면을 닫아도 실행은 끝까지 가므로
+         * (`enqueue` 만 실패한다), 여기서 안 쓰면 에이전트가 사용자 명의로
+         * 접수해 놓고 아무 데도 남기지 않는 상태가 된다. 클라이언트가 하던
+         * `/app/goals` PATCH 는 탭이 살아 있을 때만 도는 보조 경로다.
+         */
+        if (userId && goalId) {
+          void saveApplyResult(userId, goalId, {
+            ...outcome,
+            finishedAt: new Date().toISOString(),
+            trace: trace.slice(-200),
+          });
+        }
         closeRun(runId);
         // Xvfb·Chromium 은 프로세스다. 안 닫으면 신청 한 번마다 하나씩 남는다.
         // 자동 모드로만 끝났으면 띄운 적이 없으니 건드릴 것도 없다.
         if (usedDesktop) {
-          setTimeout(() => void closeSession(sessionId).catch(() => {}), LINGER_MS);
+          setTimeout(() => void closeSession(desktopId).catch(() => {}), LINGER_MS);
         }
+        /**
+         * 이번 실행의 임시 파일을 치운다.
+         *
+         * 지우는 코드가 저장소에 하나도 없었다. 상시 컨테이너라 실행마다
+         * 작성 문서 + PDF 사본 + 사용자 업로드(각 5MB)가 tmpdir 에 영구히
+         * 쌓이고, 결국 로그 한 줄 없이 죽는다. 사람이 완료 화면을 보는
+         * 동안(`LINGER_MS`)은 남겨 둔다 — 다시 시도할 수 있어야 한다.
+         */
+        setTimeout(
+          () => void rm(runDir, { recursive: true, force: true }).catch(() => {}),
+          LINGER_MS,
+        );
       }
     },
   });

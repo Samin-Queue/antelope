@@ -1,4 +1,8 @@
+import { headers } from "next/headers";
 import { z } from "zod";
+
+import { auth } from "@/lib/auth";
+import { hasDb } from "@/lib/db";
 
 import { answer, hasRun, steer } from "../_lib/run-registry";
 
@@ -34,12 +38,24 @@ export async function POST(req: Request) {
     return Response.json({ error: "형식이 맞지 않습니다." }, { status: 400 });
   }
   const data = parsed.data;
-  if (!hasRun(data.runId)) {
+
+  /**
+   * 인증은 프록시(`/app/:path*`)가 이미 강제한다. 여기서 봐야 하는 것은
+   * **인가** — 이 `runId` 가 내 실행인가다. 없으면 로그인한 아무 사용자가
+   * 남의 신청 폼에 값을 꽂을 수 있다. 「없는 실행」과 같은 404 로 답한다:
+   * 남의 runId 가 존재한다는 사실 자체를 알려 줄 이유가 없다.
+   */
+  const session = hasDb()
+    ? await auth.api.getSession({ headers: await headers() })
+    : null;
+  const userId = session?.user.id ?? null;
+
+  if (!hasRun(data.runId, userId)) {
     return Response.json({ error: "끝났거나 없는 실행입니다." }, { status: 404 });
   }
 
   if (data.kind === "answer") {
-    return Response.json({ ok: answer(data.runId, data.id, data.value) });
+    return Response.json({ ok: answer(data.runId, userId, data.id, data.value) });
   }
-  return Response.json({ ok: steer(data.runId, data.text, data.mode) });
+  return Response.json({ ok: steer(data.runId, userId, data.text, data.mode) });
 }

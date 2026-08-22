@@ -175,7 +175,15 @@ export async function runPlaywrightAgent(opts: {
   const trace: TraceEntry[] = [];
   let step = 0;
   let captcha: { reason: string } | null = null;
+  /**
+   * `captcha` 는 도구 안(중첩 함수)에서만 채워진다. 그 자리를 흐름 분석이 못
+   * 보므로 바깥에서는 계속 `null` 로 좁혀지고, `if (captcha)` 안이 `never` 가
+   * 된다. 선언 타입을 그대로 돌려주는 읽기 함수로 좁힘을 끊는다.
+   */
+  const seenCaptcha = (): { reason: string } | null => captcha;
   let snapshot: Snapshot = { elements: [], text: "" };
+  /** 캡챠를 만나면 도구 루프 자체를 끊는다. `guard()` 주석 참고 */
+  const stop = new AbortController();
 
   try {
     browser = await chromium.launch(launchOptions());
@@ -209,11 +217,21 @@ export async function runPlaywrightAgent(opts: {
       }
     };
 
-    /** 조작 전마다 캡챠를 본다. 나타나면 그 자리에서 멈춘다 */
+    /**
+     * 조작 전마다 캡챠를 본다. 나타나면 그 자리에서 멈춘다.
+     *
+     * ⚠ **throw 만으로는 안 멈춘다.** `guard()` 는 전부 도구 `execute` 안에서
+     * 불리고, AI SDK 는 도구 예외를 잡아 `tool-error` 출력으로 바꾼 뒤 루프를
+     * 계속한다(`node_modules/ai/dist/index.js` 의 도구 실행 try/catch). 그래서
+     * 바깥 `catch (error instanceof CaptchaFound)` 에 **도달한 적이 없고**,
+     * 성공 경로가 `captcha: null` 을 리터럴로 돌려줘 수동 모드 전환이 한 번도
+     * 열리지 않았다. 루프를 끊는 것은 `abortSignal` 뿐이다.
+     */
     const guard = async () => {
       const check = await findCaptcha(page);
       if (check.found) {
         captcha = { reason: check.reason ?? "캡챠" };
+        stop.abort(new CaptchaFound(captcha.reason));
         throw new CaptchaFound(captcha.reason);
       }
     };
@@ -597,9 +615,22 @@ export async function runPlaywrightAgent(opts: {
       model: opts.model ?? chatModel(),
       tools,
       stopWhen: stepCountIs(maxSteps),
+      abortSignal: stop.signal,
       system: systemPrompt(allowSubmit, artifacts.length > 0),
       prompt: promptFor(goal, startUrl, facts, plan, artifacts),
     });
+
+    // abort 가 예외로 안 나온 경우까지 받는다 — 판정은 클로저 변수 하나로 한다.
+    const found = seenCaptcha();
+    if (found) {
+      return {
+        summary: `캡챠를 만나 자동 조작을 멈췄다 (${found.reason}).`,
+        steps: result.steps.length,
+        trace,
+        finalUrl: page.url(),
+        captcha: found,
+      };
+    }
 
     return {
       summary: result.text,
@@ -609,13 +640,16 @@ export async function runPlaywrightAgent(opts: {
       captcha: null,
     };
   } catch (error) {
-    if (error instanceof CaptchaFound) {
+    // 캡챠는 abort 로도, throw 로도 온다. 어느 쪽이든 같은 결과를 돌려준다.
+    const found = seenCaptcha();
+    if (found || error instanceof CaptchaFound) {
+      const reason = found?.reason ?? (error instanceof Error ? error.message : "캡챠");
       return {
-        summary: `캡챠를 만나 자동 조작을 멈췄다 (${error.message}).`,
+        summary: `캡챠를 만나 자동 조작을 멈췄다 (${reason}).`,
         steps: step,
         trace,
         finalUrl: startUrl,
-        captcha: captcha ?? { reason: error.message },
+        captcha: found ?? { reason },
       };
     }
     throw error;

@@ -15,6 +15,15 @@ export type Pending = {
 };
 
 type Run = {
+  /**
+   * 누구의 실행인가.
+   *
+   * `runId` 는 요청 본문으로 들어온다. 이 필드가 없던 동안에는 로그인한 아무
+   * 사용자가 남의 `runId` 만 알면 `allowSubmit: true` 로 도는 신청 폼에 값을
+   * 꽂을 수 있었다 — 인증은 프록시가 강제하고 있었으므로 빠진 것은 **인가**였다.
+   * `null` 은 로그인 전 실행이고, 그때는 소유권을 물을 대상이 없다.
+   */
+  userId: string | null;
   /** 답을 기다리는 질문들 */
   pending: Map<string, Pending>;
   /** 사용자가 끼워 넣은 지시. 조작 하나가 끝난 자리에서 꺼낸다 */
@@ -45,11 +54,23 @@ function sweep() {
   }
 }
 
-export function openRun(id: string): Run {
+export function openRun(id: string, userId: string | null = null): Run {
   sweep();
-  const run: Run = { pending: new Map(), steer: [], createdAt: Date.now() };
+  const run: Run = { userId, pending: new Map(), steer: [], createdAt: Date.now() };
   runs.set(id, run);
   return run;
+}
+
+/**
+ * 이 실행에 손댈 수 있는 사람인가.
+ *
+ * 소유자가 없는 실행(로그인 전)은 누구든 만질 수 있다 — 그 실행에는 지킬
+ * 소유자가 없고, 막으면 로그아웃 데모가 통째로 안 돈다. 소유자가 있으면
+ * 그 사람만이다.
+ */
+function mine(run: Run | undefined, userId: string | null): run is Run {
+  if (!run) return false;
+  return run.userId === null || run.userId === userId;
 }
 
 export function closeRun(id: string) {
@@ -59,8 +80,8 @@ export function closeRun(id: string) {
   runs.delete(id);
 }
 
-export function hasRun(id: string): boolean {
-  return runs.has(id);
+export function hasRun(id: string, userId: string | null): boolean {
+  return mine(runs.get(id), userId);
 }
 
 /**
@@ -92,11 +113,17 @@ export function ask(
   });
 }
 
-/** 사용자가 답했다. 없는 질문이면 무시한다 */
-export function answer(runId: string, id: string, value: string | null): boolean {
+/** 사용자가 답했다. 없는 질문이거나 남의 실행이면 무시한다 */
+export function answer(
+  runId: string,
+  userId: string | null,
+  id: string,
+  value: string | null,
+): boolean {
   const run = runs.get(runId);
-  const item = run?.pending.get(id);
-  if (!run || !item) return false;
+  if (!mine(run, userId)) return false;
+  const item = run.pending.get(id);
+  if (!item) return false;
   run.pending.delete(id);
   item.resolve(value);
   return true;
@@ -110,9 +137,14 @@ export function answer(runId: string, id: string, value: string | null): boolean
  * `now` 는 그래서 「더 빨리 닿는 것」이 아니라 **더 센 말**이다: 하던 것을
  * 멈추라고 지시문에 적어 보낸다. 실제 전달 시점은 둘 다 다음 조작 직후다.
  */
-export function steer(runId: string, text: string, mode: "now" | "next"): boolean {
+export function steer(
+  runId: string,
+  userId: string | null,
+  text: string,
+  mode: "now" | "next",
+): boolean {
   const run = runs.get(runId);
-  if (!run) return false;
+  if (!mine(run, userId)) return false;
   run.steer.push(
     mode === "now" ? `지금 하던 것을 멈추고 이것부터 따르라: ${text}` : text,
   );

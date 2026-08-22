@@ -151,8 +151,18 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
    * 덮고 있었다.
    */
   const terminal = useRef(false);
+  /**
+   * 그 종료가 **성공**이었는가.
+   *
+   * `terminal` 만으로는 부족하다. 서버가 제대로 끝냈는데도 `finally` 가 남은
+   * 카드를 전부 error 로 덮어, 실제로 접수까지 마친 신청이 빨간 「연결이 끊겨
+   * 중단됐다」로 끝나고 있었다. 사용자는 그걸 실패로 읽고 다시 시도한다 —
+   * 이미 자기 이름으로 접수된 것을.
+   */
+  const terminalOk = useRef(false);
   /** 신청 스트림도 같다. `done`·`error` 를 받았는지 */
   const applyTerminal = useRef(false);
+  const applyTerminalOk = useRef(false);
 
   /** 카드 하나를 고친다. 여러 단계가 한 카드로 모이므로 단계→카드로 옮긴다 */
   const patch = useCallback(
@@ -175,20 +185,30 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
    * 도는 것을 구분할 수 없었다. 정상 종료였다면 도는 카드가 없으므로 이 루프는
    * 아무것도 안 한다.
    */
-  const settleCards = useCallback((why: string) => {
+  const settleCards = useCallback((why: string, status: "done" | "error" = "error") => {
     setOrchestrating(false);
     setCards((prev) => {
       const next = { ...prev };
       let touched = false;
       for (const key of Object.keys(next) as CardKey[]) {
         if (next[key].status === "running") {
-          next[key] = { ...next[key], status: "error", headline: why };
+          next[key] = { ...next[key], status, headline: why };
           touched = true;
         }
       }
       return touched ? next : prev;
     });
   }, []);
+
+  /** 스트림이 어떻게 끝났는지에 맞춰 남은 카드를 내린다 */
+  const settleByOutcome = useCallback(
+    (ended: boolean, ok: boolean) => {
+      if (!ended) settleCards("연결이 끊겨 중단됐다");
+      else if (ok) settleCards("완료", "done");
+      else settleCards("여기서 멈췄다");
+    },
+    [settleCards],
+  );
 
   // 준비 — 컴포저 입력으로 한 번만 시작한다.
   useEffect(() => {
@@ -270,6 +290,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         }
         case "end":
           terminal.current = true;
+          terminalOk.current = event.reason === "ready";
           if (event.reason === "stopped") setError(event.detail ?? "준비를 멈췄습니다.");
           break;
         case "error":
@@ -294,9 +315,9 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
       })
       .finally(() => {
         setPreparing(false);
-        settleCards("연결이 끊겨 중단됐다");
+        settleByOutcome(terminal.current, terminalOk.current);
       });
-  }, [initial, patch, patchStage, follow, settleCards]);
+  }, [initial, patch, patchStage, follow, settleCards, settleByOutcome]);
 
   // 빈 항목이 없으면 사람을 거치지 않는다. 있으면 다이얼로그를 띄운다.
   const autoRef = useRef(false);
@@ -358,6 +379,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
 
     // 재시도할 수 있으므로 매번 초기화한다.
     applyTerminal.current = false;
+    applyTerminalOk.current = false;
     setApply({
       status: "running",
       mode: null,
@@ -377,6 +399,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           title: target.title,
           facts,
           runId,
+          // 서버가 신청 결과를 이 세션에 남긴다. 없으면 기록만 건너뛴다.
+          sessionId,
           needs: filled,
           brief,
           narration: narration.current.slice(-12),
@@ -393,10 +417,10 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
                   .map((step) => step.title),
               }
             : undefined,
+          // 경로는 보내지 않는다 — 서버가 이번 실행의 디렉터리 안에서 되짚는다.
           artifacts: artifacts.map((item) => ({
             label: item.label,
             filename: item.filename,
-            path: item.path,
           })),
         }),
         (event) => {
@@ -448,6 +472,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
               break;
             case "done":
               applyTerminal.current = true;
+              applyTerminalOk.current = true;
               setApply((prev) => ({ ...prev, status: "done", summary: event.summary }));
               break;
             case "error":
@@ -470,12 +495,17 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
       setApply((prev) => ({ ...prev, status: "error", error: `스트림 예외 — ${text}` }));
       settleCards(`스트림 예외 — ${text}`);
     } finally {
-      setApply((prev) =>
-        prev.status === "running"
-          ? { ...prev, status: "error", error: "연결이 끊겨 신청이 중단됐다." }
-          : prev,
-      );
-      settleCards("연결이 끊겨 중단됐다");
+      // 서버가 `done`·`error` 로 끝냈으면 여기서 덮지 않는다. 덮으면 접수까지
+      // 마친 신청이 「연결이 끊겨 중단됐다」로 끝난다 — 화면이 서버와 정반대를
+      // 말하고, 사용자는 이미 접수된 것을 다시 낸다.
+      if (!applyTerminal.current) {
+        setApply((prev) =>
+          prev.status === "running"
+            ? { ...prev, status: "error", error: "연결이 끊겨 신청이 중단됐다." }
+            : prev,
+        );
+      }
+      settleByOutcome(applyTerminal.current, applyTerminalOk.current);
     }
   }
 

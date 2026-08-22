@@ -1,12 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename } from "node:path";
 import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { hasDb } from "@/lib/db";
 
 import { rememberDocument } from "../_lib/documents";
-import { artifactDir } from "../_lib/file-agent";
+import { artifactDir, artifactPath } from "../_lib/file-agent";
 import type { Artifact } from "../_lib/types";
 
 export const maxDuration = 60;
@@ -61,15 +61,26 @@ export async function POST(req: Request) {
       })
     : null;
 
-  const dir = artifactDir(runId);
+  // `runId` 도 `file.name` 도 폼 필드다 — 둘 다 사용자가 정한다. 그대로 join
+  // 하면 `../../` 하나로 컨테이너 아무 데나 쓴다. 두 함수가 루트 밖을 막는다.
+  let dir: string;
+  let path: string;
+  try {
+    dir = artifactDir(runId);
+    path = artifactPath(dir, file.name);
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : "경로가 올바르지 않습니다." },
+      { status: 400 },
+    );
+  }
   await mkdir(dir, { recursive: true });
-  const path = join(dir, file.name);
   await writeFile(path, data);
 
   const artifact: Artifact = {
     needKey,
     label,
-    filename: file.name,
+    filename: basename(path),
     mime: file.type || "application/octet-stream",
     bytes: data.length,
     path,
