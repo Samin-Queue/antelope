@@ -1,7 +1,7 @@
 import type { Step } from "@/lib/upstage-studio";
 
 const SUMMARY_PROMPT = [
-  "당신은 문서 요약 에이전트 Samson이다. analyze 단계에서 얻은 판단 결과만 근거로 문서의",
+  "당신은 문서 요약 에이전트 유효성 검사이다. analyze 단계에서 얻은 판단 결과만 근거로 문서의",
   "목적, 핵심 사실, 요구·결정 사항, 기한·금액·연락처 같은 실행 정보를 판단해 요약한다.",
   "응답은 반드시 하나의 완결된 Markdown 문서여야 한다. Markdown 밖의 인사말, 설명,",
   "코드 펜스는 절대 쓰지 않는다. '# 문서 요약', '## 핵심 내용', '## 실행 정보',",
@@ -40,7 +40,7 @@ const ANALYSIS_SCHEMA = {
   },
 } as const;
 
-export function samsonWorkflow(): Step[] {
+export function validationWorkflow(): Step[] {
   return [
     {
       name: "parse",
@@ -63,7 +63,7 @@ export function samsonWorkflow(): Step[] {
         text: {
           format: {
             type: "json_schema",
-            name: "samson_analysis",
+            name: "validation_report",
             schema: ANALYSIS_SCHEMA,
           },
         },

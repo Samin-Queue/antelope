@@ -19,10 +19,10 @@ export const STAGES: Stage[] = [
 
 export const STAGE_LABEL: Record<Stage, { title: string; agent: string }> = {
   intake: { title: "입력 정리", agent: "solar-mini" },
-  summarize: { title: "문서 요약", agent: "Samson" },
+  summarize: { title: "문서 요약", agent: "유효성 검사 에이전트" },
   judge: { title: "요약 판정", agent: "solar-mini" },
   research: { title: "추가 조사", agent: "solar-pro4" },
-  analyze: { title: "양식 분석", agent: "Michael" },
+  analyze: { title: "양식 분석", agent: "정보 분석 에이전트" },
   prefill: { title: "지식베이스 선채움", agent: "memories" },
 };
 
@@ -43,7 +43,7 @@ export type Need = {
   /** kind 가 select 일 때 고를 수 있는 값. 없으면 자유 입력으로 그린다 */
   options?: string[];
   required: boolean;
-  source: "michael" | "research" | "summary";
+  source: "analysis" | "research" | "summary";
   /** 왜 필요한지. 원문 근거 */
   why: string | null;
   value: string | null;
@@ -71,7 +71,7 @@ export type SessionSnapshot = {
   deadline: string | null;
   applyUrl: string | null;
   summary: { markdown: string; via: string } | null;
-  /** Michael 이 정돈한 신청 준비 문서. 계획 에이전트의 입력이 된다 */
+  /** 정보 분석 이 정돈한 신청 준비 문서. 계획 에이전트의 입력이 된다 */
   brief: string | null;
   files: FileInfo[];
   /** 마스터 테이블 */
@@ -90,7 +90,7 @@ export type StartEvent =
   | { type: "log"; text: string }
   | { type: "files"; files: FileInfo[] }
   | { type: "summary"; markdown: string; via: string }
-  /** Michael 의 신청 준비 문서 */
+  /** 정보 분석 의 신청 준비 문서 */
   | { type: "brief"; markdown: string }
   | { type: "verdict"; verdict: "good" | "bad"; reason: string }
   /** 세션이 DB 에 만들어졌다. 이후 갱신은 이 id 로 한다 */

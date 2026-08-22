@@ -18,7 +18,7 @@ import {
 /**
  * 1~5 단계를 순서대로 돌린다.
  *
- * 단계 하나가 실패해도 가능한 한 다음으로 간다 — Michael 이 죽어도 research 가
+ * 단계 하나가 실패해도 가능한 한 다음으로 간다 — 정보 분석 이 죽어도 research 가
  * 뽑은 항목으로 신청은 할 수 있다. 멈추는 건 둘뿐이다: 입력을 못 읽었거나(1),
  * 요약이 bad 로 판정됐거나(3).
  *
@@ -112,7 +112,7 @@ export async function runStart(
   const analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
   if (analysis?.brief) emit({ type: "brief", markdown: analysis.brief });
 
-  // 병합 — 신청 링크를 묻는 항목은 맨 앞, 그다음 Michael, 그다음 research.
+  // 병합 — 신청 링크를 묻는 항목은 맨 앞, 그다음 정보 분석, 그다음 research.
   const researchNeeds = found?.needs ?? [];
   const applyNeed = researchNeeds.find((need) => need.key === APPLY_URL_KEY);
   const reconciled = await reconcileNeeds(

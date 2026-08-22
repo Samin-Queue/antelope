@@ -26,12 +26,12 @@ const schema = z.object({
   /** Studio 에서 만든 문서 처리 에이전트. 없으면 v1 직접 호출로 떨어진다 */
   UPSTAGE_AGENT_ID: z.string().optional(),
   /**
-   * 문서 요약(Samson) · 신청 양식 분석(Michael).
+   * 문서 요약(유효성 검사) · 신청 양식 분석(정보 분석).
    * 「목표 시작하기」 플로우는 없으면 Solar 직접 호출로 떨어지고,
-   * `/lab/samson`·`/lab/michael` 라우트는 503 을 돌려준다.
+   * `/lab/validation`·`/lab/analysis` 라우트는 503 을 돌려준다.
    */
-  UPSTAGE_SAMSON_AGENT_ID: z.string().optional(),
-  UPSTAGE_MICHAEL_AGENT_ID: z.string().optional(),
+  UPSTAGE_VALIDATION_AGENT_ID: z.string().optional(),
+  UPSTAGE_ANALYSIS_AGENT_ID: z.string().optional(),
   AZURE_API_KEY: z.string().optional(),
   AZURE_BASE_URL: z.string().optional(),
   BACKENDAI_API_KEY: z.string().optional(),

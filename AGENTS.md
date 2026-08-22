@@ -212,11 +212,11 @@ GET  /v2/responses/{job_id}    폴링 → completed
 
 현재:
 
-| 에이전트                | Agent ID                     | Config                       |
-| ----------------------- | ---------------------------- | ---------------------------- |
-| 공고 처리               | `agt_VUBEVuk2mXQrrTxYnLL93w` | `cfg_EnXdSDnc6VRVdCtEUayNHo` |
-| SAMSON (유효성·요약)    | `agt_atmMQXMKxDZkjqSkdiVpDq` | `cfg_iCdJf9NLuuNh4sGtTQrVjw` |
-| MICHAEL (필드·준비문서) | `agt_kKEZDyyAzn84oo3AsgpWj9` | `cfg_L9bTyjc9Trws2jq7NMqGot` |
+| 에이전트                  | Agent ID                     | Config                       |
+| ------------------------- | ---------------------------- | ---------------------------- |
+| 공고 처리                 | `agt_VUBEVuk2mXQrrTxYnLL93w` | `cfg_EnXdSDnc6VRVdCtEUayNHo` |
+| 유효성 검사 (유효성·요약) | `agt_atmMQXMKxDZkjqSkdiVpDq` | `cfg_iCdJf9NLuuNh4sGtTQrVjw` |
+| 정보 분석 (필드·준비문서) | `agt_kKEZDyyAzn84oo3AsgpWj9` | `cfg_L9bTyjc9Trws2jq7NMqGot` |
 
 Agent·Config 는 **API 키 소유 계정에 묶인다.** 키를 바꾸면 이전 에이전트가 안 보이므로
 `pnpm studio:provision` 을 다시 돌려 새 계정에 Config 를 만들고 `UPSTAGE_AGENT_ID` 를
@@ -278,15 +278,15 @@ Parse → Classify → Extract → Instruct 를 구성하고 저장하면 Config
 `docs/superpowers/specs/2026-08-22-start-flow-design.md`.
 
 ```
-run/route.ts   1~5단계 SSE:  intake(solar-mini) → summarize(Samson) → judge
-               → research(크롤링+solar) → analyze(Michael) → prefill(memories)
+run/route.ts   1~5단계 SSE:  intake(solar-mini) → summarize(유효성 검사) → judge
+               → research(크롤링+solar) → analyze(정보 분석) → prefill(memories)
 apply/route.ts 9단계 SSE:    runBrowserAgent(allowSubmit) — lab/notice 재사용
 ```
 
-- 에이전트 ID 는 `UPSTAGE_SAMSON_AGENT_ID` / `UPSTAGE_MICHAEL_AGENT_ID`
-  (`pnpm studio:provision:samson` / `:michael` 로 만든다). **없어도 돈다** —
+- 에이전트 ID 는 `UPSTAGE_VALIDATION_AGENT_ID` / `UPSTAGE_ANALYSIS_AGENT_ID`
+  (`pnpm studio:provision:validation` / `:analysis` 로 만든다). **없어도 돈다** —
   파일이 없거나 ID 가 없으면 Solar 직접 호출로 떨어지고 화면 `via` 에 표시된다.
-- 입력 항목은 두 출처를 **모델이 병합**한다(`_lib/reconcile.ts`). Michael 의
+- 입력 항목은 두 출처를 **모델이 병합**한다(`_lib/reconcile.ts`). 정보 분석 의
   "성명" 과 신청 폼의 "이름" 은 같은 항목이다 — 키 병합으로는 못 합쳐서
   같은 걸 두 번 묻게 된다(실측 26개 → 11개). 라벨은 폼 쪽 글자를 남긴다.
 - 폼 라벨과 **플레이스홀더를 섞지 않는다.** 플레이스홀더는 예시 값이라 항목으로

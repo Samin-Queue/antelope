@@ -112,7 +112,7 @@ export default async function SessionPage({
           <section>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-medium">신청 준비 문서</h2>
-              <span className="font-mono text-xs text-muted-foreground">michael</span>
+              <span className="font-mono text-xs text-muted-foreground">analysis</span>
             </div>
             <pre className="mt-3 overflow-x-auto rounded-xl bg-muted/40 p-4 text-sm leading-relaxed whitespace-pre-wrap">
               {snapshot.brief}

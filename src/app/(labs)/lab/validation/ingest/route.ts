@@ -15,10 +15,10 @@ function markdownFromOutput(text: string): string {
 }
 
 export async function POST(req: Request) {
-  const agentId = process.env.UPSTAGE_SAMSON_AGENT_ID;
+  const agentId = process.env.UPSTAGE_VALIDATION_AGENT_ID;
   if (!agentId) {
     return Response.json(
-      { error: "UPSTAGE_SAMSON_AGENT_ID가 설정되지 않았습니다." },
+      { error: "UPSTAGE_VALIDATION_AGENT_ID가 설정되지 않았습니다." },
       { status: 503 },
     );
   }
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 
     if (!markdown.startsWith("#")) {
       return Response.json(
-        { error: "Samson이 Markdown 요약을 만들지 못했습니다." },
+        { error: "유효성 검사 에이전트가 Markdown 요약을 만들지 못했습니다." },
         { status: 502 },
       );
     }
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
     });
   } catch (error: unknown) {
     const message =
-      error instanceof Error ? error.message : "Samson 실행에 실패했습니다.";
+      error instanceof Error ? error.message : "유효성 검사 실행에 실패했습니다.";
     return Response.json({ error: message }, { status: 502 });
   }
 }

@@ -81,7 +81,7 @@ const BRIEF_INPUT = [
       {
         type: "input_text",
         text: [
-          "당신은 신청 준비 문서를 정돈하는 에이전트 Michael 이다.",
+          "당신은 신청 준비 문서를 정돈하는 에이전트 정보 분석 이다.",
           "parse 로 읽은 원문과 extract 로 뽑은 필드 목록만 근거로,",
           "이 신청을 준비하는 사람이 그대로 따라갈 수 있는 하나의 Markdown 문서를 만든다.",
           "",
@@ -102,7 +102,7 @@ const BRIEF_INPUT = [
   },
 ];
 
-export function michaelWorkflow(): Step[] {
+export function analysisWorkflow(): Step[] {
   const branches = [
     {
       category: "JOB_APPLICATION",

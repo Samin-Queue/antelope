@@ -1,13 +1,15 @@
 import { createAgent, createConfig } from "@/lib/upstage-studio";
-import { michaelWorkflow } from "@/app/(labs)/lab/michael/_lib/workflow";
+import { validationWorkflow } from "@/app/(labs)/lab/validation/_lib/workflow";
 
 async function main(): Promise<void> {
-  const existingAgentId = process.env.UPSTAGE_MICHAEL_AGENT_ID;
-  const agent = existingAgentId ? { id: existingAgentId } : await createAgent("michael");
-  const steps = michaelWorkflow();
+  const existingAgentId = process.env.UPSTAGE_VALIDATION_AGENT_ID;
+  const agent = existingAgentId
+    ? { id: existingAgentId }
+    : await createAgent("validation");
+  const steps = validationWorkflow();
   const config = await createConfig({
     agentId: agent.id,
-    name: "michael-application-fields-json",
+    name: "validation-markdown-summary",
     steps,
     isDefault: true,
   });
@@ -19,6 +21,6 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
-  console.error("Michael provisioning failed:", message.slice(0, 700));
+  console.error("유효성 검사 provisioning failed:", message.slice(0, 700));
   process.exit(1);
 });

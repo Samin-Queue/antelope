@@ -44,7 +44,7 @@ import { SessionSearch, type SearchSession } from "./session-search";
  * 자리(도구)다. **동작하지 않는 화면은 넣지 않는다** — 데모 중에 누르면
  * 안 되는 메뉴가 있는 것이 메뉴가 없는 것보다 나쁘다.
  *
- * 그래서 빠진 것: `/app/test`(정적 더미) · `/lab/samson`·`/lab/michael`
+ * 그래서 빠진 것: `/app/test`(정적 더미) · `/lab/validation`·`/lab/analysis`
  * (각자 `UPSTAGE_*_AGENT_ID` 가 있어야 돌아간다. 없으면 503).
  */
 /** 「세션 시작하기」와 「모든 세션」은 따로 그린다 — 앞은 버튼, 뒤는 하위 목록을 단다. */

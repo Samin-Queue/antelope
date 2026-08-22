@@ -18,7 +18,7 @@ const errorSchema = z.object({ error: z.string() });
 
 type Result = z.infer<typeof responseSchema>;
 
-export function MichaelWorkbench() {
+export function AnalysisWorkbench() {
   const [files, setFiles] = useState<File[]>([]);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export function MichaelWorkbench() {
     try {
       const body = new FormData();
       files.forEach((file) => body.append("files", file));
-      const response = await fetch("/lab/michael/ingest", { method: "POST", body });
+      const response = await fetch("/lab/analysis/ingest", { method: "POST", body });
       const payload: unknown = await response.json();
       if (!response.ok) {
         const parsed = errorSchema.safeParse(payload);
@@ -41,7 +41,7 @@ export function MichaelWorkbench() {
       }
       setResult(responseSchema.parse(payload));
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : "Michael 실행에 실패했습니다.");
+      setError(cause instanceof Error ? cause.message : "정보 분석 실행에 실패했습니다.");
     } finally {
       setPending(false);
     }
@@ -54,7 +54,7 @@ export function MichaelWorkbench() {
     );
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "michael-application-fields.json";
+    anchor.download = "analysis-application-fields.json";
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -73,14 +73,14 @@ export function MichaelWorkbench() {
         <CardContent>
           <form onSubmit={analyze} className="space-y-4">
             <input
-              id="michael-files"
+              id="analysis-files"
               type="file"
               multiple
               className="peer sr-only"
               onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
             />
             <label
-              htmlFor="michael-files"
+              htmlFor="analysis-files"
               className="flex min-h-44 w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-background px-5 text-center transition-colors peer-focus-visible:ring-3 peer-focus-visible:ring-ring/50 peer-focus-visible:outline-none hover:border-brand/50 hover:bg-brand/5"
             >
               <span className="rounded-lg bg-brand/10 p-3 text-brand">
@@ -99,7 +99,7 @@ export function MichaelWorkbench() {
               disabled={files.length === 0 || pending}
             >
               {pending ? <Loader2 className="animate-spin" /> : <Sparkles />}
-              {pending ? "Michael이 양식을 설계하는 중" : "JSON 필드 만들기"}
+              {pending ? "정보 분석 에이전트가 양식을 설계하는 중" : "JSON 필드 만들기"}
             </Button>
           </form>
           {error && (
@@ -138,7 +138,7 @@ export function MichaelWorkbench() {
         <CardContent className="min-h-96 pt-1">
           <p className="sr-only" role="status" aria-live="polite">
             {pending
-              ? "Michael이 신청 필드를 분석하고 있습니다."
+              ? "정보 분석 에이전트가 신청 필드를 분석하고 있습니다."
               : result
                 ? "JSON 필드 목록이 준비되었습니다."
                 : ""}

@@ -14,7 +14,7 @@ export const maxDuration = 600;
 /**
  * 1~5 단계. multipart 로 받아 SSE 로 흘린다.
  *
- * Samson·Michael 은 Studio job 이라 각각 수십 초가 걸린다. 결과만 한 번에 주면
+ * 유효성 검사·정보 분석 은 Studio job 이라 각각 수십 초가 걸린다. 결과만 한 번에 주면
  * 1~2분 동안 화면이 죽어 보인다.
  */
 export async function POST(req: Request) {

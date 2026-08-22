@@ -37,16 +37,16 @@ export const labs: Lab[] = [
     owner: "승욱",
   },
   {
-    slug: "samson",
-    title: "Samson · 문서 요약",
+    slug: "validation",
+    title: "유효성 검사 · 문서 요약",
     hypothesis:
       "무작위 문서를 Parse → 판단 → 하나의 Markdown 요약으로 안정적으로 압축할 수 있는가",
     status: "exploring",
     owner: "Samin Queue",
   },
   {
-    slug: "michael",
-    title: "Michael · 신청 양식 설계",
+    slug: "analysis",
+    title: "정보 분석 · 신청 양식 설계",
     hypothesis: "여러 문서를 분류해 신청 유형별 JSON 필드 목록으로 만들 수 있는가",
     status: "exploring",
     owner: "Samin Queue",

@@ -22,10 +22,10 @@
 
 ### Upstage Studio 에이전트 2축 (문서 처리 위임)
 
-| 축          | 책임                                                                                      | Agent ID                     |
-| ----------- | ----------------------------------------------------------------------------------------- | ---------------------------- |
-| **SAMSON**  | **파일 유효성 검사.** 받은 파일이 요청을 수행할 만한 정보를 담고 있는가를 가볍게 판정한다 | `agt_muzwB24L6KeFdBCP66v3es` |
-| **MICHAEL** | **파일 분석·필드 추출·정규화.** 정돈된 필드 목록과 최초 parse 된 Markdown 을 함께 낸다    | `agt_fLbbrRD5NRJPDTuMRb2GLd` |
+| 축              | 책임                                                                                      | Agent ID                     |
+| --------------- | ----------------------------------------------------------------------------------------- | ---------------------------- |
+| **유효성 검사** | **파일 유효성 검사.** 받은 파일이 요청을 수행할 만한 정보를 담고 있는가를 가볍게 판정한다 | `agt_muzwB24L6KeFdBCP66v3es` |
+| **정보 분석**   | **파일 분석·필드 추출·정규화.** 정돈된 필드 목록과 최초 parse 된 Markdown 을 함께 낸다    | `agt_fLbbrRD5NRJPDTuMRb2GLd` |
 
 두 에이전트는 `UPSTAGE_STUDIO_API_KEY` 계정에 묶인다. 키를 바꾸면 에이전트가
 안 보인다 — AGENTS.md 「Upstage Studio 에이전트」 절 참고.
@@ -38,7 +38,7 @@
 [1] 사용자 입력 (파일 · 링크 · 자연어)
         │
         ▼
-[2] 분석 에이전트 ──위임──▶ SAMSON (유효성)
+[2] 분석 에이전트 ──위임──▶ 유효성 검사 (유효성)
         │                      parse → OCR → 요약·판정
         ◀──────────────────────┘
         │
@@ -48,10 +48,10 @@
         │
         ▼
 [4] 자료 수집 — 웹 검색 · 웹 탐색 · 첨부 파일 · 페이지 자체를 파일로
-        │  (MICHAEL 이 읽는 포맷으로 변환: JPEG PNG BMP PDF TIFF HEIC
+        │  (정보 분석 이 읽는 포맷으로 변환: JPEG PNG BMP PDF TIFF HEIC
         │   DOCX PPTX XLSX HWP HWPX)
         ▼
-[5] MICHAEL ──▶ 정규화된 필드 목록 + parse 된 Markdown
+[5] 정보 분석 ──▶ 정규화된 필드 목록 + parse 된 Markdown
         │
         ▼
 [6] 계획 에이전트 ──▶ 계획서(md)
@@ -74,7 +74,7 @@
 **[1] 입력.** 파일·링크·자연어 셋 중 무엇이든 받는다. 입력 종류를 사용자가
 고르게 하지 않는다.
 
-**[2] 유효성 위임.** 분석 에이전트가 직접 파일을 읽을 수도 있지만 SAMSON 에
+**[2] 유효성 위임.** 분석 에이전트가 직접 파일을 읽을 수도 있지만 유효성 검사 에
 맡긴다 — 파일 수신·OCR·요약이 이미 그쪽에 있고, 가벼운 판정이라 왕복이 싸다.
 
 **[3] 착수 판정.** 여기서 하는 것은 **깊은 분석이 아니다.** 「이 요청을 수행할
@@ -82,10 +82,10 @@
 바로 [4]로 간다. 안 나오면 **무엇이 없어서 못 하는지 지목해서** 되묻는다.
 
 **[4] 자료 수집.** 공고 원문이 첨부 하나로 끝나는 경우는 드물다. 링크를 타고
-들어가 PDF·HWP 를 받고, 페이지 자체도 MICHAEL 이 읽을 수 있는 파일로 만든다.
+들어가 PDF·HWP 를 받고, 페이지 자체도 정보 분석 이 읽을 수 있는 파일로 만든다.
 이 단계의 목표는 정확도가 아니라 **누락 없음**이다.
 
-**[5] 정규화.** MICHAEL 이 모아 온 자료를 하나의 신청 양식 정의로 수렴시킨다.
+**[5] 정규화.** 정보 분석 이 모아 온 자료를 하나의 신청 양식 정의로 수렴시킨다.
 산출물이 둘이다 — 필드 목록(구조화)과 parse 된 Markdown(원문 보존).
 
 **[6] 계획 + 데이터.** 계획서는 사람이 읽는 문서이고, 마스터 테이블은 기계가
@@ -111,7 +111,7 @@ type Intake =
   | { kind: "url"; url: string; note?: string }
   | { kind: "text"; text: string };
 
-/** [2] SAMSON */
+/** [2] 유효성 검사 */
 type ValidityReport = {
   filename: string;
   /** 읽을 수 있었는가 (스캔 실패·암호화·빈 파일) */
@@ -131,15 +131,15 @@ type IntakeVerdict =
   | { status: "proceed"; goal: string; category: Category; seeds: string[] }
   | { status: "need-more"; question: string; missing: string[] };
 
-/** [4] 수집물 — MICHAEL 에 넣기 직전 상태 */
+/** [4] 수집물 — 정보 분석 에 넣기 직전 상태 */
 type SourceBundle = {
   origin: string; // 어디서 왔는지 (URL 또는 업로드)
   filename: string;
-  mime: string; // MICHAEL 이 읽는 포맷으로 이미 변환됨
+  mime: string; // 정보 분석 이 읽는 포맷으로 이미 변환됨
   bytes: number;
 };
 
-/** [5] MICHAEL */
+/** [5] 정보 분석 */
 type NormalizedApplication = {
   applicationType: string;
   applicationTitle: string;
@@ -229,17 +229,17 @@ type Artifact = {
 
 `runStart()` 가 도는 6단계 (`_lib/pipeline.ts`):
 
-| #   | Stage       | 담당        | 파일                                                | 상태                                                                                                              |
-| --- | ----------- | ----------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| 1   | `intake`    | solar-mini  | `_lib/intake.ts` `_lib/fetch.ts`                    | **있음** — 문장에서 링크 추출, 링크가 파일이면 내려받고 페이지면 본문·링크 수집, 첨부 후보를 모델이 골라 다운로드 |
-| 2   | `summarize` | **SAMSON**  | `_lib/summarize.ts`                                 | **있음** — 실패 시 `parseDocument` + Solar 로 대체. 경로를 `via` 에 남긴다                                        |
-| 3   | `judge`     | solar-mini  | `_lib/summarize.ts`                                 | **있음** — good/bad. bad 면 뒤 단계를 skip 한다                                                                   |
-| 4   | `research`  | solar-pro4  | `_lib/research.ts`                                  | **있음** — 신청 URL 을 찾아 실제로 읽고, 폼 라벨에서 입력 항목을 뽑는다                                           |
-| 5   | `analyze`   | **MICHAEL** | `_lib/analyze.ts`                                   | **있음** — 파일 여러 개를 한 job 에. 실패 시 Solar 대체                                                           |
-| 6   | `prefill`   | 지식베이스  | `_lib/prefill.ts`                                   | **있음** — `recallForFields` 로 선채움                                                                            |
-| —   | 병합        | solar-pro4  | `_lib/needs.ts` `_lib/reconcile.ts`                 | **있음** — 같은 항목을 두 번 묻지 않게 모델이 한 번 더 합친다                                                     |
-| 7   | 사용자 수집 | —           | `_lib/needs-form.tsx`                               | **부분** — 아래 참고                                                                                              |
-| 8   | 실행        | 브라우저    | `start/apply/route.ts` → `lab/notice/_lib/agent.ts` | **있음** — 가상 데스크톱, 라이브 스트리밍, 사람 개입, `allowSubmit`                                               |
+| #   | Stage       | 담당            | 파일                                                | 상태                                                                                                              |
+| --- | ----------- | --------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 1   | `intake`    | solar-mini      | `_lib/intake.ts` `_lib/fetch.ts`                    | **있음** — 문장에서 링크 추출, 링크가 파일이면 내려받고 페이지면 본문·링크 수집, 첨부 후보를 모델이 골라 다운로드 |
+| 2   | `summarize` | **유효성 검사** | `_lib/summarize.ts`                                 | **있음** — 실패 시 `parseDocument` + Solar 로 대체. 경로를 `via` 에 남긴다                                        |
+| 3   | `judge`     | solar-mini      | `_lib/summarize.ts`                                 | **있음** — good/bad. bad 면 뒤 단계를 skip 한다                                                                   |
+| 4   | `research`  | solar-pro4      | `_lib/research.ts`                                  | **있음** — 신청 URL 을 찾아 실제로 읽고, 폼 라벨에서 입력 항목을 뽑는다                                           |
+| 5   | `analyze`   | **정보 분석**   | `_lib/analyze.ts`                                   | **있음** — 파일 여러 개를 한 job 에. 실패 시 Solar 대체                                                           |
+| 6   | `prefill`   | 지식베이스      | `_lib/prefill.ts`                                   | **있음** — `recallForFields` 로 선채움                                                                            |
+| —   | 병합        | solar-pro4      | `_lib/needs.ts` `_lib/reconcile.ts`                 | **있음** — 같은 항목을 두 번 묻지 않게 모델이 한 번 더 합친다                                                     |
+| 7   | 사용자 수집 | —               | `_lib/needs-form.tsx`                               | **부분** — 아래 참고                                                                                              |
+| 8   | 실행        | 브라우저        | `start/apply/route.ts` → `lab/notice/_lib/agent.ts` | **있음** — 가상 데스크톱, 라이브 스트리밍, 사람 개입, `allowSubmit`                                               |
 
 ### 5축 대비
 
@@ -262,7 +262,7 @@ type Artifact = {
    도중에 값이 모자라도 못 묻고 파일도 못 만든다.
 5. **`select` 에 선택지가 없다.** `NeedKind` 에 `select` 는 있는데 `options` 필드가
    없어 실제로는 자유 입력으로 그려진다.
-6. **분류 체계가 둘이다.** `start` 플로우는 MICHAEL 클래스(`JOB_APPLICATION` 등 7종),
+6. **분류 체계가 둘이다.** `start` 플로우는 정보 분석 클래스(`JOB_APPLICATION` 등 7종),
    `lab/notice`·랜딩은 `src/lib/categories.ts`(13종). 둘이 만나지 않는다.
 
 ## 5. Studio Config 를 고쳐야 하는 곳
@@ -270,7 +270,7 @@ type Artifact = {
 Config 는 불변이라 고칠 때마다 새 Config 가 생긴다. DAG 를 레포에 두고
 `pnpm studio:provision` 계열 스크립트로 반영한다.
 
-### MICHAEL — instruct 스텝 (완료)
+### 정보 분석 — instruct 스텝 (완료)
 
 `parse → classify(7분기) → extract-* → brief(instruct)`. `brief` 가 신청 개요·
 자격 요건·제출 서류·일정·신청 방법·입력 항목·확인 필요 7개 섹션의 Markdown 을
@@ -283,7 +283,7 @@ Config 는 불변이라 고칠 때마다 새 Config 가 생긴다. DAG 를 레�
 「실제 필수 여부는 원문 확인 필요」라고 적을 정도다 — 스키마 description 에
 필수 판정 기준을 넣어야 한다.
 
-### SAMSON — 유효성 판정 필드가 없다
+### 유효성 검사 — 유효성 판정 필드가 없다
 
 지금: `parse → analyze(purpose/keyFacts/actionItems) → summarize(md)`.
 `judge` 가 그 Markdown 을 다시 Solar 로 읽어 good/bad 를 매긴다 — 왕복이 한 번 더 있다.
@@ -298,7 +298,7 @@ missing    string[]  usable=false 일 때 무엇이 없는지
 
 ### 분류 클래스
 
-| MICHAEL classify            | `src/lib/categories.ts`                                                                                          |
+| 정보 분석 classify          | `src/lib/categories.ts`                                                                                          |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `JOB_APPLICATION`           | `JOB_POSTING`                                                                                                    |
 | `SCHOLARSHIP_APPLICATION`   | `SCHOLARSHIP`                                                                                                    |
@@ -330,12 +330,12 @@ missing    string[]  usable=false 일 때 무엇이 없는지
 
 1. ~~마스터 테이블을 세션에 저장~~ — **완료.** `goals.snapshot` 에 요약·brief·
    수집 파일·마스터 테이블·단계 상태. 저장 주체는 **서버**다
-2. ~~MICHAEL 에 instruct 스텝 추가~~ — **완료.** `brief` 스텝
+2. ~~정보 분석 에 instruct 스텝 추가~~ — **완료.** `brief` 스텝
 3. **계획 에이전트** — 5축 중 빠진 축. 계획서(md)와 단계 목록을 만들어 세션에 저장
 4. **정규화 UI 확장** — `select` 에 `options`, `date`·`number`·`time` 을 제대로 그린다
 5. **브라우저 ↔ 에이전트 상호작용** — 실행 도중 값이 모자라면 묻고, 파일이 필요하면 만든다
 6. **파일 에이전트** — hwp 가 가장 어렵고 가장 자주 필요하다
-7. **SAMSON 유효성 필드** — `judge` 의 모델 왕복을 없앤다. 급하지 않다
+7. **유효성 검사 유효성 필드** — `judge` 의 모델 왕복을 없앤다. 급하지 않다
 8. **분류 체계 통일** — 카테고리로 분기하기 시작할 때
 
 ## 8. 지금 지켜야 할 경계

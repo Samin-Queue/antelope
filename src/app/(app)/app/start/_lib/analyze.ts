@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { env, required } from "@/lib/env";
 import { findStep, stepOutputs, uploadFile, waitForJob } from "@/lib/upstage-studio";
-import { BRIEF } from "@/app/(labs)/lab/michael/_lib/workflow";
+import { BRIEF } from "@/app/(labs)/lab/analysis/_lib/workflow";
 
 import type { IntakeFile } from "./fetch";
 import type { Ctx } from "./intake";
@@ -15,7 +15,7 @@ import type { Need } from "./types";
 /**
  * 4단계 — 정밀 분석.
  *
- * 모은 파일 전부를 Michael(Studio: parse → classify → extract-*) 한 job 에 넣는다.
+ * 모은 파일 전부를 정보 분석(Studio: parse → classify → extract-*) 한 job 에 넣는다.
  * 요약은 사람이 읽으려고 만든 것이고, 이건 폼을 채우려고 만든 것이다 — 필드마다
  * 입력 종류·필수 여부·원문 근거가 붙어 온다.
  *
@@ -27,13 +27,13 @@ export type Analysis = {
   applicationType: string | null;
   title: string | null;
   /**
-   * Michael 이 정돈한 신청 준비 문서.
+   * 정보 분석 이 정돈한 신청 준비 문서.
    *
    * 필드 목록은 폼을 채우려고 만든 것이고 이건 **사람과 계획 에이전트가 읽으려고**
    * 만든 것이다. Solar 로 떨어진 경로에서는 없다.
    */
   brief: string | null;
-  via: "michael" | "solar" | "none";
+  via: "analysis" | "solar" | "none";
 };
 
 const fieldSchema = z.object({
@@ -62,11 +62,11 @@ export async function analyze(
   summary: Summary,
   ctx: Ctx,
 ): Promise<Analysis> {
-  const agentId = env.UPSTAGE_MICHAEL_AGENT_ID;
+  const agentId = env.UPSTAGE_ANALYSIS_AGENT_ID;
 
   if (files.length > 0 && agentId) {
     try {
-      ctx.log(`Michael 실행: 파일 ${files.length}개`);
+      ctx.log(`정보 분석 실행: 파일 ${files.length}개`);
       const uploaded = await Promise.all(
         files.map((file) => uploadFile(file.blob, file.name)),
       );
@@ -79,23 +79,23 @@ export async function analyze(
       const extract = findStep(outputs, "extract");
       const parsed = fieldSchema.safeParse(extract?.json);
       if (!parsed.success || !parsed.data.fields?.length) {
-        throw new Error("Michael 이 필드 목록을 만들지 못했습니다.");
+        throw new Error("정보 분석 이 필드 목록을 만들지 못했습니다.");
       }
       const brief = unquote(findStep(outputs, BRIEF)?.text ?? "");
       ctx.log(
-        `Michael 완료: ${outputs.map((o) => o.step).join(" → ")} · 필드 ${parsed.data.fields.length}개` +
+        `정보 분석 완료: ${outputs.map((o) => o.step).join(" → ")} · 필드 ${parsed.data.fields.length}개` +
           (brief
             ? ` · 준비 문서 ${brief.length.toLocaleString()}자`
             : " · 준비 문서 없음"),
       );
-      return { ...toAnalysis(parsed.data, "michael"), brief: brief || null };
+      return { ...toAnalysis(parsed.data, "analysis"), brief: brief || null };
     } catch (error) {
-      ctx.log(`Michael 실패 — Solar 로 대체: ${message(error)}`);
+      ctx.log(`정보 분석 실패 — Solar 로 대체: ${message(error)}`);
     }
   } else if (files.length === 0) {
-    ctx.log("파일이 없어 Michael 을 건너뜀 — 요약에서 Solar 가 도출");
+    ctx.log("파일이 없어 정보 분석 을 건너뜀 — 요약에서 Solar 가 도출");
   } else {
-    ctx.log("UPSTAGE_MICHAEL_AGENT_ID 없음 — 요약에서 Solar 가 도출");
+    ctx.log("UPSTAGE_ANALYSIS_AGENT_ID 없음 — 요약에서 Solar 가 도출");
   }
 
   if (!summary.markdown.trim())
@@ -142,7 +142,7 @@ function toAnalysis(data: Fields, via: Analysis["via"]): Analysis {
         label: field.label?.trim() || field.documentName?.trim() || field.key || "",
         kind: field.inputType,
         required: field.required,
-        source: "michael",
+        source: "analysis",
         why: field.source?.trim() || field.instructions?.trim() || null,
       }),
     )

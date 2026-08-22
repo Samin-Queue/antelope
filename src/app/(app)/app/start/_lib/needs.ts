@@ -5,7 +5,7 @@ import type { Need, NeedKind } from "./types";
  *
  * 같은 것을 두 번 묻는 게 최악이다. "사업자등록번호" 와 "사업자 등록 번호" 는
  * 하나여야 하므로 공백·기호를 뺀 라벨을 키로 쓴다. 먼저 온 목록이 우선이다 —
- * Michael(원문 정밀 분석)이 research(추론)보다 앞에 온다.
+ * 정보 분석(원문 정밀 분석)이 research(추론)보다 앞에 온다.
  */
 export function normalizeKey(label: string): string {
   return label

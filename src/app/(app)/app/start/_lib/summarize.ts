@@ -12,7 +12,7 @@ import { bigModel, clip, smallModel } from "./llm";
 /**
  * 2단계 — 요약과 판정.
  *
- * 파일은 Samson(Studio: parse → analyze → summarize) 이 Markdown 으로 압축한다.
+ * 파일은 유효성 검사(Studio: parse → analyze → summarize) 이 Markdown 으로 압축한다.
  * 페이지 본문과 사용자 문장은 Studio 를 못 타므로(파일이 아니다) Solar 가 같은
  * 섹션 구조로 직접 요약하고, 어느 경로였는지 `via` 에 남긴다 — 화면에 그대로 보인다.
  *
@@ -75,10 +75,10 @@ export async function summarize(intake: Intake, ctx: Ctx): Promise<Summary> {
 }
 
 async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
-  const agentId = env.UPSTAGE_SAMSON_AGENT_ID;
+  const agentId = env.UPSTAGE_VALIDATION_AGENT_ID;
   if (agentId) {
     try {
-      ctx.log(`Samson 실행: ${file.name}`);
+      ctx.log(`유효성 검사 실행: ${file.name}`);
       const job = await runAgent({
         agentId,
         file: file.blob,
@@ -94,15 +94,15 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
       const chars = (parsed?.content?.markdown ?? parsed?.content?.text ?? "").length;
       const markdown = summary ? unquote(summary.text) : "";
       if (markdown.startsWith("#")) {
-        ctx.log(`Samson 완료: ${outputs.map((o) => o.step).join(" → ")}`);
-        return { name: file.name, markdown, via: "samson", chars };
+        ctx.log(`유효성 검사 완료: ${outputs.map((o) => o.step).join(" → ")}`);
+        return { name: file.name, markdown, via: "validation", chars };
       }
-      ctx.log("Samson 이 Markdown 을 만들지 못함 — Solar 로 대체");
+      ctx.log("유효성 검사 이 Markdown 을 만들지 못함 — Solar 로 대체");
     } catch (error) {
-      ctx.log(`Samson 실패 — Solar 로 대체: ${message(error)}`);
+      ctx.log(`유효성 검사 실패 — Solar 로 대체: ${message(error)}`);
     }
   } else {
-    ctx.log("UPSTAGE_SAMSON_AGENT_ID 없음 — Document Parse + Solar 로 요약");
+    ctx.log("UPSTAGE_VALIDATION_AGENT_ID 없음 — Document Parse + Solar 로 요약");
   }
 
   try {
@@ -129,7 +129,7 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
   }
 }
 
-/** Samson 과 같은 섹션 구조. 어느 경로로 왔든 다음 단계가 같은 모양을 받는다 */
+/** 유효성 검사 과 같은 섹션 구조. 어느 경로로 왔든 다음 단계가 같은 모양을 받는다 */
 async function solarSummary(text: string, what: string): Promise<string> {
   const { text: markdown } = await generateText({
     model: bigModel(),

@@ -5,12 +5,12 @@ export const maxDuration = 240;
 const MAX_BYTES = 25 * 1024 * 1024;
 
 export async function POST(req: Request) {
-  const agentId = process.env.UPSTAGE_MICHAEL_AGENT_ID;
+  const agentId = process.env.UPSTAGE_ANALYSIS_AGENT_ID;
   // uploadFile 은 Studio 키로 올리는데(upstage-studio.ts) 여기서 v1 키로 job 을
   // 만들면 계정이 갈려 403 이 난다. 같은 키를 쓴다.
   const apiKey = process.env.UPSTAGE_STUDIO_API_KEY || process.env.UPSTAGE_API_KEY;
   if (!agentId || !apiKey) {
-    return Response.json({ error: "Michael Studio 설정이 없습니다." }, { status: 503 });
+    return Response.json({ error: "정보 분석 Studio 설정이 없습니다." }, { status: 503 });
   }
 
   const files = (await req.formData())
@@ -57,7 +57,8 @@ export async function POST(req: Request) {
 
     const job = await waitForJob(created.id, { include: "all" });
     const output = stepOutputs(job).find((item) => item.step.startsWith("extract-"));
-    if (!output?.json) throw new Error("Michael이 JSON 필드 목록을 만들지 못했습니다.");
+    if (!output?.json)
+      throw new Error("정보 분석 에이전트가 JSON 필드 목록을 만들지 못했습니다.");
 
     return Response.json({
       files: files.map((file) => file.name),
@@ -66,7 +67,9 @@ export async function POST(req: Request) {
     });
   } catch (error: unknown) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Michael 실행에 실패했습니다." },
+      {
+        error: error instanceof Error ? error.message : "정보 분석 실행에 실패했습니다.",
+      },
       { status: 502 },
     );
   }

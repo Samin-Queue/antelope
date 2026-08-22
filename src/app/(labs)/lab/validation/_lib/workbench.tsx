@@ -21,11 +21,11 @@ const errorSchema = z.object({ error: z.string() });
 type Result = z.infer<typeof resultSchema>;
 
 function downloadName(filename: string): string {
-  const stem = filename.replace(/\.[^/.]+$/, "").trim() || "samson-summary";
-  return `${stem}-samson.md`;
+  const stem = filename.replace(/\.[^/.]+$/, "").trim() || "validation-summary";
+  return `${stem}-validation.md`;
 }
 
-export function SamsonWorkbench() {
+export function ValidationWorkbench() {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +42,7 @@ export function SamsonWorkbench() {
     try {
       const body = new FormData();
       body.append("file", file);
-      const response = await fetch("/lab/samson/ingest", { method: "POST", body });
+      const response = await fetch("/lab/validation/ingest", { method: "POST", body });
       const payload: unknown = await response.json();
 
       if (!response.ok) {
@@ -52,7 +52,9 @@ export function SamsonWorkbench() {
 
       setResult(resultSchema.parse(payload));
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : "Samson 실행에 실패했습니다.");
+      setError(
+        cause instanceof Error ? cause.message : "유효성 검사 실행에 실패했습니다.",
+      );
     } finally {
       setPending(false);
     }
@@ -84,14 +86,14 @@ export function SamsonWorkbench() {
         <CardContent>
           <form onSubmit={summarize} className="space-y-4">
             <input
-              id="samson-file"
+              id="validation-file"
               type="file"
               accept=".pdf,.png,.jpg,.jpeg,.docx,.pptx,.xlsx,.hwp,.hwpx,.md,.txt"
               className="peer sr-only"
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             />
             <label
-              htmlFor="samson-file"
+              htmlFor="validation-file"
               className="flex min-h-44 w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-background px-5 text-center transition-colors peer-focus-visible:ring-3 peer-focus-visible:ring-ring/50 peer-focus-visible:outline-none hover:border-brand/50 hover:bg-brand/5"
             >
               <span className="rounded-lg bg-brand/10 p-3 text-brand">
@@ -108,7 +110,7 @@ export function SamsonWorkbench() {
             </label>
             <Button type="submit" className="w-full" disabled={!file || pending}>
               {pending ? <Loader2 className="animate-spin" /> : <Sparkles />}
-              {pending ? "Samson이 문서를 읽는 중" : "Markdown으로 요약"}
+              {pending ? "유효성 검사 에이전트가 문서를 읽는 중" : "Markdown으로 요약"}
             </Button>
           </form>
           {error && (
@@ -152,7 +154,7 @@ export function SamsonWorkbench() {
         <CardContent className="min-h-96 pt-1">
           <p className="sr-only" role="status" aria-live="polite">
             {pending
-              ? "Samson이 문서를 읽고 있습니다."
+              ? "유효성 검사 에이전트가 문서를 읽고 있습니다."
               : result
                 ? "Markdown 요약이 준비되었습니다."
                 : ""}

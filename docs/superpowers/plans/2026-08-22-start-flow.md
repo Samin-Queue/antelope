@@ -4,7 +4,7 @@
 
 **Goal:** 컴포저 입력 하나로 요약 → 조사 → 양식 분석 → 선채움 → 자동 신청까지 한 화면에서 잇는다.
 
-**Architecture:** 서버는 `start/run`(1~~5단계, SSE)과 `start/apply`(9단계, SSE) 두 라우트. 단계 모듈은 `_lib/` 에 하나씩. 클라이언트 `StartFlow` 가 두 스트림을 순서대로 읽고 6~~8단계를 결정한다. Samson·Michael 은 Studio 에이전트, 브라우저는 기존 `runBrowserAgent`.
+**Architecture:** 서버는 `start/run`(1~~5단계, SSE)과 `start/apply`(9단계, SSE) 두 라우트. 단계 모듈은 `_lib/` 에 하나씩. 클라이언트 `StartFlow` 가 두 스트림을 순서대로 읽고 6~~8단계를 결정한다. 유효성 검사·정보 분석 은 Studio 에이전트, 브라우저는 기존 `runBrowserAgent`.
 
 **Tech Stack:** Next.js 16 App Router · Vercel AI SDK v7 (`generateObject`) · Upstage Studio v2 · zod · react-markdown · Xvfb/xdotool 에이전트.
 
@@ -45,7 +45,7 @@
 
 **Produces:** `summarize(intake, ctx): Promise<Summary>`; `Summary = { markdown: string; via: string; parts: Array<{ name; markdown; via }> }`; `judge(summary): Promise<{ verdict: "good"|"bad"; reason }>`.
 
-- 파일: Samson → markdown (`summarize` 스텝). 없으면 `parseDocument` → Solar 요약.
+- 파일: 유효성 검사 → markdown (`summarize` 스텝). 없으면 `parseDocument` → Solar 요약.
 - 페이지·문장: Solar 요약(샘슨 섹션 구조).
 - 20자 미만은 LLM 없이 bad.
 
