@@ -89,7 +89,7 @@ export const engine = {
     ],
     sizes: {
       headline: "크기를 작업 무게로 가릅니다",
-      body: '`provider === "upstage"` 한 줄로 갈랐을 때는 트랙을 바꾸는 순간 분류·판정·서술 같은 가벼운 호출이 전부 최상위 모델로 올라갔습니다. 티어를 표로 두면 그 버그가 사라집니다.',
+      body: "분류·판정·한 줄 서술처럼 큰 모델을 써도 답이 같은 일에는 작은 모델을 씁니다. 어느 호출이 어느 크기를 쓰는지는 표에 있습니다.",
       rows: [
         {
           tier: "solar-mini",
@@ -493,11 +493,11 @@ export const engine = {
         },
         {
           what: "`match` 의 대상",
-          body: "`targets[].collection_id` 를 요구하는데 `/v2/collections` 가 404 입니다. 이 환경에서는 대상을 만들 수 없습니다",
+          body: "`targets[].collection_id` 로 비교 대상을 가리킵니다. 이 환경에서 대상 컬렉션을 만들 수단이 없어 보류했습니다",
         },
         {
           what: "HTTP Export",
-          body: "이 환경에서는 `feature_disabled` 입니다. 결과를 밖으로 밀어내는 대신 우리가 폴링합니다",
+          body: "이 환경에서는 꺼져 있어(`feature_disabled`) 결과를 밖으로 밀어내는 대신 우리가 폴링합니다",
         },
       ],
       used: {
@@ -594,62 +594,68 @@ export const engine = {
         },
       ],
     },
-    gotchas: {
-      headline: "스펙 문서와 실제가 다른 곳",
-      sub: "전부 400 또는 job 실패로 실측했습니다. 증상이 원인과 떨어진 곳에서 나오는 것들이라 특히 적어 둡니다.",
+    /**
+     * 호출 계약.
+     *
+     * 「문서가 틀렸다」로 적지 않는다 — 읽는 사람이 Upstage 쪽이다. 우리가
+     * 지킨 계약과, 안 지켰을 때 어디서 증상이 나는지만 적는다. 증상이 원인과
+     * 떨어진 곳에서 나오는 것들이라 그 대응이 실제로 쓸모가 있다.
+     */
+    contracts: {
+      headline: "호출할 때 지킨 계약",
+      sub: "구현하며 하나씩 맞춰 본 것입니다. 증상이 원인과 떨어진 자리에서 나오는 것들이라 함께 적습니다.",
       items: [
         {
           where: "classify 분기 조건",
-          doc: 'condition.field: "document_type"',
-          real: '"text"',
-          symptom:
-            "400 — condition must use field 'text' and operator '==' with a leaf label",
+          rule: '`condition.field` 는 `"text"`, 연산자는 `==`, 값은 leaf 라벨',
+          symptom: "다른 필드명을 주면 400 — 조건이 그대로 되돌아옵니다",
         },
         {
           where: "instruct 입력",
-          doc: "data.prompt",
-          real: "data.input 배열",
-          symptom: "job 이 queries are required for instruct 로 실패",
+          rule: "`data.input` 배열 (`role` · `content[].input_text`)",
+          symptom: "배열이 아니면 job 이 `queries are required for instruct` 로 끝납니다",
         },
         {
-          where: "include 위치",
-          doc: "POST 본문",
-          real: "GET 쿼리 파라미터",
-          symptom: "조용히 무시되고 마지막 스텝만 돌아옴",
+          where: "include",
+          rule: "`GET /v2/responses/{id}?include=all` — 조회 쿼리 파라미터",
+          symptom: "생성 요청 본문에 넣으면 마지막 스텝만 돌아옵니다",
         },
         {
-          where: "스텝 결과 타입",
-          doc: "JSON 객체",
-          real: "content[0].text 에 문자열",
-          symptom: "JSON 을 낸 스텝도 한 번 파싱해야 함",
+          where: "스텝 결과",
+          rule: "`output[].model` 이 스텝 이름, 값은 `content[0].text` 에 문자열",
+          symptom: "JSON 을 낸 스텝도 한 번 파싱해야 합니다",
         },
         {
-          where: "additional_values",
-          doc: "객체",
-          real: "문자열",
-          symptom: "citations 를 못 읽어 근거 하이라이트가 통째로 빔",
+          where: "citations",
+          rule: "`additional_values` 는 문자열이라 파싱한 뒤 `citations[].node_index` 로 parse 요소 `id` 를 찾습니다",
+          symptom: "객체로 읽으면 근거 하이라이트가 통째로 빕니다",
         },
         {
           where: "OCR 단어 좌표",
-          doc: "boundingBoxes",
-          real: "boundingBox",
-          symptom:
-            "단어가 전부 버려져 화면이 빈 것처럼 보임 — 에이전트가 좌표를 짐작하기 시작",
+          rule: "단어마다 `boundingBox` (단수)",
+          symptom: "복수형으로 읽으면 단어가 전부 버려져 화면이 빈 것처럼 보입니다",
         },
       ],
     },
-    warnings: [
+    /**
+     * 운영 규칙.
+     *
+     * 「여기가 이상하다」가 아니라 「우리는 이렇게 맞춰 두었다」로 적는다.
+     * 셋 다 같은 축에서 나온 것이다 — 파일과 에이전트가 같은 계정·같은
+     * 소유 범위에 있어야 job 이 파일을 읽는다.
+     */
+    ops: [
       {
-        title: "Agent·Config 는 API 키 소유 계정에 묶입니다",
-        body: "키를 바꾸면 이전 에이전트가 안 보입니다. `pnpm studio:provision` 을 다시 돌려 새 계정에 Config 를 만들고 환경변수를 갱신합니다 — 로컬과 배포 양쪽 다.",
+        title: "에이전트와 파일을 같은 키 아래 둡니다",
+        body: "Agent·Config 는 만든 키의 계정에 속합니다. 키를 바꾸면 `pnpm studio:provision` 을 다시 돌려 Config 를 만들고 환경변수를 갱신합니다 — 로컬과 배포 양쪽 다.",
       },
       {
-        title: "에이전트가 프로젝트에 묶이면 파일 접근이 끊깁니다",
-        body: "`GET /v2/agents` 는 200 이고 config 조회도 되는데 job 을 만들면 403 No access to file 입니다. `/v2/files` 로 올린 파일은 프로젝트에 속하지 않기 때문입니다. `PATCH {project_id: null}` 은 200 을 주지만 무시됩니다 — 새 에이전트를 만드는 수밖에 없습니다.",
+        title: "에이전트는 코드로 만든 것만 씁니다",
+        body: "`/v2/files` 로 올린 파일과 같은 소유 범위에 있어야 job 이 그 파일을 읽습니다. `pnpm studio:provision` 이 만든 에이전트를 쓰고, 화면에서 만든 것은 쓰지 않습니다.",
       },
       {
-        title: "Studio UI 로 만든 에이전트를 코드에서 쓰면 안 됩니다",
-        body: '`visibility: "readonly"` 로 멀쩡히 보이지만 우리 키로 올린 파일로 job 을 만들면 403 입니다. 오류가 파일 쪽으로 나와 원인을 엉뚱한 데서 찾게 됩니다 — 프로덕션이 이걸로 한 번 죽었습니다.',
+        title: "Config 가 불변이라 이력이 남습니다",
+        body: "고칠 때마다 새 Config 가 생깁니다. 워크플로가 코드에 있고 Config ID 가 배포마다 남으므로, 어느 버전으로 돌았는지를 나중에 되짚을 수 있습니다.",
       },
     ],
   },
@@ -664,7 +670,7 @@ export const engine = {
       headline: "필드 계약을 손으로 쓰지 않습니다",
       body: "Upstage 는 `response_format: json_object` 만 받고 zod 스키마를 모델에 넘기지 않습니다. 그래서 계약을 프롬프트에 직접 박아야 하는데, 손으로 적으면 스키마를 고치고 문장을 안 고쳤을 때 모델이 옛 계약을 따릅니다. `contractOf()` 가 스키마에서 문장을 만들면 그 사고가 구조적으로 불가능해집니다.",
       extra:
-        "「json」이라는 낱말도 `systemFor()` 가 반드시 넣습니다. 없으면 Upstage 가 요청 자체를 거부합니다 — 사람이 기억해서 넣던 것을 구조로 바꿉니다.",
+        "`response_format: json_object` 는 메시지에 「json」이라는 낱말을 요구합니다. `systemFor()` 가 반드시 넣으므로 사람이 기억할 일이 없습니다.",
       file: "src/lib/ai/contract.ts",
     },
     loose: {

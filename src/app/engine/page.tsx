@@ -416,36 +416,31 @@ export default function EnginePage() {
 
           <div className="mt-12">
             <Sub>
-              <T>{engine.studio.gotchas.headline}</T>
+              <T>{engine.studio.contracts.headline}</T>
             </Sub>
             <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-              <T>{engine.studio.gotchas.sub}</T>
+              <T>{engine.studio.contracts.sub}</T>
             </p>
             <div className="mt-5">
               <Table
-                head={["자리", "문서", "실제", "안 지키면"]}
-                rows={engine.studio.gotchas.items.map((item) => [
+                head={["자리", "계약", "안 맞추면"]}
+                rows={engine.studio.contracts.items.map((item) => [
                   item.where,
-                  <span key="d" className="font-mono text-[11px] line-through opacity-60">
-                    {item.doc}
-                  </span>,
-                  <span key="r" className="font-mono text-[11px] text-brand">
-                    {item.real}
-                  </span>,
-                  item.symptom,
+                  <T key="r">{item.rule}</T>,
+                  <T key="s">{item.symptom}</T>,
                 ])}
               />
             </div>
           </div>
 
           <div className="mt-8 grid gap-3 md:grid-cols-3">
-            {engine.studio.warnings.map((warning) => (
-              <Card key={warning.title} className="border-brand/25 bg-brand/5">
+            {engine.studio.ops.map((rule) => (
+              <Card key={rule.title} className="border-brand/25 bg-brand/5">
                 <p className="text-sm font-medium">
-                  <T>{warning.title}</T>
+                  <T>{rule.title}</T>
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  <T>{warning.body}</T>
+                  <T>{rule.body}</T>
                 </p>
               </Card>
             ))}
