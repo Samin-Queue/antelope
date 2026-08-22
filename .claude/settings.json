@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git push*)",
+            "command": "git fetch origin main --quiet 2>/dev/null; behind=$(git rev-list --count HEAD..origin/main 2>/dev/null); if [ \"${behind:-0}\" -gt 0 ]; then jq -n --arg r \"origin/main 이 로컬보다 ${behind}개 커밋 앞서 있습니다 — push 전에 git pull 로 먼저 받으세요 (충돌 가능성 확인, 트렁크 기반 개발이라 자주 발생함).\" '{hookSpecificOutput:{hookEventName:\"PreToolUse\",permissionDecision:\"deny\",permissionDecisionReason:$r}}'; fi",
+            "timeout": 15,
+            "statusMessage": "origin/main 과 비교 중..."
+          }
+        ]
+      }
+    ]
+  }
+}
