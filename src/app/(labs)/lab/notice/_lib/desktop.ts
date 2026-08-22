@@ -130,9 +130,26 @@ export async function openSession(
       "--disable-extensions",
       "--metrics-recording-only",
       "--mute-audio",
+      // ⚠ 이게 없으면 컨테이너에서 기동 자체가 막힌다. 크래시 리포터(crashpad)가
+      // 쓸 디렉터리를 HOME 에서 유도하는데, 비루트 사용자의 HOME 이 쓰기 불가라
+      // `chrome_crashpad_handler: --database is required` 로 주저앉는다.
+      // 프로세스는 살아 있고 창만 영영 안 떠서 원인을 찾기가 특히 어렵다.
+      "--disable-crash-reporter",
+      "--disable-breakpad",
+      `--crash-dumps-dir=${profileDir}`,
       startUrl,
     ],
-    { env: envFor(display), stdio: ["ignore", "ignore", "pipe"] },
+    {
+      // HOME 을 프로필 디렉터리로 고정한다. 컨테이너의 비루트 사용자는 HOME 이
+      // 없거나 읽기 전용이라, 그대로 두면 Chromium 이 설정·캐시를 쓸 곳을 잃는다.
+      env: {
+        ...envFor(display),
+        HOME: profileDir,
+        XDG_CONFIG_HOME: profileDir,
+        XDG_CACHE_HOME: profileDir,
+      },
+      stdio: ["ignore", "ignore", "pipe"],
+    },
   );
   const chromiumLog = tapStderr(chromium);
 
