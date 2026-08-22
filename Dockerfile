@@ -44,6 +44,9 @@ RUN groupadd --system --gid 1001 nodejs \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Next standalone traces Playwright's JavaScript but misses its runtime data asset
+# (`playwright-core/browsers.json`), loaded through an external dynamic import.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/playwright-core ./node_modules/playwright-core
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]
