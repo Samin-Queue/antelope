@@ -579,122 +579,150 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   };
 
   return (
-    <div className="flex min-h-[calc(100svh-3.5rem)] items-start">
-      <div className="min-w-0 flex-1 space-y-4 px-6 py-6">
-        <header className="flex flex-wrap items-center gap-2">
-          <h1 className="text-base font-medium">{prepared?.title ?? "공고를 읽는 중"}</h1>
-          {prepared?.organization && (
-            <span className="text-sm text-muted-foreground">{prepared.organization}</span>
+    /**
+     * 화면을 **꽉 채운다.**
+     *
+     * 예전에는 산출물이 오른쪽 26rem 고정이고 `xl` 아래에서는 아예 숨었다.
+     * 넓은 화면에서는 카드 두 장이 터무니없이 넓어지고, 정작 읽을 것(요약·
+     * 계획·서류)은 좁은 띠에 갇히거나 사라졌다. 주영역을 **반으로 가른다** —
+     * 왼쪽이 에이전트, 오른쪽이 결과물이다.
+     *
+     * 바깥에 패딩을 두지 않는다. 두 판이 각자 스크롤하고 가운데 선으로만
+     * 갈리는 편이, 전체가 한 번에 스크롤되며 여백을 흘리는 것보다 낫다.
+     */
+    <div className="flex h-[calc(100svh-3.5rem)] min-h-0 items-stretch">
+      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 lg:w-1/2 lg:flex-none">
+        <div className="flex min-h-0 flex-1 flex-col space-y-4">
+          <header className="flex flex-wrap items-center gap-2">
+            <h1 className="text-base font-medium">
+              {prepared?.title ?? "공고를 읽는 중"}
+            </h1>
+            {prepared?.organization && (
+              <span className="text-sm text-muted-foreground">
+                {prepared.organization}
+              </span>
+            )}
+            {prepared?.deadline && (
+              <Badge variant="secondary">{prepared.deadline.replace("T", " ")}</Badge>
+            )}
+            {prepared?.applyUrl && (
+              <a
+                href={prepared.applyUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 text-xs text-brand hover:underline"
+              >
+                <Link2 className="size-3" />
+                신청 페이지
+              </a>
+            )}
+          </header>
+
+          <RunStatus
+            cards={cards}
+            orchestrating={orchestrating}
+            preparing={preparing}
+            applying={apply.status === "running"}
+          />
+
+          {/* 준비 여섯 칸은 2열, 실행은 그 아래 전폭. 실행 카드는 라이브 화면을
+            옆에 달아 「무엇을 조작하고 있는지」가 카드 안에서 읽힌다.
+            주영역이 반쪽이 됐으므로 2열은 `md` 부터다 — `sm` 에서 두 줄로
+            나누면 카드 하나에 두 단어씩만 들어간다. */}
+          <div className="grid gap-3 md:grid-cols-2">
+            {(["goal", "gather", "analyze", "plan", "data", "file"] as const).map(
+              (key) => (
+                <AgentCard
+                  key={key}
+                  card={key}
+                  state={cards[key]}
+                  onOpen={() => pick(key)}
+                />
+              ),
+            )}
+          </div>
+
+          <AgentCard card="browser" state={cards.browser} onOpen={() => pick("browser")}>
+            {(apply.frame || apply.status === "running") && (
+              <div className="hidden w-72 shrink-0 sm:block">
+                <LiveScreen
+                  frame={apply.frame}
+                  running={apply.status === "running"}
+                  sessionId={apply.sessionId}
+                  needHuman={apply.needHuman}
+                  onHumanDone={() => setApply((prev) => ({ ...prev, needHuman: null }))}
+                />
+              </div>
+            )}
+          </AgentCard>
+
+          <SteerBox disabled={!runId || apply.status !== "running"} onSend={steer} />
+
+          {(apply.error || error) && (
+            <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words text-destructive">
+              {apply.error ?? error}
+            </p>
           )}
-          {prepared?.deadline && (
-            <Badge variant="secondary">{prepared.deadline.replace("T", " ")}</Badge>
-          )}
-          {prepared?.applyUrl && (
-            <a
-              href={prepared.applyUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1 text-xs text-brand hover:underline"
-            >
-              <Link2 className="size-3" />
-              신청 페이지
-            </a>
-          )}
-        </header>
 
-        <RunStatus
-          cards={cards}
-          orchestrating={orchestrating}
-          preparing={preparing}
-          applying={apply.status === "running"}
-        />
+          <Diagnostics lines={diagnostics} />
 
-        {/* 준비 여섯 칸은 2열, 실행은 그 아래 전폭. 실행 카드는 라이브 화면을
-            옆에 달아 「무엇을 조작하고 있는지」가 카드 안에서 읽힌다. */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          {(["goal", "gather", "analyze", "plan", "data", "file"] as const).map((key) => (
-            <AgentCard key={key} card={key} state={cards[key]} onOpen={() => pick(key)} />
-          ))}
-        </div>
-
-        <AgentCard card="browser" state={cards.browser} onOpen={() => pick("browser")}>
-          {(apply.frame || apply.status === "running") && (
-            <div className="hidden w-72 shrink-0 sm:block">
-              <LiveScreen
-                frame={apply.frame}
-                running={apply.status === "running"}
-                sessionId={apply.sessionId}
-                needHuman={apply.needHuman}
-                onHumanDone={() => setApply((prev) => ({ ...prev, needHuman: null }))}
-              />
-            </div>
-          )}
-        </AgentCard>
-
-        <SteerBox disabled={!runId || apply.status !== "running"} onSend={steer} />
-
-        {(apply.error || error) && (
-          <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words text-destructive">
-            {apply.error ?? error}
-          </p>
-        )}
-
-        <Diagnostics lines={diagnostics} />
-
-        {/* 실패한 뒤에도 폼으로 돌아갈 수 있어야 한다. `idle` 만 허용했을 때는
+          {/* 실패한 뒤에도 폼으로 돌아갈 수 있어야 한다. `idle` 만 허용했을 때는
             신청이 한 번 깨지면 에러 문구만 남고 되돌아갈 길이 없었다. */}
-        {prepared &&
-          !needsOpen &&
-          (apply.status === "idle" || apply.status === "error") && (
-            <Button onClick={() => setNeedsOpen(true)}>
-              {apply.status === "error" ? "입력 고치고 다시 신청" : "입력 확인하고 신청"}
-            </Button>
-          )}
+          {prepared &&
+            !needsOpen &&
+            (apply.status === "idle" || apply.status === "error") && (
+              <Button onClick={() => setNeedsOpen(true)}>
+                {apply.status === "error"
+                  ? "입력 고치고 다시 신청"
+                  : "입력 확인하고 신청"}
+              </Button>
+            )}
 
-        {/* 다이얼로그가 아니라 드로어다. 물어볼 항목이 스무 개를 넘길 때가 있어
+          {/* 다이얼로그가 아니라 드로어다. 물어볼 항목이 스무 개를 넘길 때가 있어
             가운데 뜨는 상자로는 스크롤 안에 제출 버튼이 파묻힌다. 아래에서
             올라오는 판에 머리말·본문·푸터를 갈라 두면 「이 정보로 신청 진행」이
             스크롤과 무관하게 늘 같은 자리에 있다. */}
-        <Drawer open={needsOpen} onOpenChange={setNeedsOpen} showSwipeHandle>
-          <DrawerContent className="mx-auto sm:max-w-3xl">
-            <DrawerHeader>
-              <DrawerTitle>신청에 필요한 정보</DrawerTitle>
-              <DrawerDescription>{prepared?.title}</DrawerDescription>
-            </DrawerHeader>
-            {prepared && (
-              <>
-                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-                  <NeedsForm
+          <Drawer open={needsOpen} onOpenChange={setNeedsOpen} showSwipeHandle>
+            <DrawerContent className="mx-auto sm:max-w-3xl">
+              <DrawerHeader>
+                <DrawerTitle>신청에 필요한 정보</DrawerTitle>
+                <DrawerDescription>{prepared?.title}</DrawerDescription>
+              </DrawerHeader>
+              {prepared && (
+                <>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+                    <NeedsForm
+                      needs={prepared.needs}
+                      values={values}
+                      onChange={(key, value) =>
+                        setValues((prev) => ({ ...prev, [key]: value }))
+                      }
+                      artifacts={artifacts}
+                      runId={runId}
+                      sourceNotice={prepared.title}
+                      onUpload={(artifact) =>
+                        setArtifacts((prev) => [
+                          ...prev.filter((item) => item.needKey !== artifact.needKey),
+                          artifact,
+                        ])
+                      }
+                    />
+                  </div>
+                  <NeedsFooter
                     needs={prepared.needs}
                     values={values}
-                    onChange={(key, value) =>
-                      setValues((prev) => ({ ...prev, [key]: value }))
-                    }
-                    artifacts={artifacts}
-                    runId={runId}
-                    sourceNotice={prepared.title}
-                    onUpload={(artifact) =>
-                      setArtifacts((prev) => [
-                        ...prev.filter((item) => item.needKey !== artifact.needKey),
-                        artifact,
-                      ])
-                    }
+                    onSubmit={() => void startApply(prepared, values)}
                   />
-                </div>
-                <NeedsFooter
-                  needs={prepared.needs}
-                  values={values}
-                  onSubmit={() => void startApply(prepared, values)}
-                />
-              </>
-            )}
-          </DrawerContent>
-        </Drawer>
+                </>
+              )}
+            </DrawerContent>
+          </Drawer>
 
-        <AskDialog item={ask} onAnswer={answer} />
+          <AskDialog item={ask} onAnswer={answer} />
+        </div>
       </div>
 
-      {/* 산출물은 오른쪽에 세워 둔다. 아래에 접어 두면 스크롤해야 보이고,
+      {/* 산출물은 오른쪽 절반이다. 아래에 접어 두면 스크롤해야 보이고,
           그러면 격자에서 눈을 떼야 한다 — 진행과 결과는 같이 봐야 한다. */}
       <OutputPanel
         panel={panel}
@@ -817,7 +845,7 @@ function OutputPanel({
   result: string | null;
 }) {
   return (
-    <aside className="sticky top-14 hidden h-[calc(100svh-3.5rem)] w-[26rem] shrink-0 flex-col border-l border-border/60 xl:flex">
+    <aside className="hidden min-w-0 flex-col border-l border-border/60 lg:flex lg:w-1/2">
       <nav className="flex flex-wrap gap-1 border-b border-border/60 px-4 py-3">
         {(Object.keys(PANEL_TITLE) as CardKey[]).map((key) => (
           <button
@@ -974,11 +1002,13 @@ function Prose({ markdown }: { markdown: string }) {
   return (
     <article
       className={cn(
-        "max-w-none text-sm leading-6 break-words",
+        // 판이 반폭이 되면서 넓은 화면에서는 1,000px 이 넘는다. 한 줄이 그만큼
+        // 길면 다음 줄 첫 글자를 못 찾는다 — 글줄만 잡고 표는 판을 다 쓴다.
+        "max-w-[78ch] text-sm leading-6 break-words",
         "[&_a]:text-brand [&_a]:underline [&_h1]:mb-3 [&_h1]:text-base [&_h1]:font-semibold",
         "[&_h2]:mt-4 [&_h2]:mb-1.5 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:pl-1",
         "[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1.5",
-        "[&_table]:my-2 [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:p-1.5",
+        "[&_table]:my-2 [&_table]:w-full [&_table]:max-w-none [&_td]:border [&_td]:border-border [&_td]:p-1.5",
         "[&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:p-1.5",
         "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5",
       )}

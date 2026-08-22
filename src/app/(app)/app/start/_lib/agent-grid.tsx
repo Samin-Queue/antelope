@@ -1,6 +1,16 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import {
+  FileSearch,
+  ListChecks,
+  Loader2,
+  MonitorPlay,
+  PenLine,
+  Table2,
+  Target,
+  Telescope,
+  type LucideIcon,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,6 +40,24 @@ export type CardState = {
    * 고정 라벨을 붙이면 Studio 가 죽고 Solar 로 떨어진 날 카드가 거짓말을 한다.
    */
   via?: string;
+};
+
+/**
+ * 카드마다 아이콘 하나.
+ *
+ * 일곱 칸이 글자만으로 서 있으면 어느 것이 도는지 훑어서 안 잡힌다 — 라벨을
+ * 읽어야 구분된다. 아이콘은 **그 에이전트가 실제로 하는 일**에서 고른다:
+ * 조준(목표) · 망원경(멀리서 모아 옴) · 문서 돋보기(읽어서 구조화) ·
+ * 체크리스트(순서) · 표(마스터 테이블) · 펜(작성) · 화면(실제 조작).
+ */
+export const CARD_ICON: Record<CardKey, LucideIcon> = {
+  goal: Target,
+  gather: Telescope,
+  analyze: FileSearch,
+  plan: ListChecks,
+  data: Table2,
+  file: PenLine,
+  browser: MonitorPlay,
 };
 
 export type Cards = Record<CardKey, CardState>;
@@ -65,6 +93,7 @@ export function AgentCard({
   children?: React.ReactNode;
 }) {
   const running = state.status === "running";
+  const Icon = CARD_ICON[card];
 
   return (
     <section
@@ -79,6 +108,18 @@ export function AgentCard({
       <div className="flex min-w-0 flex-1 gap-4">
         <div className="flex min-w-0 flex-1 flex-col">
           <h3 className="flex items-center gap-2 text-base font-medium">
+            <Icon
+              className={cn(
+                "size-4 shrink-0",
+                running
+                  ? "text-brand"
+                  : state.status === "done"
+                    ? "text-foreground/70"
+                    : state.status === "error"
+                      ? "text-destructive"
+                      : "text-muted-foreground",
+              )}
+            />
             {CARD_LABEL[card]}
             {running && <Loader2 className="size-4 animate-spin text-brand" />}
           </h3>
