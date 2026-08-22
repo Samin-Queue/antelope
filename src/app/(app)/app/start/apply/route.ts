@@ -52,7 +52,7 @@ export async function POST(req: Request) {
           startUrl: applyUrl,
           goal: `「${title}」 신청서를 작성하고 제출까지 완료하라. 회원가입·로그인이 필요하면 주어진 사실로 진행한다.`,
           facts,
-          maxSteps: 40,
+          maxSteps: 60,
           allowSubmit: true,
           onStep: (entry) =>
             emit({

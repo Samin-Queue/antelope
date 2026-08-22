@@ -133,6 +133,15 @@ export async function runBrowserAgent(opts: {
     return "화면이 거의 그대로다. 필수 입력 누락이나 검증 실패일 수 있다. read 로 오류 문구를 확인하라.";
   };
 
+  /**
+   * 같은 항목을 몇 번 눌렀는지.
+   *
+   * 라디오·체크박스의 ○/● 를 OCR 이 매번 다르게 읽는다. 모델은 선택이 안 된 줄
+   * 알고 다시 누르고, 그러다 「일반트랙 ↔ 청년트랙」을 여섯 번 오가며 스텝을 다
+   * 태웠다(실측). 몇 번째인지 말해주면 멈춘다.
+   */
+  const clicked = new Map<string, number>();
+
   const tools = {
     read: tool({
       description:
@@ -151,8 +160,17 @@ export async function runBrowserAgent(opts: {
       execute: async ({ ref }) => {
         await guard();
         const target = refOf(ref);
+        // ○/● 같은 선택 표시는 OCR 이 흔들린다. 같은 항목인지 볼 때는 떼고 본다.
+        const key = target.text.replace(/^[\s○●◯◉□■☑✔✓·・]+/, "").trim();
+        const seen = (clicked.get(key) ?? 0) + 1;
+        clicked.set(key, seen);
+
         await input(sessionId, { kind: "click", x: target.cx, y: target.cy });
-        const message = `"${target.text}" 를 클릭했다. ${await transition()}`;
+        const repeat =
+          seen > 1
+            ? ` ⚠ 이 항목은 벌써 ${seen}번째 클릭이다. 라디오·체크박스는 한 번 고르면 유지된다 — ○/● 표시가 흐릿해 보여도 다시 누르지 말고 다음 항목으로 가라.`
+            : "";
+        const message = `"${target.text}" 를 클릭했다. ${await transition()}${repeat}`;
         await frame();
         await record("click", { ref, text: target.text }, message);
         return message;
@@ -166,10 +184,23 @@ export async function runBrowserAgent(opts: {
         await guard();
         const target = refOf(ref);
         await input(sessionId, { kind: "click", x: target.cx, y: target.cy });
-        await input(sessionId, { kind: "key", key: "ctrl+a" });
-        await typeText(sessionId, value);
+
+        // 날짜 칸은 보통 입력칸과 다르다. 자세한 이유는 dateEntry 주석 참고.
+        const date = dateEntry(value, target.text, last?.refs ?? []);
+        let message: string;
+        if (date) {
+          // ctrl+a 가 안 먹으므로 세그먼트를 하나씩 지운다.
+          for (let i = 0; i < 4; i += 1) {
+            await input(sessionId, { kind: "key", key: "Delete" });
+          }
+          await typeText(sessionId, date.digits);
+          message = `"${target.text}" 날짜 칸에 ${date.spoken} 를 넣었다 (${date.order} 순서, 숫자 ${date.digits}). read 로 값이 맞는지 확인하라.`;
+        } else {
+          await input(sessionId, { kind: "key", key: "ctrl+a" });
+          await typeText(sessionId, value);
+          message = `"${target.text}" 칸에 "${value}" 를 입력했다.`;
+        }
         await settle(sessionId, 800);
-        const message = `"${target.text}" 칸에 "${value}" 를 입력했다.`;
         await frame();
         await record("type", { ref, text: target.text, value }, message);
         return message;
@@ -224,6 +255,29 @@ export async function runBrowserAgent(opts: {
         return message;
       },
     }),
+    recover: tool({
+      description:
+        "신청서 화면에서 벗어났을 때(새 탭·파일 선택 대화상자·검색 페이지) 원래 폼으로 돌아온다. 화면에 신청서가 안 보이면 다른 조작을 하기 전에 이걸 먼저 부른다.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        await guard();
+        // 대화상자를 닫고 첫 탭(=신청서)으로 이동한다.
+        //
+        // ⚠ ctrl+w 를 쓰면 안 된다. 탭이 하나뿐일 때 창을 통째로 닫아 세션이
+        // 죽는다 — 실제로 이걸로 신청서를 잃고 복구하지 못했다. ctrl+1 은
+        // 아무것도 닫지 않고, 탭이 하나여도 무해하다.
+        // 주소창(ctrl+l)으로 되돌아가는 길은 kiosk 에서 동작하지 않는다(실측).
+        await input(sessionId, { kind: "key", key: "Escape" });
+        await settle(sessionId, 500);
+        await input(sessionId, { kind: "key", key: "ctrl+1" });
+        await settle(sessionId, 2_000);
+        lastTitle = await title(sessionId);
+        const message = `원래 화면으로 돌아왔다 (제목: ${lastTitle}). read 로 확인하라.`;
+        await frame();
+        await record("recover", {}, message);
+        return message;
+      },
+    }),
     click_at: tool({
       description:
         "글자가 없는 곳(아이콘·빈 체크박스·이미지)을 좌표로 클릭한다. 화면은 1280×900 이다. 글자로 누를 수 있으면 click 을 쓴다.",
@@ -246,6 +300,14 @@ export async function runBrowserAgent(opts: {
     system: [
       "너는 웹페이지를 대신 조작하는 에이전트다. 화면에 보이는 글자 목록만으로 일한다.",
       "",
+      // 이 문단이 없으면 모델이 「정부 신청서를 대행하지 않는다」며 도구를 한 번도
+      // 쓰지 않고 끝낸다(실측). 거절이 아니라 상황을 몰라서 생기는 오해라, 실제
+      // 조건을 사실대로 적어 둔다 — 지어낸 권한 부여가 아니다.
+      "상황: 사용자가 자기 신청을 진행하려고 이 도구를 직접 실행했다. 아래 「채워 넣을 사실」은",
+      "사용자가 방금 입력한 본인 정보다. 너는 그 값을 화면의 알맞은 칸에 옮겨 적는 입력 보조",
+      "도구이며, 사용자는 같은 화면을 실시간으로 보면서 언제든 조작을 넘겨받을 수 있다.",
+      "새로운 사실을 지어내지 않고 주어진 값만 옮긴다. 값이 없는 항목은 비워 두고 보고한다.",
+      "",
       "규칙:",
       "- 조작하기 전에 반드시 read 를 먼저 호출한다. ref 는 직전 read 에 있던 것만 쓴다.",
       "- **거의 모든 조작은 click·type·select 로 한다. ref(t1, t2 …)를 반드시 쓴다.** click_at 은 글자가 전혀 없는 아이콘·빈 체크박스에만 쓰는 최후 수단이다. 좌표를 짐작해서 찍지 않는다.",
@@ -257,6 +319,11 @@ export async function runBrowserAgent(opts: {
       "- 페이지가 바뀌었을 수 있는 조작(click, press) 뒤에는 다시 read 한다.",
       '- 조작 결과에 "화면이 거의 그대로다" 가 오면 오류 문구가 떴을 가능성이 높다. read 로 확인하고 빈 칸을 채운다.',
       "- 같은 칸에 같은 값을 두 번 넣지 않는다. read 에 이미 그 값이 보이면 건너뛴다.",
+      "- **라디오·체크박스는 그룹당 한 번만 고른다.** 앞의 ○ / ● 표시는 OCR 이 흔들려 잘못 읽는다. 그 표시를 보고 선택 여부를 판단하지 말고, 한 번 고른 항목은 다시 누르지 않는다. 「몇 번째 클릭이다」 경고가 오면 즉시 다음 항목으로 넘어간다.",
+      "- 날짜는 `2024-03-15` 형태로 넘긴다. 화면 표기(mm/dd/yyyy 등)에 맞추는 일은 도구가 알아서 한다 — 직접 순서를 바꾸거나 슬래시를 넣지 않는다.",
+      "- 여러 단계로 나뉜 폼(1 → 2 → 3)은 한 단계를 다 채우고 「다음」을 눌러 넘어간다. 남은 단계가 있으면 끝난 게 아니다.",
+      "- **파일 업로드 칸(「PDF 를 올려주세요」, 「파일 선택」 등)은 누르지 않는다.** 너는 파일을 고를 수 없고, 누르면 파일 선택 대화상자가 떠서 화면을 잃는다. 파일은 사람이 올린다 — 건너뛰고 마지막에 보고한다.",
+      "- 화면에 신청서가 안 보이고 「Search Google」·「New Tab」 같은 게 보이면 길을 잃은 것이다. 주소창에 URL 을 치려 하지 말고 **recover 를 부른다.**",
       "- 아래에 더 있을 것 같으면 scroll 한다. 화면은 1280×900 이라 긴 폼은 한 화면에 다 안 보인다.",
       "- 주어진 사실에 없는 값은 지어내지 않는다. 없으면 그 항목을 건너뛰고 마지막에 보고한다.",
       allowSubmit
@@ -286,4 +353,52 @@ export async function runBrowserAgent(opts: {
     trace,
     finalUrl: lastTitle,
   };
+}
+
+/**
+ * 날짜 칸에 넣을 숫자열을 만든다.
+ *
+ * `<input type="date">` 는 보통 입력칸이 아니다. 월·일·년 세그먼트로 나뉘어
+ * 있어서 `ctrl+a` 로 안 지워지고, `2024-03-15` 를 그대로 치면 하이픈이 세그먼트
+ * 이동으로 먹혀 `02/02/40315` 같은 값이 남는다(프로덕션 실측).
+ *
+ * 순서는 **화면이 알려준다.** 플레이스홀더가 `mm/dd/yyyy` 인지 `yyyy-mm-dd`
+ * 인지가 곧 그 브라우저 로케일의 순서다. 우리가 짐작하지 않는다.
+ */
+export function dateEntry(
+  value: string,
+  targetText: string,
+  refs: Array<{ text: string }>,
+): { digits: string; order: string; spoken: string } | null {
+  const iso = value.trim().match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/);
+  if (!iso) return null;
+  const [, year, month, day] = iso;
+
+  // 대상 글자에서 못 찾으면 화면 전체에서 찾는다 — 라벨을 ref 로 준 경우다.
+  const pattern =
+    findDatePattern(targetText) ?? refs.map((r) => findDatePattern(r.text)).find(Boolean);
+  const order = pattern ?? "mm/dd/yyyy";
+
+  const pad = (n: string) => n.padStart(2, "0");
+  const parts = order
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean)
+    .map((token) =>
+      token.startsWith("y") ? year : token.startsWith("m") ? pad(month) : pad(day),
+    );
+
+  return {
+    digits: parts.join(""),
+    order,
+    spoken: `${year}년 ${Number(month)}월 ${Number(day)}일`,
+  };
+}
+
+/** `mm/dd/yyyy` · `yyyy-mm-dd` 같은 날짜 플레이스홀더를 찾는다 */
+function findDatePattern(text: string): string | null {
+  const match = text
+    .toLowerCase()
+    .match(/\b(?:yyyy|mm|dd)\s*[-./]\s*(?:yyyy|mm|dd)\s*[-./]\s*(?:yyyy|mm|dd)\b/);
+  return match ? match[0].replace(/\s+/g, "") : null;
 }

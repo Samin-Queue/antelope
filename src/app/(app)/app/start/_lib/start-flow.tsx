@@ -69,6 +69,7 @@ const TOOL_LABEL: Record<string, string> = {
   press: "키",
   scroll: "스크롤",
   "need:human": "사람 호출",
+  recover: "화면 복귀",
 };
 
 const IDLE_STAGES = Object.fromEntries(
