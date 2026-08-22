@@ -74,6 +74,10 @@ const SNAPSHOT = `(() => {
       options: el.tagName === 'SELECT'
         ? Array.from(el.options).map((o) => o.text.trim()).filter(Boolean).slice(0, 25)
         : null,
+      // 브라우저가 이미 아는 것을 모델에게 추측시키지 않는다. HTML5 검증은
+      // 「왜 제출이 안 되는가」를 사이트마다 다른 문구가 아니라 표준으로 말해 준다.
+      invalid: typeof el.checkValidity === 'function' ? !el.checkValidity() : false,
+      validationMessage: String(el.validationMessage || '').slice(0, 120),
     });
   }
   return { elements: out, text: (document.body?.innerText || '').replace(/\\n{2,}/g, '\\n').slice(0, 1800) };
@@ -90,6 +94,8 @@ type Snapshot = {
     checked: boolean;
     disabled: boolean;
     options: string[] | null;
+    invalid: boolean;
+    validationMessage: string;
   }>;
   text: string;
 };
@@ -207,6 +213,8 @@ export async function runPlaywrightAgent(opts: {
         if (el.checked) bits.push("[선택됨]");
         if (el.required) bits.push("[필수]");
         if (el.disabled) bits.push("[비활성]");
+        if (el.invalid)
+          bits.push(`[미충족${el.validationMessage ? ` ${el.validationMessage}` : ""}]`);
         if (el.options?.length) bits.push(`선택지: ${el.options.join(" / ")}`);
         return "  " + bits.join(" ");
       });
@@ -231,6 +239,63 @@ export async function runPlaywrightAgent(opts: {
           const text = await read();
           await record("read", {}, `요소 ${snapshot.elements.length}개`);
           return text;
+        },
+      }),
+      diagnose: tool({
+        description:
+          "제출·다음이 막혔을 때 무엇이 막고 있는지 브라우저에게 직접 묻는다. 추측하지 말고 이걸 부른다.",
+        inputSchema: z.object({}),
+        execute: async () => {
+          await guard();
+          snapshot = (await page.evaluate(SNAPSHOT)) as Snapshot;
+
+          const blockers = snapshot.elements.filter(
+            (el) =>
+              el.invalid ||
+              (el.required &&
+                !el.value &&
+                el.type !== "checkbox" &&
+                el.type !== "radio") ||
+              (el.required &&
+                (el.type === "checkbox" || el.type === "radio") &&
+                !el.checked),
+          );
+          const uploads = snapshot.elements.filter(
+            (el) => el.type === "file" && !el.value,
+          );
+          const dead = snapshot.elements.filter(
+            (el) => el.disabled && /제출|신청|다음|완료|확인/.test(el.label),
+          );
+
+          const lines: string[] = [];
+          if (blockers.length) {
+            lines.push("채우지 못한 필수 항목:");
+            for (const el of blockers) {
+              lines.push(
+                `  ${el.ref} "${el.label}"${el.validationMessage ? ` — ${el.validationMessage}` : ""}`,
+              );
+            }
+          }
+          if (uploads.length) {
+            lines.push("비어 있는 파일 칸:");
+            for (const el of uploads) lines.push(`  ${el.ref} "${el.label}"`);
+            lines.push(
+              artifacts.length
+                ? `  준비된 파일: ${artifacts.map((a) => a.filename).join(", ")} — 맞는 칸에 upload 한다.`
+                : "  준비된 파일이 없다. 이 서류는 사람이 발급받아야 하므로 여기서 끝내고 보고한다.",
+            );
+          }
+          if (dead.length) {
+            lines.push(
+              `비활성 버튼: ${dead.map((el) => `"${el.label}"`).join(", ")} — 위 항목을 채우면 풀린다.`,
+            );
+          }
+
+          const message = lines.length
+            ? lines.join("\n")
+            : "막는 것을 찾지 못했다. 화면 아래에 더 있을 수 있으니 scroll 후 read 한다.";
+          await record("diagnose", {}, `막는 것 ${blockers.length + uploads.length}개`);
+          return message;
         },
       }),
       fill: tool({
@@ -457,10 +522,10 @@ function systemPrompt(allowSubmit: boolean, hasArtifacts: boolean): string {
       : "- 파일 업로드 칸은 채울 수 없다. 건너뛰고 마지막에 무엇이 남았는지 보고한다.",
     "- 여러 단계로 나뉜 폼은 한 단계를 다 채우고 「다음」을 눌러 넘어간다. 남은 단계가 있으면 끝난 게 아니다.",
     "- 값이 없는 항목은 비워 둔다. 지어내지 않는다.",
-    "- **라벨의 단위 표기를 그대로 따른다.** 「총사업비 (천원)」 에 1억을 넣으려면 `100000` 이다. 「%」·「백만원」·「개월」 도 같다 — 원 단위 숫자를 그대로 옮기지 않는다.",
-    "- **제출 버튼이 [비활성] 이면 지금 화면에서 막는 것을 먼저 찾는다.** 비어 있는 [필수] 칸, 체크하지 않은 동의, 첨부하지 않은 파일이다. 앞 단계를 의심하기 전에 이 화면을 읽는다.",
-    "- 「이전」·「뒤로」 는 **앞 단계에 빠뜨린 것이 있다고 확인했을 때만** 누른다. 확인 없이 되돌아가면 왕복만 하고 제자리다.",
-    "- 막는 것이 「준비된 파일」 에 없는 서류라면 그건 사람이 발급받아야 하는 것이다. 더 밀지 말고 무엇이 없어 못 냈는지 보고하고 끝낸다.",
+    "- **라벨의 단위 표기를 그대로 따른다.** 「총사업비 (천원)」 에 1억을 넣으려면 `100000` 이다. 「%」·「백만원」·「개월」 도 같다.",
+    "- **막히면 추측하지 말고 diagnose 를 부른다.** 무엇이 비었고 무엇이 막고 있는지 브라우저가 직접 답한다. 「이전」 을 눌러 앞 단계를 뒤지기 전에 이걸 먼저 한다.",
+    "- diagnose 가 「사람이 발급받아야 한다」 고 하면 더 밀지 않는다. 무엇이 없어 못 냈는지 보고하고 끝낸다.",
+    "- `[미충족]` 이 붙은 칸은 브라우저가 값을 거부한 것이다. 같은 값을 다시 넣지 말고 형식을 바꾼다.",
     "- **입력칸은 click 하지 않는다. 바로 fill 한다.** 클릭은 버튼·체크박스·라디오에만 쓴다 — 칸을 누르고 채우면 스텝이 두 배가 된다.",
     "- **신청 폼을 벗어나지 않는다.** 「← 공고문으로」·「목록」·「이전」 처럼 폼 밖으로 나가는 링크는 누르지 않는다. 지금 폼을 끝내는 것이 전부다.",
     "- **계획서가 주어지면 그 순서를 따른다.** 계획에 없는 곳으로 가지 않는다.",
