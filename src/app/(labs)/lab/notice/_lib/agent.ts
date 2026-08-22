@@ -304,6 +304,26 @@ export async function runBrowserAgent(opts: {
     }),
   };
 
+  /**
+   * 브라우저 조작을 한 줄로 세운다. 모델은 도구를 병렬로 부르는데, 같은 순간에
+   * 들어간 조작은 서로를 덮어쓴다 — Playwright 쪽에서 실측한 문제라 여기도 같다.
+   */
+  let chain: Promise<unknown> = Promise.resolve();
+  for (const entry of Object.values(tools)) {
+    const original = entry.execute as (...args: unknown[]) => Promise<unknown>;
+    entry.execute = ((...args: unknown[]) => {
+      const next = chain.then(
+        () => original(...args),
+        () => original(...args),
+      );
+      chain = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
+    }) as typeof entry.execute;
+  }
+
   const result = await generateText({
     model: opts.model ?? chatModel(),
     tools,

@@ -464,6 +464,32 @@ export async function runPlaywrightAgent(opts: {
       }),
     };
 
+    /**
+     * 브라우저 조작을 한 줄로 세운다.
+     *
+     * 모델은 도구를 **병렬로** 부른다. `fill` 여덟 개가 같은 순간에 들어가면
+     * React 폼이 배치 업데이트로 서로를 덮어써 값이 남지 않는다 — 실측: 같은
+     * 여덟 칸을 세 번씩 다시 채우다 끝났다. 조작은 본질적으로 순차다.
+     *
+     * 도구마다 감싸지 않고 정의 뒤에 한 번에 두른다. 새 도구를 더해도
+     * 직렬화를 잊을 자리가 없다.
+     */
+    let chain: Promise<unknown> = Promise.resolve();
+    for (const entry of Object.values(tools)) {
+      const original = entry.execute as (...args: unknown[]) => Promise<unknown>;
+      entry.execute = ((...args: unknown[]) => {
+        const next = chain.then(
+          () => original(...args),
+          () => original(...args),
+        );
+        chain = next.then(
+          () => undefined,
+          () => undefined,
+        );
+        return next;
+      }) as typeof entry.execute;
+    }
+
     const result = await generateText({
       model: opts.model ?? chatModel(),
       tools,
