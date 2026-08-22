@@ -29,6 +29,14 @@ export const LAB_STATUS_LABEL: Record<LabStatus, string> = {
 
 export const labs: Lab[] = [
   {
+    slug: "relay",
+    title: "슬랙에서 에이전트 돌리기",
+    hypothesis:
+      "긴 작업을 화면 앞에서 기다리지 않고, 스레드에서 시작해 스레드로 되묻고 스레드에서 이어받을 수 있는가",
+    status: "exploring",
+    owner: "승욱",
+  },
+  {
     slug: "notice",
     title: "공고 → 신청 준비 일습",
     hypothesis:

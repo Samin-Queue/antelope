@@ -111,10 +111,9 @@ const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const CODE_TTL_MS = 10 * 60 * 1000;
 
 export async function issueLinkCode(userId: string): Promise<string> {
-  const code = Array.from(
-    { length: 8 },
-    () => ALPHABET[randomInt(ALPHABET.length)],
-  ).join("");
+  const code = Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join(
+    "",
+  );
   await getDb()
     .insert(schema.relayLinkCodes)
     .values({ code, userId, expiresAt: new Date(Date.now() + CODE_TTL_MS) });
@@ -122,8 +121,7 @@ export async function issueLinkCode(userId: string): Promise<string> {
 }
 
 export type CodeResult =
-  | { ok: true; userId: string }
-  | { ok: false; why: "unknown" | "expired" | "used" };
+  { ok: true; userId: string } | { ok: false; why: "unknown" | "expired" | "used" };
 
 /**
  * 코드를 쓴다.

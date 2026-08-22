@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { env } from "@/lib/env";
 
-import type { Incoming, IncomingFile, Parsed, RelayChannel, ThreadRef } from "./channel";
+import type { Incoming, IncomingFile, RelayChannel, ThreadRef } from "./channel";
 
 /**
  * 슬랙 어댑터.
@@ -30,19 +30,28 @@ function token(): string {
  *
  * HTTP 상태만 보면 스코프가 없어 아무것도 안 보내진 상태를 성공으로 읽는다.
  * 진행 상황이 스레드에 안 뜨는데 서버 로그는 조용한 증상이 여기서 나온다.
+ *
+ * ⚠ 본문은 **form-urlencoded** 로 보낸다. JSON 본문은 일부 메서드만 받고
+ * 어느 메서드가 그런지는 메서드 문서마다 다르다 — 최대공약수가 form 이다.
+ * 중첩 값(blocks 등)이 필요해지면 그 필드만 JSON 문자열로 넣는다.
  */
 async function call<T = Record<string, unknown>>(
   method: string,
   body: Record<string, unknown>,
 ): Promise<(T & { ok: true }) | null> {
+  const form = new URLSearchParams();
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined || value === null) continue;
+    form.set(key, typeof value === "string" ? value : JSON.stringify(value));
+  }
   try {
     const response = await fetch(`${API}/${method}`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json; charset=utf-8",
+        "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
         Authorization: `Bearer ${token()}`,
       },
-      body: JSON.stringify(body),
+      body: form,
     });
     const data = (await response.json()) as { ok: boolean; error?: string } & T;
     if (!data.ok) {
@@ -107,7 +116,9 @@ function toFiles(files: SlackFile[] | undefined): IncomingFile[] {
           if (!response.ok) throw new Error(`슬랙 파일 다운로드 실패 ${response.status}`);
           const type = response.headers.get("content-type") ?? "";
           if (type.includes("text/html")) {
-            throw new Error("슬랙 파일 다운로드가 로그인 화면으로 돌아왔다 — files:read 확인");
+            throw new Error(
+              "슬랙 파일 다운로드가 로그인 화면으로 돌아왔다 — files:read 확인",
+            );
           }
           return response.blob();
         },
@@ -258,10 +269,9 @@ export const slack: RelayChannel = {
 
 /** 사람 이름. 실패하면 null 이고, 그때는 id 를 그대로 쓴다 */
 export async function slackDisplayName(userId: string): Promise<string | null> {
-  const result = await call<{ user?: { profile?: { display_name?: string; real_name?: string } } }>(
-    "users.info",
-    { user: userId },
-  );
+  const result = await call<{
+    user?: { profile?: { display_name?: string; real_name?: string } };
+  }>("users.info", { user: userId });
   const profile = result?.user?.profile;
   return profile?.display_name || profile?.real_name || null;
 }

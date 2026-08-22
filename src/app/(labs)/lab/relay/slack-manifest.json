@@ -1,0 +1,50 @@
+{
+  "_note": [
+    "슬랙 앱 생성용 manifest. api.slack.com/apps → Create New App → From a manifest 에 붙여 넣는다.",
+    "⚠ 생성할 때는 settings.event_subscriptions 를 빼고 넣는다. 슬랙이 그 자리에서 request_url 로",
+    "   challenge 를 쏘는데, 아직 배포 전이면 404 라 앱 생성 자체가 막힌다. 배포한 뒤 앱 설정의",
+    "   Event Subscriptions 화면에서 URL 을 등록하고 bot_events 둘을 추가한다.",
+    "⚠ 붙여넣기는 CodeMirror 에디터라 setValue 로는 안 들어간다 — React 가 value prop 으로 되돌린다.",
+    "   사람이 손으로 붙여넣거나, 자동화할 때는 selectAll 뒤 사용자 입력 경로(inserttext)로 넣는다.",
+    "생성 후 필요한 값 둘: Basic Information 의 Signing Secret → SLACK_SIGNING_SECRET,",
+    "  OAuth & Permissions 의 Bot User OAuth Token(xoxb-…) → SLACK_BOT_TOKEN",
+    "현재 앱: Antelope · A0BSUEKBL9W · 워크스페이스 Samin Queue(T0BS21H39S5) — 2026-08-22 생성·설치 완료"
+  ],
+  "display_information": {
+    "name": "Antelope",
+    "description": "공고를 읽고 신청까지 대신 진행하는 에이전트",
+    "background_color": "#713BFF"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Antelope",
+      "always_online": false
+    },
+    "app_home": {
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "chat:write",
+        "files:read",
+        "im:history",
+        "im:read",
+        "im:write",
+        "users:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://antelope.up.railway.app/api/relay/slack/events",
+      "bot_events": ["app_mention", "message.im"]
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

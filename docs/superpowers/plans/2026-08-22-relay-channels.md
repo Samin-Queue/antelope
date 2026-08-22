@@ -128,16 +128,20 @@ src/app/api/relay/
 
 src/app/(labs)/lab/relay/
   page.tsx                   연동 상태 · 최근 스레드 · 큐
+  slack-manifest.json        슬랙 앱 생성용. From a manifest 에 붙여 넣는다
   _lib/
     channel.ts    RelayChannel 인터페이스 — 두 어댑터의 유일한 계약
-    telegram.ts   Bot API 어댑터
     slack.ts      Web API 어댑터
+    telegram.ts   Bot API 어댑터
     host.ts       ★ 실행 호스트. runStart 를 부르는 유일한 자리 = 리베이스 지점
-    sink.ts       StartEvent → 채널 메시지 (코얼레싱 · 스로틀)
-    answers.ts    자유 텍스트 → needs 배분 (generateObject)
-    identity.ts   외부 계정 ↔ userId (deep link 코드)
-    queue.ts      동시 실행 상한
-    store.ts      relay_* 테이블 접근
+    store.ts      relay_* 테이블 접근 + 신원 · 연동 코드
+    sink.ts       StartEvent → 채널 메시지 (코얼레싱 · 스로틀)      [Step 1]
+    answers.ts    자유 텍스트 → needs 배분 (generateObject)          [Step 2]
+    queue.ts      동시 실행 상한                                     [Step 1]
+
+src/app/(app)/app/settings/
+  relay/route.ts             연동 코드 발급·해제. `/app/*` 아래여야 프록시가 지킨다
+  _lib/relay-connections.tsx 설정 화면 카드
 
 src/lib/db/schema.ts         relay_* 4개 테이블을 파일 **끝에** append
 src/lib/env.ts               토큰 6개 optional 추가
@@ -149,6 +153,8 @@ src/content/labs.ts          항목 한 줄
 ### 채널 계약
 
 두 채널의 차이를 여기 한 파일에 가둔다. `host.ts`·`sink.ts` 는 이 인터페이스만 안다.
+
+> 구현하며 바뀐 것 둘. ① `identity.ts` 는 만들지 않았다 — 신원·연동 코드가 전부 DB 접근이라 `store.ts` 하나로 족하다. ② `Incoming.isThreadStarter` 대신 **`isDirect`** 를 싣는다. 「스레드를 연 사람인가」는 어댑터가 알 수 없고(DB 조회가 필요하다) 호스트가 판단한다. 어댑터가 아는 것은 「1:1 대화인가」뿐이고, 그 값은 연동 코드를 공개 채널에서 받지 않기 위해 필요하다.
 
 ```ts
 // _lib/channel.ts
@@ -303,7 +309,7 @@ export async function parseAnswers(
 | 로컬 개발   | 공개 HTTPS 필요 → ngrok, 또는 배포본으로 테스트                                                   | 같음. 단 `getUpdates` 폴링으로 떨어질 수 있다                                          |
 | 비용(추정)  | ~1일                                                                                              | ~반나절                                                                                |
 
-**텔레그램을 먼저 만드는 이유**는 파이프가 맞는지를 반나절에 증명하기 때문이다. 설치·OAuth·스코프가 0 이라 실패하면 그 원인이 우리 코드에 있다는 것이 확실하다. 슬랙을 먼저 하면 「스코프가 없어서」와 「호스트가 틀려서」가 섞인다.
+**슬랙을 먼저 만든다.** 데모의 얼굴이고, 「기업 지식베이스」라는 이 제품의 해자가 사는 곳이 슬랙이기 때문이다. 대가는 실패 원인이 둘로 섞인다는 것 — 「스코프가 없어서」와 「우리 코드가 틀려서」. 그래서 Step 0 을 **왕복 확인까지로 좁히고**, 어댑터의 순수 부분(서명·파싱·언랩)은 슬랙 앱 없이 로컬에서 43항목으로 먼저 검증했다. 남는 미지수가 「설치·스코프」 하나로 줄어든다.
 
 **그럼에도 두 채널을 다 하는 이유**는 `RelayChannel` 이 강제되기 때문이다. 하나만 만들면 슬랙 개념(`thread_ts`, `trigger_id`)이 `host.ts` 로 새어 들어가고, 그때는 두 번째 채널이 리팩터가 된다.
 
@@ -476,22 +482,65 @@ RELAY_PUBLIC_URL            deep link · OAuth 콜백의 기준. 없으면 BETTE
 
 원칙은 개편 문서와 같다 — **각 단계 끝에서 데모가 돈다.**
 
-### Step 0 — 텔레그램 왕복 (반나절)
+> 순서가 문서 초안과 다르다. 초안은 텔레그램을 먼저 뚫자고 했지만, 데모의 얼굴이
+> 슬랙이라 슬랙을 먼저 세운다. 대가는 Step 0 에서 앱 설치·스코프·서명이 한꺼번에
+> 걸린다는 것이고, 그래서 **Step 0 을 「봇이 나를 안다」까지로 좁혔다** — 파이프라인을
+> 붙이기 전에 왕복이 되는지부터 본다.
 
-파이프라인을 안 붙인다. 「봇이 나를 안다」까지만.
+### Step 0 — 슬랙 왕복 ✅ 구현 완료 (검증 43항목 통과)
 
-무엇을: `channel.ts` · `telegram.ts` · `api/relay/telegram/route.ts` · `identity.ts` · `store.ts` · `relay_*` 4테이블 · env 2개 · `/app/settings` 에 연동 카드 · `lab/relay/page.tsx` 뼈대.
+파이프라인을 붙이지 않는다. 「봇이 나를 안다」까지만.
 
-**완료 판정**: `/app/settings` 에서 코드를 받아 `t.me/<bot>?start=<code>` 를 열면 봇이 「승욱님 계정에 연결됐습니다」로 답한다. 그 뒤 아무 말이나 보내면 봇이 그 말을 그대로 되돌려준다. 서명이 틀린 요청은 401. 같은 `update_id` 를 두 번 밀어 넣으면 한 번만 처리된다.
-**갈아끼우는 미검증 항목**: secret token 헤더 이름, `getFile` 응답 모양, 웹훅 응답 타임아웃.
-**롤백**: 라우트 파일 삭제 + `setWebhook` 해제.
+| 무엇                                 | 어디                                      |
+| ------------------------------------ | ----------------------------------------- |
+| 채널 계약                            | `lab/relay/_lib/channel.ts`               |
+| 슬랙 어댑터 — 서명·파싱·발신·파일    | `lab/relay/_lib/slack.ts`                 |
+| DB 접근 — 멱등·신원·연동 코드·스레드 | `lab/relay/_lib/store.ts`                 |
+| 호스트 (지금은 에코 + 연동)          | `lab/relay/_lib/host.ts`                  |
+| 웹훅                                 | `api/relay/slack/events/route.ts`         |
+| 코드 발급·해제                       | `app/settings/relay/route.ts`             |
+| 설정 화면 카드                       | `app/settings/_lib/relay-connections.tsx` |
+| 실험 화면                            | `lab/relay/page.tsx`                      |
+| 앱 manifest                          | `lab/relay/slack-manifest.json`           |
+| 스키마 4테이블 · env 2개             | `lib/db/schema.ts` 끝 · `lib/env.ts`      |
+
+**로컬에서 확인한 것** (`pnpm exec tsx` 로 어댑터와 store 를 직접 돌렸다. 슬랙 앱 없이 되는 데까지):
+
+- `unwrapSlack` 6항목 — 라벨 붙은 링크가 URL 로 풀리고, 그 결과가 `run/route.ts:38` 의 `^https?://` 검사를 통과한다
+- `verify` 6항목 — 올바른 서명 통과, 본문 변조·다른 시크릿·6분 지난 요청 거절, **짧은 서명에서 `timingSafeEqual` 이 던지지 않는다**(던지면 라우트가 500 이 되고 슬랙이 재시도를 쌓는다)
+- `parse` 18항목 — challenge, 채널 멘션, 스레드 뿌리 계산, DM, **DM 의 `app_mention` 을 버려 중복 실행을 막는 것**, 봇·편집 무시, `file_share` 수용, 첨부 파싱
+- 멱등 2항목 — 같은 `event_id` 두 번에 한 번만 통과
+- 연동 코드 5항목 — 8자 모양, 성공, **재사용(`used`)과 만료(`expired`)를 구분**
+- 신원 4항목 — 워크스페이스가 다르면 남, 재연동 시 행이 늘지 않고 주인만 바뀐다
+- 스레드 4항목 — 나중에 낀 사람이 주인이 되지 않는다, 재시작 스윕이 `running` → `lost`
+
+**아직 확인 못 한 것** — 슬랙 앱이 있어야 한다:
+
+| 무엇                                        | 왜 지금 못 하나                                      |
+| ------------------------------------------- | ---------------------------------------------------- |
+| Request URL 등록 (challenge 왕복)           | 공개 HTTPS 가 필요하다. 배포본이나 ngrok             |
+| `chat.postMessage` / `chat.update`          | 봇 토큰이 필요하다                                   |
+| 파일 다운로드 (`files:read` + Bearer)       | 같음. §8-4                                           |
+| `app_mention` 에 `channel_type` 이 실리는지 | 안 실려도 채널 id 의 `D` 접두로 걸러진다(둘 다 본다) |
+
+**남은 사람 몫** — 이건 코드가 못 한다:
+
+1. api.slack.com/apps → **From a manifest** 에 `slack-manifest.json` 을 붙여 넣어 앱 생성
+2. 워크스페이스에 설치
+3. Basic Information → Signing Secret → `SLACK_SIGNING_SECRET`
+4. OAuth & Permissions → Bot User OAuth Token(`xoxb-…`) → `SLACK_BOT_TOKEN`
+5. 로컬·Railway 양쪽에 넣는다. Railway 는 `echo "값" | railway variable set KEY --stdin --service web`
+6. 프로덕션 DB 에 스키마 push — **로컬 `db:push` 는 프로덕션을 안 건드린다** (AGENTS.md 의 TCP 프록시 절차)
+
+**완료 판정**: `/app/settings` 에서 코드를 받아 봇과의 1:1 대화에 보내면 「연결됐습니다」가 오고, 그 뒤 채널에서 `@Antelope` 를 멘션하면 스레드에 답이 달린다. 같은 이벤트가 재전송돼도 한 번만 처리된다.
+**롤백**: `api/relay` 를 지우고 슬랙 앱 이벤트 구독을 끈다.
 
 ### Step 1 — 호스트와 중계 (하루)
 
-무엇을: `host.ts` · `sink.ts` · `queue.ts`. 텍스트/링크 입력으로 `runStart` 를 돌리고 진행 표시줄 + 이정표를 스레드에 낸다. 신청은 안 한다 — `end` 에서 `/app/goals/<id>` 링크를 준다.
+무엇을: `host.ts` 의 에코를 `runStart` 로 바꾼다. `sink.ts`(진행 표시줄 + 이정표) · `queue.ts`(전역 2 · 사용자당 1). 신청은 안 한다 — `end` 에서 `/app/goals/<id>` 링크를 준다.
 
-**완료 판정**: 텔레그램에 공고 링크를 보내면 8단계가 스레드에서 진행되고, 끝에 준비 문서 요약과 이어서 하기 링크가 온다. 그 링크로 `/app` 을 열면 준비된 세션이 그대로 있다(`goals.snapshot`). **새 댓글 수와 편집 수를 실제로 센다** — §3.2 의 추정을 이 값으로 바꾼다.
-**롤백**: `host.ts` 에서 `runStart` 호출을 빼고 Step 0 의 에코로 되돌린다.
+**완료 판정**: 슬랙에 공고 링크를 보내면 8단계가 스레드에서 진행되고, 끝에 준비 문서 요약과 이어서 하기 링크가 온다. 그 링크로 `/app` 을 열면 준비된 세션이 그대로 있다(`goals.snapshot`). **새 댓글 수와 편집 수를 실제로 센다** — §3.2 의 추정을 그 값으로 바꾼다.
+**롤백**: `host.ts` 를 Step 0 의 에코로 되돌린다.
 
 ### Step 2 — 되묻기 (반나절)
 
@@ -507,16 +556,24 @@ RELAY_PUBLIC_URL            deep link · OAuth 콜백의 기준. 없으면 BETTE
 **완료 판정**: PDF 공고를 첨부해 보내면 그것으로 준비가 돈다. 「사업자등록증을 주세요」에 파일로 답하면 `user_documents` 에 남아 **다음 공고에서 다시 묻지 않는다.**
 **롤백**: 파일을 무시하고 텍스트만 읽는다.
 
-### Step 4 — 슬랙 (하루)
+### Step 4 — 텔레그램 (반나절)
 
-무엇을: `slack.ts` · 이벤트/설치/콜백 라우트 · 앱 manifest(레포에 커밋) · `relay_installs`.
+무엇을: `telegram.ts` · `api/relay/telegram/route.ts` · env 2개. `host.ts`·`sink.ts`·`store.ts` 는 **건드리지 않는다.**
 
-**완료 판정**: 슬랙 워크스페이스에 설치하고 `@antelope` 를 멘션하면 Step 1~3 과 **글자 그대로 같은 흐름**이 슬랙 스레드에서 돈다. `host.ts`·`sink.ts` 의 diff 가 0 이면 채널 계약이 맞은 것이다 — 0 이 아니면 샌 개념을 `channel.ts` 로 밀어 넣는다.
-**롤백**: 슬랙 라우트만 지운다. 텔레그램은 그대로 돈다.
+**완료 판정**: 텔레그램에서 Step 0~3 과 **글자 그대로 같은 흐름**이 돈다. `host.ts`·`sink.ts` 의 diff 가 0 이면 채널 계약이 맞은 것이다 — 0 이 아니면 샌 개념을 `channel.ts` 로 밀어 넣는다.
+**롤백**: 텔레그램 라우트만 지운다. 슬랙은 그대로 돈다.
 
-### Step 5 — 신청까지 서버에서 (M) ★ 개편 Step 0 이후
+### Step 5 — 신청까지 서버에서 (M)
 
-**선행 조건**: 개편 문서 Step 0-b(성공을 성공이라 말한다)·0-c(`saveApplyResult` 호출)·0-g(runId 소유권)·0-h(경로 탈출)가 `main` 에 들어간 뒤. 그 넷이 전부 `apply/route.ts` 를 건드린다.
+**선행 조건은 이미 충족됐다.** 개편 세션이 Step 0 을 넣었다 — 코드로 확인한 것:
+
+| 항목                       | 확인                                                                                         |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| 0-b 성공을 성공이라 말한다 | `apply/route.ts:510` 의 `emit(agent done)` 이 `:512` `controller.close()` **앞**에 있다      |
+| 0-c 서버가 결과를 기록한다 | `apply/route.ts:524` `void saveApplyResult(userId, goalId, …)`                               |
+| 0-g runId 소유권           | `run-registry.ts:26` `Run.userId` · `:57` `openRun(id, userId)` · `:83` `hasRun(id, userId)` |
+
+`apply/route.ts` 를 뽑는 작업이 지금 열려 있다. 다만 개편이 아직 이 파일을 만질 수 있으니 착수 전에 `git log -3 -- apply/route.ts` 로 최근 손댐을 보고 팀에 한마디 한다.
 
 무엇을: `apply/route.ts:163-519` 의 실행 본문을 `_lib/apply.ts` 의 `runApply(args, emit)` 로 뽑는다. 라우트는 파싱 + SSE 배관만 남는다. `host.ts` 가 준비 직후 같은 함수를 부른다.
 
@@ -537,20 +594,26 @@ StartEvent 유니온                                      // types.ts:206-266
 
 ### 개편이 이것들을 어떻게 건드리는가
 
-| 릴레이가 쓰는 것         | 개편이 하는 일                                                                    | 판정                                                    |
-| ------------------------ | --------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `runStart` 시그니처      | Step 1 이 본문을 `withLedger` 로 감싼다 · Step 8 이 `opts.signal` 을 **추가**한다 | ✅ 호환. `opts` 는 객체라 필드 추가가 깨지지 않는다     |
-| `StartEvent`             | Step 1 이 `stage` 에 `ms?: number` 를 **추가**한다                                | ✅ 호환. `sink.ts` 의 switch 는 모르는 필드를 무시한다  |
-| `run-registry`           | Step 0-g 가 `Run` 에 `userId` 를 넣고 `hasRun(id, userId)` 로 바꾼다              | △ `host.ts` 한 줄. 릴레이는 이 파일을 **고치지 않는다** |
-| `memory.recallForFields` | Step 5 가 쿼리 형태를 바꾼다                                                      | ✅ 시그니처 유지. 무관                                  |
-| `apply/route.ts`         | Step 0-b·0-c·0-g·0-h 가 여러 줄을 고친다                                          | ❌ **여기만 진짜 충돌.** 그래서 Step 5 가 마지막이다    |
-| `schema.ts`              | 개편은 스키마를 안 바꾼다(인덱스 사용 형태만)                                     | ✅ 파일 끝 append                                       |
+| 릴레이가 쓰는 것         | 개편이 하는 일                                                             | 판정                                                |
+| ------------------------ | -------------------------------------------------------------------------- | --------------------------------------------------- |
+| `runStart` 시그니처      | **안 바꿨다** (2026-08-22 확인). Step 8(취소)이 `opts.signal` 을 더할 예정 | ✅ 호환. `opts` 는 객체라 필드 추가가 깨지지 않는다 |
+| `StartEvent`             | `stage` 에 `ms?: number` 가 **들어갔다** (`types.ts:222`)                  | ✅ 호환. 모르는 필드는 무시된다                     |
+| `run-registry`           | `hasRun(id, userId)` · `openRun(id, userId)` 로 **바뀌었다**               | △ Step 2 에서 `host.ts` 가 이 시그니처로 부른다     |
+| `memory.recallForFields` | Step 5 가 쿼리 형태를 바꾼다                                               | ✅ 시그니처 유지. 무관                              |
+| `apply/route.ts`         | Step 0-b·0-c·0-g 가 **이미 들어갔다**                                      | ✅ Step 5 가 열렸다                                 |
+| `schema.ts`              | 개편은 스키마를 안 바꾼다(인덱스 사용 형태만)                              | ✅ 파일 끝 append                                   |
 
 ### 규칙 셋
 
 1. **릴레이는 `(app)/app/start/_lib/*` 를 고치지 않는다.** 읽어서 쓴다. AGENTS.md 의 lab 규칙과 같은 이유다.
 2. **`runStart` 를 부르는 자리는 `host.ts` 한 곳이다.** 시그니처가 바뀌면 리베이스가 한 줄이다.
-3. **Step 5 는 개편 Step 0 이 머지된 뒤에 시작한다.** 그 전에 `apply/route.ts` 를 뽑으면 양쪽이 같은 400줄을 서로 다르게 다시 쓴다.
+3. **`apply/route.ts` 를 뽑기 전에 최근 손댐을 본다.** 개편 Step 0 은 들어갔지만, 같은 400줄을 양쪽이 동시에 다시 쓰면 리베이스 전면전이 된다.
+
+### 진행 메모 (2026-08-22)
+
+- 개편 세션이 `perf(start)`·`perf(browser)`·`perf(ai)`·`perf(memory)`·`perf(studio)` 다섯 커밋을 넣었다. 그 문서의 Step 0~6 대부분이다.
+- **`runStart(input, emit, {userId})` 는 그대로다.** 릴레이가 의존하는 계약 하나가 다섯 커밋을 그대로 통과했다 — 호스트를 한 곳에 가둔 선택이 값을 했다.
+- ⚠ 그 과정에서 **릴레이 파일 셋(`channel.ts`·`slack.ts`·`store.ts`)이 `de9466d`「perf(browser): 지나간 화면을 버린다」에 함께 커밋됐다.** 무관한 파일이 쓸려 들어간 것이라 내용은 온전하고 히스토리만 지저분하다. 셋이 같은 워크트리를 공유하는 동안 `git add -A` 는 이런 일을 만든다 — 커밋할 파일을 명시하는 편이 낫다.
 
 ---
 
@@ -578,6 +641,6 @@ psql: drop table relay_events, relay_threads, relay_identities, relay_installs;
 | 3   | 텔레그램 웹훅 응답 타임아웃                                                         | 넘으면 같은 업데이트가 재전송된다. 멱등이 이미 막지만 로그가 지저분해진다                              |
 | 4   | 슬랙 파일이 봇 토큰 Bearer 로 실제로 받아지는가(`files:read`)                       | 안 되면 파일 첨부 경로가 슬랙에서만 죽는다. 「링크로 주세요」로 떨어진다                               |
 | 5   | **자유 텍스트 → needs 배분의 정확도**                                               | 골든셋이 없다(개편 문서 §0.1 이 지적한 그 문제). Step 2 에서 손으로 만든 10건으로 재는 것이 최소선이다 |
-| 6   | 슬랙 앱 배포 심사가 필요한가 — 우리 워크스페이스 안에서만 쓰면 불필요할 것으로 본다 | 필요하면 데모 전에 못 끝낸다. 그 경우 텔레그램이 데모 얼굴이 된다                                      |
+| 6   | 슬랙 앱 배포 심사가 필요한가 — 우리 워크스페이스 안에서만 쓰면 불필요할 것으로 본다 | 필요하면 데모 전에 못 끝낸다. 그 경우 텔레그램(Step 4)이 데모 얼굴이 된다                              |
 
-⚠ 6번은 구글 OAuth 브랜딩 심사에서 이미 한 번 밟은 종류의 함정이다(AGENTS.md, `*.up.railway.app` 으로는 통과 불가). **외부 배포가 필요한 순간 도메인 문제가 같이 따라온다** — 워크스페이스 내부 설치로 끝나는지를 Step 4 시작 전에 확인한다.
+⚠ 6번은 구글 OAuth 브랜딩 심사에서 이미 한 번 밟은 종류의 함정이다(AGENTS.md, `*.up.railway.app` 으로는 통과 불가). **외부 배포가 필요한 순간 도메인 문제가 같이 따라온다** — 워크스페이스 내부 설치로 끝나는지를 Step 0 설치 때 확인한다.
