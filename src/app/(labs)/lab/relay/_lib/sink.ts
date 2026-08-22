@@ -99,8 +99,21 @@ export function makeSink(channel: RelayChannel, ref: ThreadRef): Sink {
     });
   }
 
-  /** 표시줄 갱신을 모은다. 이미 예약돼 있으면 그 예약이 최신 값을 쓴다 */
+  let started = false;
+
+  /**
+   * 표시줄 갱신을 모은다. 이미 예약돼 있으면 그 예약이 최신 값을 쓴다.
+   *
+   * **첫 줄만은 스로틀을 타지 않는다.** 기다리게 하면 표시줄이 실행이 끝날 때
+   * 한 번 생기고 만다 — 사람은 그동안 아무 반응도 못 본다. 실측으로 잡았다:
+   * 이 분기가 없으면 스레드에 카드 댓글이 표시줄보다 먼저 뜬다.
+   */
   function bump() {
+    if (!started) {
+      started = true;
+      void writeProgress();
+      return;
+    }
     if (timer) return;
     const wait = Math.max(0, THROTTLE_MS - (Date.now() - lastEditAt));
     timer = setTimeout(() => {
