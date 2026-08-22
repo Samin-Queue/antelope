@@ -47,6 +47,9 @@ export async function runBrowserAgent(opts: {
    * 헤매는 것을 막는 게 계획서를 넘기는 가장 큰 이유다.
    */
   plan?: { browser?: string[]; human?: string[] };
+  helpers?: {
+    askUser?(req: { label: string; why: string }): Promise<string | null>;
+  };
   startUrl?: string;
   maxSteps?: number;
   model?: LanguageModel;
@@ -299,6 +302,32 @@ export async function runBrowserAgent(opts: {
         return message;
       },
     }),
+    askUser: tool({
+      description:
+        "채울 값이 없을 때 사용자에게 묻는다. 답이 올 때까지 기다린다 — 지어내거나 비워 두고 끝내지 말고 이걸 부른다.",
+      inputSchema: z.object({
+        label: z.string().describe("무엇을 묻는지. 화면의 칸 이름 그대로"),
+        why: z.string().describe("왜 필요한지 한 문장"),
+      }),
+      execute: async ({ label, why }) => {
+        if (!opts.helpers?.askUser) {
+          const message = `\"${label}\" 를 물을 통로가 없다. 비워 두고 마지막에 보고한다.`;
+          await record("askUser", { label }, message);
+          return message;
+        }
+        await record("askUser", { label, why }, `\"${label}\" 을 사용자에게 묻는다`);
+        const value = await opts.helpers.askUser({ label, why });
+        if (value === null || !value.trim()) {
+          const message = `\"${label}\" 에 답을 받지 못했다. 비워 두고 보고한다.`;
+          await record("askUser", { label, empty: true }, message);
+          return message;
+        }
+        facts[label] = value.trim();
+        const message = `\"${label}\" = \"${value.trim()}\" 를 받았다. 이 값으로 채운다.`;
+        await record("askUser", { label, value: value.trim() }, message);
+        return message;
+      },
+    }),
     recover: tool({
       description:
         "신청서 화면에서 벗어났을 때(새 탭·파일 선택 대화상자·검색 페이지) 원래 폼으로 돌아온다. 화면에 신청서가 안 보이면 다른 조작을 하기 전에 이걸 먼저 부른다.",
@@ -400,7 +429,7 @@ export async function runBrowserAgent(opts: {
       "상황: 사용자가 자기 신청을 진행하려고 이 도구를 직접 실행했다. 아래 「채워 넣을 사실」은",
       "사용자가 방금 입력한 본인 정보다. 너는 그 값을 화면의 알맞은 칸에 옮겨 적는 입력 보조",
       "도구이며, 사용자는 같은 화면을 실시간으로 보면서 언제든 조작을 넘겨받을 수 있다.",
-      "새로운 사실을 지어내지 않고 주어진 값만 옮긴다. 값이 없는 항목은 비워 두고 보고한다.",
+      "새로운 사실을 지어내지 않고 주어진 값만 옮긴다. 값이 없는 항목은 `askUser` 로 물어 답을 기다린다.",
       "",
       "규칙:",
       "- 조작하기 전에 반드시 read 를 먼저 호출한다. ref 는 직전 read 에 있던 것만 쓴다.",
@@ -419,7 +448,7 @@ export async function runBrowserAgent(opts: {
       "- **파일 업로드 칸(「PDF 를 올려주세요」, 「파일 선택」 등)은 누르지 않는다.** 너는 파일을 고를 수 없고, 누르면 파일 선택 대화상자가 떠서 화면을 잃는다. 파일은 사람이 올린다 — 건너뛰고 마지막에 보고한다.",
       "- 화면에 신청서가 안 보이고 「Search Google」·「New Tab」 같은 게 보이면 길을 잃은 것이다. 주소창에 URL 을 치려 하지 말고 **recover 를 부른다.**",
       "- 아래에 더 있을 것 같으면 scroll 한다. 화면은 1280×900 이라 긴 폼은 한 화면에 다 안 보인다.",
-      "- 주어진 사실에 없는 값은 지어내지 않는다. 없으면 그 항목을 건너뛰고 마지막에 보고한다.",
+      "- 주어진 사실에 없는 값은 지어내지 않는다. **값이 없으면 `askUser` 로 묻고 답을 기다린 뒤 계속한다.**",
       "- **계획서가 주어지면 그 순서를 따른다.** 계획에 없는 곳으로 가지 않는다.",
       "- **「사람이 직접 해야 하는 것」에 적힌 일은 시도하지 않는다.** 증명서 발급·본인인증·서류 작성은 네 몫이 아니다. 그 자리에 오면 건너뛰고 마지막에 보고한다.",
       allowSubmit

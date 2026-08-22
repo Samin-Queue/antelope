@@ -485,6 +485,7 @@ export async function POST(req: Request) {
           goal,
           facts,
           plan,
+          helpers,
           maxSteps: 60,
           allowSubmit: true,
           steer: () => takeSteer(runId),
