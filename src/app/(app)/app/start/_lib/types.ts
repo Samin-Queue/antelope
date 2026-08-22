@@ -219,6 +219,11 @@ export type StartEvent =
   | { type: "brief"; markdown: string }
   /** 어느 단계가 실제로 무엇으로 돌았는지. 고정 라벨이 거짓이 되는 자리를 고친다 */
   | { type: "via"; stage: Stage; via: string }
+  /**
+   * 오케스트레이터가 도는 동안. 단계 사이 공백이 여기다 — 이걸 안 보내면
+   * 아무 칸도 안 켜진 채로 몇 초가 흐르고, 화면이 사실보다 조용해진다.
+   */
+  | { type: "orchestrator"; status: "start" | "done" }
   /** 오케스트레이터가 쓴 상태 문장. 카드에 그대로 뜬다 */
   | { type: "card"; card: CardKey; headline: string; body: string }
   | { type: "plan"; plan: Plan }
@@ -259,6 +264,11 @@ export type ApplyEvent =
   /** 값이 없어 사용자에게 묻는다. 답이 올 때까지 브라우저는 멈춰 기다린다 */
   | { type: "ask"; id: string; label: string; why: string; kind: NeedKind }
   | { type: "answered"; id: string; label: string }
+  /**
+   * 오케스트레이터가 도는 동안. 단계 사이 공백이 여기다 — 이걸 안 보내면
+   * 아무 칸도 안 켜진 채로 몇 초가 흐르고, 화면이 사실보다 조용해진다.
+   */
+  | { type: "orchestrator"; status: "start" | "done" }
   /** 신청 도중의 서술. 준비 단계와 같은 카드에 쌓인다 */
   | { type: "card"; card: CardKey; headline: string; body: string }
   | { type: "step"; tool: string; detail: string; title: string }

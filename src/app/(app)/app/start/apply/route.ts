@@ -139,13 +139,20 @@ export async function POST(req: Request) {
        * 해야 한다고 표시한 두 가지를 빼고 나머지를 넣는다」 같은 말이 나온다.
        */
       const tell = async (card: CardKey, factText: string, reason?: string) => {
-        const said = await narrate(
-          { card, facts: factText, history, reason },
-          { log: (text) => emit({ type: "step", tool: "say", detail: text, title: "" }) },
-        );
-        if (!said) return;
-        history.push({ card, ...said });
-        emit({ type: "card", card, headline: said.headline, body: said.body });
+        emit({ type: "orchestrator", status: "start" });
+        try {
+          const said = await narrate(
+            { card, facts: factText, history, reason },
+            {
+              log: (text) => emit({ type: "step", tool: "say", detail: text, title: "" }),
+            },
+          );
+          if (!said) return;
+          history.push({ card, ...said });
+          emit({ type: "card", card, headline: said.headline, body: said.body });
+        } finally {
+          emit({ type: "orchestrator", status: "done" });
+        }
       };
 
       openRun(runId);

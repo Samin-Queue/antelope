@@ -60,10 +60,15 @@ export async function runStart(
 
   /** 사실은 코드가 뽑아 넘긴다. 서술자가 산출물을 추측하지 않게 */
   const tell = async (card: CardKey, facts: string, reason?: string) => {
-    const said = await narrate({ card, facts, history, reason }, ctx);
-    if (!said) return;
-    history.push({ card, ...said });
-    emit({ type: "card", card, headline: said.headline, body: said.body });
+    emit({ type: "orchestrator", status: "start" });
+    try {
+      const said = await narrate({ card, facts, history, reason }, ctx);
+      if (!said) return;
+      history.push({ card, ...said });
+      emit({ type: "card", card, headline: said.headline, body: said.body });
+    } finally {
+      emit({ type: "orchestrator", status: "done" });
+    }
   };
   // 이번 실행이 만든 파일을 담을 곳. 세션 id 는 아직 없다(맨 끝에 만든다).
   const runId = crypto.randomUUID();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link2, Loader2 } from "lucide-react";
+import { Link2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -15,6 +15,7 @@ import { LiveScreen } from "@/app/(labs)/lab/notice/_lib/run-view";
 import { AgentCard, emptyCards, type Cards } from "./agent-grid";
 import { AskDialog, type AskItem } from "./ask-dialog";
 import { NeedsForm } from "./needs-form";
+import { RunStatus } from "./run-status";
 import { SteerBox } from "./steer-box";
 import {
   APPLY_URL_KEY,
@@ -120,6 +121,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
    */
   const [panel, setPanel] = useState<CardKey>("analyze");
   const pinned = useRef(false);
+  /** 서버가 말해 준 것만 켠다 — 단계 사이 공백이 여기서 메워진다 */
+  const [orchestrating, setOrchestrating] = useState(false);
   /**
    * 서술자가 지금까지 한 말. 준비와 신청이 요청 두 개로 갈려 있어서 클라이언트가
    * 들고 있다가 신청 요청에 실어 보낸다 — 그래야 맥락이 이어진다.
@@ -162,6 +165,9 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           patchStage(event.stage, {
             status: event.status === "start" ? "running" : event.status,
           });
+          break;
+        case "orchestrator":
+          setOrchestrating(event.status === "start");
           break;
         case "card":
           // 오케스트레이터가 쓴 문장. 카드의 본문이 된다.
@@ -340,6 +346,9 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
                 status: event.status === "start" ? "running" : event.status,
               });
               break;
+            case "orchestrator":
+              setOrchestrating(event.status === "start");
+              break;
             case "card":
               patch(event.card, { headline: event.headline, body: event.body });
               follow(event.card);
@@ -421,8 +430,6 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     }).catch(() => {});
   };
 
-  const running = preparing || apply.status === "running";
-
   return (
     <div className="flex min-h-[calc(100svh-3.5rem)] items-start">
       <div className="min-w-0 flex-1 space-y-4 px-6 py-6">
@@ -445,8 +452,14 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
               신청 페이지
             </a>
           )}
-          {running && <Loader2 className="ml-auto size-4 animate-spin text-brand" />}
         </header>
+
+        <RunStatus
+          cards={cards}
+          orchestrating={orchestrating}
+          preparing={preparing}
+          applying={apply.status === "running"}
+        />
 
         {/* 준비 여섯 칸은 2열, 실행은 그 아래 전폭. 실행 카드는 라이브 화면을
             옆에 달아 「무엇을 조작하고 있는지」가 카드 안에서 읽힌다. */}
