@@ -103,19 +103,45 @@ export async function runStart(
   const runId = crypto.randomUUID();
   emit({ type: "run", runId });
 
-  /** 사실은 코드가 뽑아 넘긴다. 서술자가 산출물을 추측하지 않게 */
-  const tell = async (card: CardKey, facts: string, reason?: string) => {
-    emit({ type: "orchestrator", status: "start" });
-    try {
-      const said = await withTask({ task: "narrate", runId }, () =>
-        narrate({ card, facts, history, reason }, ctx),
-      );
-      if (!said) return;
-      history.push({ card, ...said });
-      emit({ type: "card", card, headline: said.headline, body: said.body });
-    } finally {
-      emit({ type: "orchestrator", status: "done" });
-    }
+  /**
+   * 서술 — 사실은 코드가 뽑아 넘긴다. 서술자가 산출물을 추측하지 않게.
+   *
+   * **크리티컬 패스에 두지 않는다.** 이 호출의 결과는 다음 단계의 입력이
+   * 아니라 화면 문구다(`narrate` 는 실패해도 `null` 만 돌려준다). 그런데
+   * 여섯 번을 전부 `await` 하고 있어서, 사용자는 준비가 끝난 뒤에도 문장이
+   * 다 써지기를 기다렸다.
+   *
+   * 동시성 1 큐로 순서만 지킨다 — 앞말을 알아야 이어지는 글이 나오므로
+   * 병렬로 풀면 안 된다. 마지막에 한 번 비운다.
+   */
+  let narrating: Promise<void> = Promise.resolve();
+  const tell = (card: CardKey, facts: string, reason?: string) => {
+    narrating = narrating.then(async () => {
+      emit({ type: "orchestrator", status: "start" });
+      try {
+        const said = await withTask({ task: "narrate", runId }, () =>
+          narrate({ card, facts, history, reason }, ctx),
+        );
+        if (!said) return;
+        history.push({ card, ...said });
+        emit({ type: "card", card, headline: said.headline, body: said.body });
+      } finally {
+        emit({ type: "orchestrator", status: "done" });
+      }
+    });
+  };
+
+  /**
+   * 남은 서술을 비운다. 스트림을 닫기 전에 한 번.
+   *
+   * 상한을 둔다 — 서술 하나가 매달려 **준비 완료를 못 알리는** 것이 화면에
+   * 문장 하나 빠지는 것보다 훨씬 나쁘다.
+   */
+  const drainNarration = async (limitMs = 8_000) => {
+    await Promise.race([
+      narrating.catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, limitMs)),
+    ]);
   };
   // 세션에 그대로 실린다 — 다시 열었을 때 진행 레일을 같은 모양으로 그린다.
   const stages: SessionSnapshot["stages"] = {};
@@ -183,7 +209,7 @@ export async function runStart(
     return;
   }
   emit({ type: "files", files: fileInfos(gathered.files) });
-  await tell(
+  tell(
     "goal",
     [
       `사용자가 하려는 일: ${gathered.intent || "(문장 없음)"}`,
@@ -211,6 +237,7 @@ export async function runStart(
     // 예전엔 여기서 아무 말 없이 스트림이 닫혔다. 화면에는 「연결이 끊겨
     // 중단됐다」만 뜨고, 서버가 스스로 끝낸 것인지 연결이 죽은 것인지
     // 구분할 수 없었다. 끝낼 때는 왜 끝내는지 말한다.
+    await drainNarration();
     emit({
       type: "end",
       reason: "stopped",
@@ -223,6 +250,7 @@ export async function runStart(
     for (const id of ["research", "analyze", "prefill"] as const) {
       mark(id, "skip", "요약이 bad 로 판정됨");
     }
+    await drainNarration();
     emit({
       type: "end",
       reason: "stopped",
@@ -235,7 +263,7 @@ export async function runStart(
   const found = await stage("research", () => research(gathered, summary, ctx));
   const allFiles: IntakeFile[] = [...gathered.files, ...(found?.files ?? [])];
   if (found?.files.length) emit({ type: "files", files: fileInfos(allFiles) });
-  await tell(
+  tell(
     "gather",
     [
       `제목: ${found?.title ?? "확인 안 됨"}`,
@@ -250,15 +278,15 @@ export async function runStart(
   const analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
   if (analysis) emit({ type: "via", stage: "analyze", via: analysis.via });
   if (analysis?.brief) emit({ type: "brief", markdown: analysis.brief });
-  await tell(
+  tell(
     "analyze",
     [
       `요약 경로: ${summary.via}`,
       `분석 경로: ${analysis?.via ?? "실패"} · 뽑아낸 입력 항목 ${analysis?.needs.length ?? 0}개`,
       analysis?.applicationType ? `신청 유형: ${analysis.applicationType}` : "",
-      "",
-      "준비 문서(앞부분):",
-      (analysis?.brief ?? summary.markdown).slice(0, 2_500),
+      // 준비 문서 본문은 넘기지 않는다. 서술 한 줄을 만들자고 2,500자를 다시
+      // 보내고 있었다 — 서술자가 알아야 하는 것은 내용이 아니라 규모다.
+      `준비 문서 ${(analysis?.brief ?? summary.markdown).length.toLocaleString()}자`,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -289,12 +317,14 @@ export async function runStart(
   const filled =
     (await stage("prefill", () => prefill(merged, opts.userId, ctx))) ?? merged;
   const known = filled.filter((need) => need.value?.trim());
-  await tell(
+  tell(
     "data",
     [
       `필요한 항목 ${filled.length}개 · 지식베이스로 채운 것 ${known.length}개`,
+      // ⚠ **값을 넘기지 않는다.** 화면 문구 한 줄을 만드는 호출에 사업자등록
+      // 번호·생년월일·연락처를 실을 이유가 없다. 필요한 것은 무엇이 채워졌는가다.
       known.length
-        ? `채운 항목: ${known.map((need) => `${need.label}=${need.value}`).join(", ")}`
+        ? `채운 항목: ${known.map((need) => need.label).join(", ")}`
         : "채운 것이 없다 — 처음 신청이거나 로그인 전이다",
       `물어야 하는 항목: ${filled
         .filter((need) => !need.value?.trim())
@@ -409,7 +439,7 @@ export async function runStart(
   const [plan, artifacts] = await Promise.all([planTask, documentsTask]);
 
   if (plan) emit({ type: "plan", plan });
-  await tell(
+  tell(
     "plan",
     plan
       ? [
@@ -423,7 +453,7 @@ export async function runStart(
   );
 
   if (artifacts?.length) emit({ type: "artifacts", artifacts });
-  await tell(
+  tell(
     "file",
     artifacts?.length
       ? artifacts
@@ -467,6 +497,7 @@ export async function runStart(
     applyUrl: snapshot.applyUrl,
     needs: filled,
   });
+  await drainNarration();
   emit({ type: "end", reason: "ready" });
   // 개발 중에는 런 하나의 단계별 토큰·지연을 그 자리에서 본다.
   table(runId);

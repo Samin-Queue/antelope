@@ -130,3 +130,28 @@ export function chatModel(overrideModel?: string): LanguageModel {
   const { provider, baseURL, apiKey, model, headers } = resolve();
   return clientFor(provider, baseURL, apiKey, headers).chatModel(overrideModel ?? model);
 }
+
+/**
+ * 티어 — 이 작업에 어느 크기의 모델이 필요한가.
+ *
+ * 예전에는 `provider === "upstage"` 한 줄로 갈랐다. 그래서 트랙을 Azure 로
+ * 바꾸는 순간 분류·판정·서술 같은 가벼운 호출이 전부 최상위 모델로 올라갔고,
+ * 반대로 `LLM_MODEL=solar-pro3` 를 명시해도 `chatModel("solar-mini")` 가 그걸
+ * 덮었다. 티어를 **표로** 두면 그 두 버그가 같이 사라진다.
+ *
+ * 작은 티어가 없는 프로바이더에서는 기본 모델로 승격한다 — 없는 배포 이름을
+ * 보내면 404 이고, 그건 절감이 아니라 장애다.
+ */
+export type Tier = "small" | "large";
+
+const SMALL: Partial<Record<ProviderId, string>> = {
+  upstage: "solar-mini",
+  openai: "gpt-4.1-nano",
+};
+
+export function tierModel(tier: Tier): LanguageModel {
+  if (tier === "large" || env.AI_TIER_ROUTING === "off") return chatModel();
+  // 명시 설정이 표를 이긴다. Azure·custom 은 배포 이름을 우리가 알 수 없다.
+  const small = env.LLM_MODEL_SMALL ?? SMALL[env.LLM_PROVIDER];
+  return small ? chatModel(small) : chatModel();
+}

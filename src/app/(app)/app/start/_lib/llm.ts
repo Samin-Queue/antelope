@@ -1,17 +1,14 @@
-import { chatModel, llmInfo } from "@/lib/llm";
+import { chatModel, tierModel } from "@/lib/llm";
 
 /**
  * 단계별 모델 선택.
  *
- * 분류·판정처럼 가벼운 일은 작은 모델로 돌린다. 다만 `solar-mini` 는 Upstage 에만
- * 있다 — Azure 는 LLM_MODEL 이 배포 이름이라 다른 이름을 주면 404 다. 그래서
- * 프로바이더가 Upstage 일 때만 작은 모델을 고르고, 아니면 기본 모델을 그대로 쓴다.
+ * 분류·판정·서술처럼 가벼운 일은 작은 모델로 돌린다. 선택은 `src/lib/llm.ts`
+ * 의 티어 표가 한다 — 예전엔 여기서 `provider === "upstage"` 한 줄로 갈랐고,
+ * 그래서 트랙을 Azure 로 바꾸는 순간 가벼운 호출까지 최상위 모델로 올라갔다.
  */
 export function smallModel() {
-  const info = llmInfo();
-  return "provider" in info && info.provider === "upstage"
-    ? chatModel("solar-mini")
-    : chatModel();
+  return tierModel("small");
 }
 
 export function bigModel() {

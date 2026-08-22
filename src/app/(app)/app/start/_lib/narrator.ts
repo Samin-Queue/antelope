@@ -2,7 +2,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 
 import type { Ctx } from "./intake";
-import { bigModel, clip } from "./llm";
+import { clip, smallModel } from "./llm";
 import type { CardKey } from "./types";
 
 /**
@@ -57,7 +57,7 @@ export async function narrate(
 ): Promise<Narration | null> {
   try {
     const { object } = await generateObject({
-      model: bigModel(),
+      model: smallModel(),
       schema,
       system: [
         "너는 여러 에이전트가 신청을 준비하는 과정을 사용자에게 중계하는 서술자다.",
@@ -77,12 +77,13 @@ export async function narrate(
         input.reason ? `이 자리로 돌아온 이유: ${input.reason}` : null,
         "",
         input.history.length > 0 ? "지금까지 한 말:" : null,
-        ...input.history
-          .slice(-8)
-          .map((turn) => `  [${turn.card}] ${turn.headline} — ${turn.body}`),
+        // 앞말은 **표제만** 넘긴다. 본문까지 여덟 턴을 다시 보내면 서술 한 줄에
+        // 이미 화면에 있는 글을 통째로 재전송하는 셈이다 — 이어짐을 유지하는
+        // 데는 무엇을 말했는지가 아니라 무엇을 다뤘는지면 충분하다.
+        ...input.history.slice(-4).map((turn) => `  [${turn.card}] ${turn.headline}`),
         "",
         "이번에 실제로 일어난 일:",
-        clip(input.facts, 12_000),
+        clip(input.facts, 3_000),
       ]
         .filter((line) => line !== null)
         .join("\n"),
