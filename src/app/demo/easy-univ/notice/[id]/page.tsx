@@ -178,14 +178,11 @@ function Susi() {
           <section className="mt-10 border-y border-neutral-200 py-5 text-[13px] leading-[1.85] text-neutral-700">
             <h2 className="font-bold text-neutral-900">원서접수</h2>
             <p className="mt-2">
-              접수는{" "}
-              <Link
-                href="/demo/easy-univ/apply"
-                className={`font-semibold underline underline-offset-4 ${site.accentText}`}
-              >
-                본교 원서접수 시스템
-              </Link>
-              에서만 가능하며 회원가입 후 로그인해야 접수 화면이 열린다.
+              접수는 아래 본교 원서접수 시스템에서만 가능하며 회원가입 후 로그인해야 접수
+              화면이 열린다.
+            </p>
+            <p className={`mt-2 font-semibold break-all ${site.accentText}`}>
+              {"신청 링크: https://antelope.up.railway.app/demo/easy-univ/apply"}
             </p>
           </section>
         </div>

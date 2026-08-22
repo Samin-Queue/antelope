@@ -187,14 +187,11 @@ function MainNotice() {
           <section className="mt-10 border-y border-neutral-200 py-5 text-[13px] leading-[1.85] text-neutral-700">
             <h2 className="font-bold text-neutral-900">청약 신청</h2>
             <p className="mt-2">
-              신청은{" "}
-              <Link
-                href="/demo/youth-housing/apply"
-                className={`font-semibold underline underline-offset-4 ${site.accentText}`}
-              >
-                온라인 청약 신청 페이지
-              </Link>
-              에서만 접수한다. 접수 기간은 붙임3 「공급일정표」를 확인할 것.
+              신청은 아래 온라인 청약 신청 페이지에서만 접수한다. 접수 기간은 붙임3
+              「공급일정표」를 확인할 것.
+            </p>
+            <p className={`mt-2 font-semibold break-all ${site.accentText}`}>
+              {"신청 링크: https://antelope.up.railway.app/demo/youth-housing/apply"}
             </p>
           </section>
         </div>

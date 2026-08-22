@@ -34,12 +34,11 @@ export default function JunctionLanding() {
             individually or as a team of three to five.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Link
-              href="/demo/junction-apply/apply"
-              className="rounded bg-[#7c4dff] px-6 py-3 text-[14px] font-bold text-white hover:bg-[#6b3df0]"
-            >
-              Start your application →
-            </Link>
+            <p className="w-full text-[14px] font-semibold break-all text-[#c4b5fd]">
+              {
+                "Application URL: https://antelope.up.railway.app/demo/junction-apply/apply"
+              }
+            </p>
             <Link
               href="/demo/junction-apply/tracks"
               className="rounded border border-white/20 px-6 py-3 text-[14px] font-semibold text-white/80 hover:border-white/50"
@@ -261,12 +260,9 @@ export default function JunctionLanding() {
           <p className="mt-1.5 text-[13px] text-white/55">
             The application takes about 15 minutes. You can save and come back.
           </p>
-          <Link
-            href="/demo/junction-apply/apply"
-            className="mt-5 inline-block rounded bg-[#7c4dff] px-6 py-3 text-[14px] font-bold text-white hover:bg-[#6b3df0]"
-          >
-            Apply now
-          </Link>
+          <p className="mt-5 text-[14px] font-semibold break-all text-[#c4b5fd]">
+            {"Application URL: https://antelope.up.railway.app/demo/junction-apply/apply"}
+          </p>
         </div>
       </main>
 

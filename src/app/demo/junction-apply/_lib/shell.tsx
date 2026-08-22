@@ -40,12 +40,6 @@ export function JunctionHeader({ active }: { active?: string }) {
               {item.label}
             </Link>
           ))}
-          <Link
-            href="/demo/junction-apply/apply"
-            className="rounded bg-white px-3.5 py-1.5 text-[12px] font-bold text-[#0b0b12] hover:bg-white/90"
-          >
-            Apply
-          </Link>
         </nav>
       </div>
     </header>

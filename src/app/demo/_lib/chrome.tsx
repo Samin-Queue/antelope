@@ -168,18 +168,16 @@ export function NoticeTable({
 }
 
 export function ApplyCta({ site }: { site: DemoSite }) {
+  const applicationUrl = `https://antelope.up.railway.app/demo/${site.slug}/apply`;
+
   return (
     <section className="mt-10 border-y border-neutral-200 py-5 text-[13px] leading-[1.85] text-neutral-700">
       <h2 className="font-bold text-neutral-900">신청 방법</h2>
       <p className="mt-2">
-        접수 마감은 {site.deadline}이며, 신청서는{" "}
-        <Link
-          href={`/demo/${site.slug}/apply`}
-          className={`font-semibold underline underline-offset-4 ${site.accentText}`}
-        >
-          온라인 신청 페이지
-        </Link>
-        에서 작성·제출한다.
+        접수 마감은 {site.deadline}이며, 신청서는 아래 페이지에서 작성·제출한다.
+      </p>
+      <p className={`mt-2 font-semibold break-all ${site.accentText}`}>
+        신청 링크: {applicationUrl}
       </p>
     </section>
   );
