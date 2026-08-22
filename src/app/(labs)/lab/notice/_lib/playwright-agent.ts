@@ -35,11 +35,19 @@ const SNAPSHOT = `(() => {
   const sel = 'input,select,textarea,button,a[href],[role="button"],[role="checkbox"],[role="radio"]';
   let i = 0;
   for (const el of document.querySelectorAll(sel)) {
-    const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
-    const rect = el.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) continue;
     if (el.type === 'hidden') continue;
+    // ⚠ 파일 입력만 가시성 검사를 건너뛴다.
+    // 요즘 업로드 UI 는 진짜 input 을 감추고(class="hidden") 드롭존을 대신 그린다.
+    // 우리 데모도 그렇다. 가시성으로 거르면 붙일 칸이 목록에서 통째로 사라져
+    // upload 도구가 영영 쓰이지 못하고, 에이전트는 「업로드 칸이 없다」고 보고한다.
+    // setInputFiles 는 숨은 input 에도 정상 동작하므로 남겨 두는 편이 맞다.
+    const isFile = el.tagName === 'INPUT' && el.type === 'file';
+    if (!isFile) {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) continue;
+    }
     i += 1;
     const ref = 'e' + i;
     el.setAttribute('data-antelope-ref', ref);
