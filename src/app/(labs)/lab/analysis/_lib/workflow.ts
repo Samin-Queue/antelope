@@ -1,4 +1,4 @@
-import type { Step } from "@/lib/upstage-studio";
+import type { Step, ValidateCheck } from "@/lib/upstage-studio";
 
 const APPLICATION_TYPES = [
   "JOB_APPLICATION",
@@ -69,6 +69,69 @@ function fieldSchema(emphasis: string) {
  * 이름이 어긋나면 산출물이 조용히 사라진다.
  */
 export const BRIEF = "brief";
+
+/** 검사 스텝 이름. 호출부(`analyze.ts`)가 `verdictOf(outputs, CHECK)` 로 찾는다 */
+export const CHECK = "check";
+
+/**
+ * 추출 결과가 **신청에 쓸 수 있는 모양인지**를 규칙으로 본다.
+ *
+ * 여기서 보는 것은 「정답인가」가 아니라 「빈 채로 다음 단계에 넘어가는가」다.
+ * 필드 목록이 비었는데 그대로 흘러가면 사용자는 질문이 하나도 없는 빈 화면을
+ * 보고, 브라우저는 채울 값이 없어 헛돈다 — 그때 원인을 되짚기가 가장 어렵다.
+ *
+ * ⚠ `path` 의 뿌리는 스텝 **이름**이 아니라 타입 별칭 `extract` 다. 그래서
+ *   분기가 일곱이어도 검사는 **하나**면 된다. 상세 계약은 `upstage-studio.ts`
+ *   의 `ValidateCheck` 주석에 있다.
+ */
+function fieldChecks(): ValidateCheck[] {
+  const at = (field: string) => ({ path: `extract.${field}` });
+  return [
+    {
+      name: "제목이 있다",
+      condition: { left: at("applicationTitle.value"), operator: "filled" },
+    },
+    {
+      name: "입력 항목이 하나라도 있다",
+      condition: { left: at("fields.value[0].key"), operator: "filled" },
+    },
+    {
+      // 라벨이 비면 화면에 이름 없는 칸이 그려진다. 키만으로는 사람이 못 읽는다.
+      name: "첫 항목에 한글 라벨이 있다",
+      condition: { left: at("fields.value[0].label"), operator: "filled" },
+    },
+    {
+      // 값이 아니라 **자신감**을 본다. 낮으면 사람에게 한 번 보여주는 편이 싸다.
+      name: "추출 신뢰도가 0.7 이상",
+      severity: "warning",
+      condition: {
+        left: at("applicationTitle.confidence"),
+        operator: "gte",
+        right: { const: 0.7 },
+      },
+    },
+    {
+      // 분류가 비면 어느 분기를 탔는지 우리도 모른다. 치명적이진 않다.
+      name: "신청 유형이 분류됐다",
+      severity: "warning",
+      condition: { left: at("applicationType.value"), operator: "filled" },
+    },
+  ];
+}
+
+/**
+ * 일곱 갈래가 모두 지나는 **하나의** 검사 스텝.
+ *
+ * extract 와 준비 문서 **사이**에 직렬로 끼운다. 갈라 붙이고 싶지만 한 스텝의
+ * 조건 없는 경로는 하나뿐이라 400 이 난다. 직렬로 둬도 instruct 는 extract
+ * 결과와 인용(`【†n】`)을 그대로 본다(실측).
+ */
+const CHECK_STEP: Step = {
+  name: CHECK,
+  type: "validate",
+  data: { checks: fieldChecks() },
+  next_steps: [{ step_name: BRIEF }],
+};
 
 /**
  * ⚠ instruct 는 `data.prompt` 가 아니라 **`data.input` 배열**이다.
@@ -196,7 +259,8 @@ export function analysisWorkflow(): Step[] {
           },
         },
       },
-      next_steps: [{ step_name: BRIEF }],
+      // 준비 문서로 바로 가지 않고 **검사를 거친다.**
+      next_steps: [{ step_name: CHECK }],
     })),
     {
       name: "extract-general",
@@ -215,8 +279,9 @@ export function analysisWorkflow(): Step[] {
           },
         },
       },
-      next_steps: [{ step_name: BRIEF }],
+      next_steps: [{ step_name: CHECK }],
     },
+    CHECK_STEP,
     {
       name: BRIEF,
       type: "instruct",

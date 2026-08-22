@@ -17,7 +17,7 @@ import type { TraceEntry } from "@/app/(labs)/lab/notice/_lib/types";
 import { artifactDir, artifactPath, writeDocument } from "../_lib/file-agent";
 import { narrate, type NarrationTurn } from "../_lib/narrator";
 import { makePlan } from "../_lib/plan";
-import { ask, closeRun, openRun } from "../_lib/run-registry";
+import { ask, closeRun, openRun, takeSteer } from "../_lib/run-registry";
 import { saveApplyResult } from "../_lib/session";
 import type { AgentKey, ApplyEvent, CardKey, Need, Plan } from "../_lib/types";
 
@@ -449,6 +449,7 @@ export async function POST(req: Request) {
             helpers,
             maxSteps: 60,
             allowSubmit: true,
+            steer: () => takeSteer(runId),
             onStep: step,
             onFrame: (image, url) => emit({ type: "frame", image, title: url }),
           });
@@ -486,6 +487,7 @@ export async function POST(req: Request) {
           plan,
           maxSteps: 60,
           allowSubmit: true,
+          steer: () => takeSteer(runId),
           onStep: step,
           onFrame: (image, pageTitle) => emit({ type: "frame", image, title: pageTitle }),
           onNeedHuman: (reason) => emit({ type: "need:human", reason }),

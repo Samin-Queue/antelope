@@ -40,7 +40,80 @@ export type StudioFile = { id: string; bytes?: number; filename?: string };
 //   - Config 는 생성 후 불변이다. 고치려면 새로 만든다
 
 export type StepType =
-  "document-parse" | "document-classify" | "information-extract" | "instruct";
+  | "document-parse"
+  | "document-classify"
+  | "information-extract"
+  | "instruct"
+  | "validate";
+
+/**
+ * `validate` 스텝 — **모델이 아니라 규칙**으로 판정한다.
+ *
+ * 「규칙으로 답할 수 있으면 모델에게 묻지 않는다」(AGENTS.md)를 Studio 그래프
+ * 안에서 하는 자리다. 추출 결과가 쓸 만한지 프롬프트로 되물으면 왕복이 늘고
+ * 판정이 흔들리는데, 이건 결정론적이고 왜 실패했는지 문장으로 돌려준다.
+ *
+ * ⚠ 실측으로 확인한 계약 (문서에 없다. 전부 실제 job 을 돌려 확인했다):
+ *
+ *   - `path` 의 뿌리는 스텝 **이름이 아니라 타입 별칭** `extract` 다.
+ *     `extract-job.applicationTitle.value` 는 스텝 이름이 그것이어도 `None` 으로
+ *     풀리고, 같은 job 에서 `extract.applicationTitle.value` 는 값을 준다.
+ *     뿌리를 빼고 `applicationTitle.value` 라고 써도 `None` 이다 —
+ *     **검사가 조용히 전부 실패하고 verdict 는 red 가 된다**
+ *   - **직전 스텝만 주소가 된다.** extract 뒤에서는 `parse.*` 가 안 읽힌다
+ *   - information-extract 출력은 `{value, confidence}` 로 **감싸여 있다**.
+ *     `.value` 까지 내려가지 않으면 비교 연산자가 래퍼와 비교돼 전부 실패한다.
+ *     `.confidence` 도 같은 방식으로 읽어 임계값을 걸 수 있다
+ *   - `filled` 은 래퍼 기준이라 **빈 문자열도 통과한다.** 「값이 실제로 있나」는
+ *     반드시 `.value` + `filled`
+ *   - 배열 인덱스는 **대괄호만** 된다. `fields.value[0].key` (`.0.` 은 안 된다)
+ *   - `severity: "error"` 실패 → verdict `red`, `"warning"` 실패 → `yellow`
+ *   - 판정 상세는 `text` 가 아니라 **`additional_values`** 에 있다
+ *
+ * ⚠ **갈라 붙일 수 없다.** 한 스텝의 조건 없는 `next_steps` 는 하나뿐이다
+ *   (`Step 'extract-job' routes branch default to multiple paths` 로 400).
+ *   그래서 extract → validate → instruct 로 **직렬**로 끼운다. 실측으로
+ *   instruct 는 그래도 extract 결과와 인용(`【†n】`)을 그대로 본다 —
+ *   validate 가 앞을 가리지 않는다. 다만 validate 의 판정은 instruct 에
+ *   전달되지 않으므로, 검사 결과를 문장으로 쓰게 시킬 수는 없다.
+ */
+export type ValidateOperator =
+  | "eq"
+  | "neq"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "filled"
+  | "empty"
+  | "contains"
+  | "matches";
+
+/** 피연산자. `path` 와 `const` 중 **정확히 하나**다 (노드 참조는 400 이 난다) */
+export type Operand = { path: string } | { const: string | number | boolean };
+
+export type Condition =
+  | { left: Operand; operator: ValidateOperator; right?: Operand }
+  | { logic: "and" | "or"; conditions: Condition[] };
+
+export type ValidateCheck = {
+  name: string;
+  /** 없으면 `error`. `warning` 은 verdict 를 red 가 아니라 yellow 로 만든다 */
+  severity?: "error" | "warning";
+  condition: Condition;
+};
+
+/** validate 스텝이 낸 판정. `additional_values` 에서 꺼낸다 */
+export type Verdict = {
+  verdict: "green" | "yellow" | "red";
+  checks: Array<{
+    name: string;
+    severity: "error" | "warning";
+    passed: boolean;
+    /** 왜 그렇게 판정했는지. 좌변 실제값이 그대로 들어 있다 */
+    reason: string;
+  }>;
+};
 
 export type NextStep = {
   step_name: string;
@@ -284,6 +357,14 @@ export type StepOutput = {
   json: unknown;
   /** 인용 근거 좌표 등 */
   citations: unknown;
+  /**
+   * `additional_values` 전체.
+   *
+   * 문자열로 와서 한 번 파싱해야 한다. instruct 는 여기에 `citations` 를,
+   * validate 는 `verdict`·`checks` 를 싣는다 — `text` 에는 `"red"` 한 낱말뿐이라
+   * 무엇이 왜 실패했는지는 여기서만 나온다.
+   */
+  extra: Record<string, unknown> | null;
 };
 
 export function stepOutputs(job: StudioJob): StepOutput[] {
@@ -304,20 +385,18 @@ export function stepOutputs(job: StudioJob): StepOutput[] {
       }
       json = null;
     }
-    let citations: unknown = null;
+    let extra: Record<string, unknown> | null = null;
     try {
-      const extra = content?.additional_values;
-      citations =
-        typeof extra === "string"
-          ? (JSON.parse(extra) as { citations?: unknown }).citations
-          : null;
+      const raw = content?.additional_values;
+      extra =
+        typeof raw === "string" ? (JSON.parse(raw) as Record<string, unknown>) : null;
     } catch (error) {
       console.warn(
-        `[studio] ${step}: citations 파싱 실패 — ${String(error).slice(0, 120)}`,
+        `[studio] ${step}: additional_values 파싱 실패 — ${String(error).slice(0, 120)}`,
       );
-      citations = null;
+      extra = null;
     }
-    return { step, text: raw, json, citations };
+    return { step, text: raw, json, citations: extra?.citations ?? null, extra };
   });
 }
 
@@ -356,4 +435,29 @@ export function parsedElements(parse: StepOutput | null): ParsedElement[] {
 /** 이름이 접두사로 시작하는 첫 스텝. extract-general·extract-job 등을 한 번에 잡는다. */
 export function findStep(outputs: StepOutput[], prefix: string): StepOutput | null {
   return outputs.find((item) => item.step.startsWith(prefix)) ?? null;
+}
+
+/**
+ * validate 스텝의 판정.
+ *
+ * 분기마다 검사 스텝이 따로 있고 한 번에 하나만 도므로 접두사로 찾는다.
+ * 없으면 `null` — 검사 스텝이 없는 구버전 Config 로도 앱이 그대로 돈다.
+ */
+export function verdictOf(outputs: StepOutput[], prefix: string): Verdict | null {
+  const extra = findStep(outputs, prefix)?.extra;
+  const verdict = extra?.verdict;
+  if (verdict !== "green" && verdict !== "yellow" && verdict !== "red") return null;
+  const checks = Array.isArray(extra?.checks) ? extra.checks : [];
+  return {
+    verdict,
+    checks: checks.map((check) => {
+      const item = (check ?? {}) as Record<string, unknown>;
+      return {
+        name: String(item.name ?? ""),
+        severity: item.severity === "warning" ? "warning" : "error",
+        passed: item.passed === true,
+        reason: String(item.reason ?? ""),
+      };
+    }),
+  };
 }

@@ -66,7 +66,7 @@ export const CARD_LABEL: Record<CardKey, string> = {
   plan: "계획 수립",
   data: "필요 데이터 수집",
   file: "파일 에디터",
-  browser: "작업 실행",
+  browser: "브라우저 에이전트",
 };
 
 /** 단계가 어느 카드에 속하는가 */

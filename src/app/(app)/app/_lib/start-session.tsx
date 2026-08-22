@@ -51,7 +51,7 @@ export function StartSession({
      * 1024px 안에 갇혔다 — 넓은 모니터의 절반이 그냥 여백이었다. 입력 한 줄만
      * 머리에 두고 나머지는 격자와 산출물에 준다.
      */
-    <div className="flex h-[calc(100svh-3.5rem)] flex-col">
+    <div className="flex h-[calc(100svh-3.5rem)] min-w-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-6 py-2">
         <p className="truncate text-sm text-muted-foreground">
           {input.kind === "file"
@@ -73,7 +73,7 @@ export function StartSession({
           새 세션
         </Button>
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 min-w-0 flex-1">
         <StartFlow initial={input} />
       </div>
     </div>

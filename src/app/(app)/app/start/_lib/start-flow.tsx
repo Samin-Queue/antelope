@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link2 } from "lucide-react";
+import { ChevronUp, CircleCheck, Link2, Loader2, MonitorPlay } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -9,24 +9,19 @@ import { cn } from "@/lib/utils";
 import type { ComposerSubmit } from "@/components/app/composer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LiveScreen } from "@/app/(labs)/lab/notice/_lib/run-view";
 
 import { AgentCard, emptyCards, type Cards, type CardState } from "./agent-grid";
 import { AskDialog, type AskItem } from "./ask-dialog";
 import { useCallMe } from "./call-me";
-import { NeedsForm, summarizeNeeds } from "./needs-form";
+import { DocumentRow, Field, summarizeNeeds } from "./needs-form";
 import { RunStatus } from "./run-status";
 import { SteerBox } from "./steer-box";
 import {
   APPLY_URL_KEY,
+  CARD_LABEL,
   CARD_OF,
   PLAN_OWNER_LABEL,
   STAGE_LABEL,
@@ -196,7 +191,6 @@ export function StartFlow({ initial }: { initial: StartInput }) {
   );
   const [error, setError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(!saved);
-  const [needsOpen, setNeedsOpen] = useState(false);
   const [ask, setAsk] = useState<AskItem | null>(null);
   const [apply, setApply] = useState<ApplyState>({
     status: "idle",
@@ -220,6 +214,15 @@ export function StartFlow({ initial }: { initial: StartInput }) {
    */
   const [panel, setPanel] = useState<CardKey>("analyze");
   const pinned = useRef(false);
+  /**
+   * 푸터의 브라우저 화면을 펼쳤는가.
+   *
+   * 신청이 시작되면 저절로 펼친다 — 실제 조작이 시작됐는데 접혀 있으면 이
+   * 제품이 무엇을 하는지 보여 줄 자리가 화면에서 사라진다. 사용자가 한 번
+   * 손대면(`screenPinned`) 그 뒤로는 마음대로 여닫지 않는다.
+   */
+  const [screenOpen, setScreenOpen] = useState(false);
+  const screenPinned = useRef(false);
   /** 서버가 말해 준 것만 켠다 — 단계 사이 공백이 여기서 메워진다 */
   const [orchestrating, setOrchestrating] = useState(false);
   /**
@@ -325,130 +328,188 @@ export function StartFlow({ initial }: { initial: StartInput }) {
     [settleCards],
   );
 
-  // 준비 — 컴포저 입력으로 한 번만 시작한다.
+  /**
+   * 준비를 돈다. 처음 한 번과, 실패 뒤 사용자가 내용을 보태 다시 거는 경우.
+   *
+   * `more` 는 사용자가 뒤늦게 보탠 글이다. 원래 입력을 **다시 실어** 보낸다 —
+   * 「공고로 읽을 내용이 부족하다」로 멈춘 실행은 저장된 요약이 이미 bad 라
+   * `resume` 으로 이어받아 봐야 같은 판정에서 또 멈춘다. 처음부터 다시 돌되
+   * 모자랐던 내용을 채워 주는 것이 유일하게 통하는 길이다.
+   */
+  const startRun = useCallback(
+    (more?: string) => {
+      if (initial.kind === "replay") return;
+
+      // 다시 도는 것이므로 지난 실행의 흔적을 지운다. 안 지우면 실패한 카드가
+      // 그대로 남아, 새 실행이 그 자리를 다시 켤 때까지 「실패」로 보인다.
+      terminal.current = false;
+      terminalOk.current = false;
+      setError(null);
+      setDiagnostics([]);
+      setCards(emptyCards());
+      setPreparing(true);
+
+      /**
+       * ⚠ 같은 키를 두 번 `append` 하면 안 된다. 서버는 `form.get("text")` 로
+       * **첫 값만** 읽어서, 보탠 글이 조용히 버려진다. 합쳐서 한 번만 넣는다.
+       */
+      const extra = more?.trim() ?? "";
+      // 링크 한 줄이면 링크로 보낸다 — 서버가 그때만 페이지를 가져온다.
+      const extraIsUrl = /^https?:\/\/\S+$/.test(extra);
+      const texts = [
+        initial.kind === "text" ? initial.text : "",
+        extraIsUrl ? "" : extra,
+      ].filter(Boolean);
+
+      const body = new FormData();
+      if (initial.kind === "file") body.append("file", initial.file);
+      if (initial.kind === "resume") body.append("resume", initial.goalId);
+      // 원래 입력이 링크였고 보탠 것도 링크면 **보탠 쪽**을 쓴다. 앞의 링크는
+      // 방금 못 읽은 그것이라 다시 걸어 봐야 같은 자리에서 또 막힌다.
+      const url = extraIsUrl ? extra : initial.kind === "url" ? initial.url : "";
+      if (url) body.append("url", url);
+      if (texts.length) body.append("text", texts.join("\n\n"));
+
+      void readStream<StartEvent>("/app/start/run", body, (event) => {
+        switch (event.type) {
+          case "stage":
+            patchStage(event.stage, {
+              status: event.status === "start" ? "running" : event.status,
+            });
+            if (event.status !== "start") {
+              setDiagnostics((prev) => [
+                ...prev,
+                {
+                  stage: event.stage,
+                  text: `${STAGE_LABEL[event.stage].title} ${event.status}${event.detail ? ` — ${event.detail}` : ""}`,
+                  ms: event.ms,
+                },
+              ]);
+            }
+            break;
+          case "log":
+            setDiagnostics((prev) => [...prev, { stage: event.stage, text: event.text }]);
+            break;
+          case "orchestrator":
+            setOrchestrating(event.status === "start");
+            break;
+          case "card": {
+            // 오케스트레이터가 쓴 문장. 카드의 본문이 된다.
+            patch(event.card, { headline: event.headline, body: event.body });
+            // 서버가 같은 칸을 두 번 보낸다 — 코드가 아는 한 줄을 먼저 박고,
+            // 서술이 오면 덮어쓴다. 맥락에는 나중 것만 남겨야 서술자가 자기가
+            // 쓴 적 없는 문장을 「지금까지 한 말」로 돌려받지 않는다.
+            const turn = {
+              card: event.card,
+              headline: event.headline,
+              body: event.body,
+            };
+            const last = narration.current.at(-1);
+            if (last?.card === event.card)
+              narration.current[narration.current.length - 1] = turn;
+            else narration.current.push(turn);
+            follow(event.card);
+            break;
+          }
+          case "files":
+            setFiles(event.files);
+            // 0건이면 버튼을 안 단다. 눌러 봐야 빈 판이고, 「0개」라는 사실은
+            // 카드 문장이 이미 말한다.
+            patch("gather", {
+              action: event.files.length
+                ? `모아 온 자료 ${event.files.length}개`
+                : undefined,
+            });
+            break;
+          case "summary":
+            setSummary({ markdown: event.markdown, via: event.via });
+            break;
+          case "brief":
+            setBrief(event.markdown);
+            patch("analyze", { action: "분석 자료 보기" });
+            break;
+          case "via":
+            break;
+          case "verdict":
+            break;
+          case "plan":
+            setPlan(event.plan);
+            patch("plan", { action: "계획서 보기" });
+            break;
+          case "artifacts":
+            setArtifacts(event.artifacts);
+            patch("file", { action: `작성한 서류 ${event.artifacts.length}개` });
+            break;
+          case "run":
+            setRunId(event.runId);
+            break;
+          case "session":
+            setSessionId(event.id);
+            break;
+          case "needs": {
+            setPrepared({
+              title: event.title,
+              organization: event.organization,
+              deadline: event.deadline,
+              applyUrl: event.applyUrl,
+              needs: event.needs,
+            });
+            // 선채움 값을 초깃값으로 깐다. 이미 사용자가 친 것이 있으면 그쪽을
+            // 남긴다 — 늦게 도착한 이벤트가 입력을 덮어쓰면 안 된다.
+            setValues((prev) => ({
+              ...Object.fromEntries(
+                event.needs.filter((n) => n.value).map((n) => [n.key, n.value ?? ""]),
+              ),
+              ...prev,
+            }));
+            patch("data", { action: "입력 항목 보기" });
+            break;
+          }
+          case "end":
+            terminal.current = true;
+            terminalOk.current = event.reason === "ready";
+            if (event.reason === "stopped")
+              setError(event.detail ?? "준비를 멈췄습니다.");
+            break;
+          case "error":
+            terminal.current = true;
+            setError(event.error);
+            break;
+        }
+      })
+        .then((info) => {
+          // 서버는 어떤 경로로 끝나든 `end` 나 `error` 를 보낸다. 그게 없었다면
+          // 스트림이 중간에 잘린 것이다 — 침묵 길이가 그걸 갈라 준다. 하트비트가
+          // 15초마다 오므로 그보다 한참 길면 연결이 죽은 쪽이다.
+          if (terminal.current) return;
+          const cut = `서버가 종료 이벤트 없이 연결을 닫았다 — 마지막 수신 후 ${Math.round(info.silentMs / 1000)}초, 받은 이벤트 ${info.events}개`;
+          setError((prev) => prev ?? cut);
+          settleCards(cut);
+        })
+        .catch((cause) => {
+          const text = cause instanceof Error ? cause.message : String(cause);
+          setError(text);
+          settleCards(`스트림 예외 — ${text}`);
+        })
+        .finally(() => {
+          setPreparing(false);
+          settleByOutcome(terminal.current, terminalOk.current);
+        });
+    },
+    [initial, patch, patchStage, follow, settleCards, settleByOutcome],
+  );
+
+  // 준비 — 컴포저 입력으로 한 번만 시작한다. 두 번째부터는 사용자가 건다.
   useEffect(() => {
-    // 저장된 세션을 다시 그리는 중이면 아무것도 실행하지 않는다. 화면만 같다.
     if (initial.kind === "replay") return;
     if (startedRef.current) return;
     startedRef.current = true;
+    startRun();
+  }, [initial, startRun]);
 
-    const body = new FormData();
-    if (initial.kind === "file") body.append("file", initial.file);
-    if (initial.kind === "url") body.append("url", initial.url);
-    if (initial.kind === "text") body.append("text", initial.text);
-    if (initial.kind === "resume") body.append("resume", initial.goalId);
-
-    void readStream<StartEvent>("/app/start/run", body, (event) => {
-      switch (event.type) {
-        case "stage":
-          patchStage(event.stage, {
-            status: event.status === "start" ? "running" : event.status,
-          });
-          if (event.status !== "start") {
-            setDiagnostics((prev) => [
-              ...prev,
-              {
-                stage: event.stage,
-                text: `${STAGE_LABEL[event.stage].title} ${event.status}${event.detail ? ` — ${event.detail}` : ""}`,
-                ms: event.ms,
-              },
-            ]);
-          }
-          break;
-        case "log":
-          setDiagnostics((prev) => [...prev, { stage: event.stage, text: event.text }]);
-          break;
-        case "orchestrator":
-          setOrchestrating(event.status === "start");
-          break;
-        case "card":
-          // 오케스트레이터가 쓴 문장. 카드의 본문이 된다.
-          patch(event.card, { headline: event.headline, body: event.body });
-          narration.current.push({
-            card: event.card,
-            headline: event.headline,
-            body: event.body,
-          });
-          follow(event.card);
-          break;
-        case "files":
-          setFiles(event.files);
-          patch("gather", { action: `모아 온 자료 ${event.files.length}개` });
-          break;
-        case "summary":
-          setSummary({ markdown: event.markdown, via: event.via });
-          break;
-        case "brief":
-          setBrief(event.markdown);
-          patch("analyze", { action: "분석 자료 보기" });
-          break;
-        case "via":
-          break;
-        case "verdict":
-          break;
-        case "plan":
-          setPlan(event.plan);
-          patch("plan", { action: "계획서 보기" });
-          break;
-        case "artifacts":
-          setArtifacts(event.artifacts);
-          patch("file", { action: `작성한 서류 ${event.artifacts.length}개` });
-          break;
-        case "run":
-          setRunId(event.runId);
-          break;
-        case "session":
-          setSessionId(event.id);
-          break;
-        case "needs": {
-          setPrepared({
-            title: event.title,
-            organization: event.organization,
-            deadline: event.deadline,
-            applyUrl: event.applyUrl,
-            needs: event.needs,
-          });
-          // 선채움 값을 초깃값으로 깐다. 이미 사용자가 친 것이 있으면 그쪽을
-          // 남긴다 — 늦게 도착한 이벤트가 입력을 덮어쓰면 안 된다.
-          setValues((prev) => ({
-            ...Object.fromEntries(
-              event.needs.filter((n) => n.value).map((n) => [n.key, n.value ?? ""]),
-            ),
-            ...prev,
-          }));
-          patch("data", { action: "입력 항목 보기" });
-          break;
-        }
-        case "end":
-          terminal.current = true;
-          terminalOk.current = event.reason === "ready";
-          if (event.reason === "stopped") setError(event.detail ?? "준비를 멈췄습니다.");
-          break;
-        case "error":
-          terminal.current = true;
-          setError(event.error);
-          break;
-      }
-    })
-      .then((info) => {
-        // 서버는 어떤 경로로 끝나든 `end` 나 `error` 를 보낸다. 그게 없었다면
-        // 스트림이 중간에 잘린 것이다 — 침묵 길이가 그걸 갈라 준다. 하트비트가
-        // 15초마다 오므로 그보다 한참 길면 연결이 죽은 쪽이다.
-        if (terminal.current) return;
-        const cut = `서버가 종료 이벤트 없이 연결을 닫았다 — 마지막 수신 후 ${Math.round(info.silentMs / 1000)}초, 받은 이벤트 ${info.events}개`;
-        setError((prev) => prev ?? cut);
-        settleCards(cut);
-      })
-      .catch((cause) => {
-        const text = cause instanceof Error ? cause.message : String(cause);
-        setError(text);
-        settleCards(`스트림 예외 — ${text}`);
-      })
-      .finally(() => {
-        setPreparing(false);
-        settleByOutcome(terminal.current, terminalOk.current);
-      });
-  }, [initial, patch, patchStage, follow, settleCards, settleByOutcome]);
+  useEffect(() => {
+    if (apply.status === "running" && !screenPinned.current) setScreenOpen(true);
+  }, [apply.status]);
 
   // 빈 항목이 없으면 사람을 거치지 않는다. 있으면 다이얼로그를 띄운다.
   const autoRef = useRef(false);
@@ -474,10 +535,10 @@ export function StartFlow({ initial }: { initial: StartInput }) {
         ),
       );
     } else {
-      // 준비가 끝나는 순간 한 번만 여는 일회성 전환이다. 렌더에서 유도할 수 있는
-      // 값이 아니고(사용자가 닫을 수 있다), `autoRef` 가 반복을 막는다.
+      // 물어볼 것이 남았으면 그 탭으로 데려간다. 준비가 끝나는 순간 한 번만
+      // 도는 일회성 전환이고, `autoRef` 가 반복을 막는다.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setNeedsOpen(true);
+      pick("data");
     }
     // startApply 는 매 렌더 새로 만들어진다. prepared 가 올 때 한 번만 돈다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -489,7 +550,9 @@ export function StartFlow({ initial }: { initial: StartInput }) {
       setApply((prev) => ({ ...prev, status: "error", error: "신청 URL 이 없습니다." }));
       return;
     }
-    setNeedsOpen(false);
+    // 신청이 시작되면 결과가 보이는 자리로 옮긴다. 다 채운 입력 목록을 계속
+    // 보여 줄 이유가 없다.
+    pick("browser");
 
     const facts: Record<string, string> = {};
     const filled = target.needs.map((need) => {
@@ -671,13 +734,41 @@ export function StartFlow({ initial }: { initial: StartInput }) {
     }).catch(() => {});
   };
 
+  /**
+   * 도중에 끼어든다. 준비 중이면 파이프라인이(계획 단계에서), 신청 중이면
+   * 브라우저 에이전트가 스텝 경계에서 꺼내 간다.
+   *
+   * **실패를 삼키지 않는다.** 끝난 실행에 넣으면 서버가 404 를 주는데, 그걸
+   * 버리고 있어서 화면에는 「지시 전달」이 뜨고 에이전트는 아무것도 못 받았다 —
+   * 전달된 줄 알고 기다리는 것이 안 눌리는 것보다 나쁘다.
+   */
+  /**
+   * 아직 못 채운 필수 항목 수. 푸터 버튼과 탭이 같은 숫자를 쓴다 —
+   * 두 곳이 각자 세면 「필수 0개」인데 버튼이 안 넘어가는 일이 생긴다.
+   */
+  const { missingRequired } = summarizeNeeds(prepared?.needs ?? [], values);
+
   const steer = (text: string, mode: "now" | "next") => {
-    patch("browser", { headline: `지시 전달: ${text}`.slice(0, 40) });
+    const card: CardKey = apply.status === "running" ? "browser" : "plan";
+    patch(card, { headline: `지시 전달: ${text}`.slice(0, 40) });
     void fetch("/app/start/steer", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind: "steer", runId, text, mode }),
-    }).catch(() => {});
+    })
+      .then((response) => {
+        if (response.ok) return;
+        setError(
+          response.status === 404
+            ? "이미 끝난 실행이라 지시를 전달하지 못했습니다."
+            : `지시 전달 실패 — HTTP ${response.status}`,
+        );
+        patch(card, { headline: "지시 전달 실패" });
+      })
+      .catch((cause) => {
+        setError(`지시 전달 실패 — ${cause instanceof Error ? cause.message : cause}`);
+        patch(card, { headline: "지시 전달 실패" });
+      });
   };
 
   return (
@@ -692,9 +783,19 @@ export function StartFlow({ initial }: { initial: StartInput }) {
      * 바깥에 패딩을 두지 않는다. 두 판이 각자 스크롤하고 가운데 선으로만
      * 갈리는 편이, 전체가 한 번에 스크롤되며 여백을 흘리는 것보다 낫다.
      */
-    <div className="flex h-full min-h-0 items-stretch">
-      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-6 lg:w-1/2 lg:flex-none">
-        <div className="flex min-h-0 flex-1 flex-col space-y-4">
+    <div className="flex h-full min-h-0 w-full items-stretch overflow-hidden">
+      {/*
+        `lg:w-1/2` 만으로는 반이 안 된다. 두 칸 모두 `min-w-0` 로 min-content
+        바닥을 끊어야 넘치는 내용이 칸을 밀지 않는다 — 없으면 긴 값 한 줄이
+        오른쪽 판을 부풀려 뷰포트 밖으로 나간다.
+      */}
+      <div className="flex min-w-0 flex-1 flex-col lg:w-1/2 lg:flex-none">
+        {/*
+          스크롤은 **이 안쪽만** 진다. 지시 상자와 신청 버튼은 아래 푸터로
+          빠져 나가 늘 같은 자리에 있다 — 카드 일곱 장이 화면을 넘기면서
+          「입력 확인하고 신청」이 스크롤 밖으로 밀려 안 보였다.
+        */}
+        <div className="flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto px-6 py-6">
           <header className="flex flex-wrap items-center gap-2">
             <h1 className="text-base font-medium">
               {prepared?.title ?? "공고를 읽는 중"}
@@ -734,10 +835,9 @@ export function StartFlow({ initial }: { initial: StartInput }) {
             />
           )}
 
-          {/* 준비 여섯 칸은 2열, 실행은 그 아래 전폭. 실행 카드는 라이브 화면을
-            옆에 달아 「무엇을 조작하고 있는지」가 카드 안에서 읽힌다.
-            주영역이 반쪽이 됐으므로 2열은 `md` 부터다 — `sm` 에서 두 줄로
-            나누면 카드 하나에 두 단어씩만 들어간다. */}
+          {/* 준비 여섯 칸은 2열. 일곱째(`browser`)는 여기 없다 — 푸터의
+            손잡이 안으로 들어갔다. 주영역이 반쪽이 됐으므로 2열은 `md` 부터다:
+            `sm` 에서 두 줄로 나누면 카드 하나에 두 단어씩만 들어간다. */}
           <div className="grid gap-3 md:grid-cols-2">
             {(["goal", "gather", "analyze", "plan", "data", "file"] as const).map(
               (key) => (
@@ -751,21 +851,48 @@ export function StartFlow({ initial }: { initial: StartInput }) {
             )}
           </div>
 
-          <AgentCard card="browser" state={cards.browser} onOpen={() => pick("browser")}>
-            {(apply.frame || apply.status === "running") && (
-              <div className="hidden w-72 shrink-0 sm:block">
-                <LiveScreen
-                  frame={apply.frame}
-                  running={apply.status === "running"}
-                  sessionId={apply.sessionId}
-                  needHuman={apply.needHuman}
-                  onHumanDone={() => setApply((prev) => ({ ...prev, needHuman: null }))}
-                />
-              </div>
-            )}
-          </AgentCard>
+          <Diagnostics lines={diagnostics} />
 
-          <SteerBox disabled={!runId || apply.status !== "running"} onSend={steer} />
+          <AskDialog item={ask} onAnswer={answer} />
+        </div>
+
+        {/*
+          스크롤 밖에 고정한다. 여기 셋은 실행 중에 개입하는 유일한 통로이고,
+          「입력 확인하고 신청」은 이 화면 전체의 목적지다 — 목록 끝에 놓으면
+          사용자가 그것을 찾으러 스크롤해야 한다.
+        */}
+        <div className="flex shrink-0 flex-col gap-3 border-t border-border/60 bg-background px-6 py-4">
+          <BrowserDock
+            state={cards.browser}
+            apply={apply}
+            open={screenOpen}
+            onToggle={() => {
+              screenPinned.current = true;
+              setScreenOpen((prev) => !prev);
+            }}
+            onOpenPanel={() => pick("browser")}
+            onHumanDone={() => setApply((prev) => ({ ...prev, needHuman: null }))}
+          />
+
+          {/* 준비 중에도 연다. 준비는 몇 분씩 걸리는데 그동안 상자가 죽어
+              있으면, 사용자가 할 수 있는 일은 끝난 뒤 결과를 통째로 버리는
+              것뿐이다. 준비 지시는 계획 단계가, 신청 지시는 브라우저
+              에이전트가 스텝 경계에서 꺼내 간다.
+
+              멈춘 뒤에는 `retry` 로 바뀐다 — 같은 자리에서 모자랐던 내용을
+              보태 준비를 다시 건다. 실행 중인 것이 없고 준비도 못 끝냈다면
+              그게 곧 「멈춘 상태」다. */}
+          <SteerBox
+            mode={
+              runId && (preparing || apply.status === "running")
+                ? "live"
+                : initial.kind !== "replay" && !preparing && !prepared
+                  ? "retry"
+                  : "off"
+            }
+            onSend={steer}
+            onRetry={startRun}
+          />
 
           {(apply.error || error) && (
             <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words text-destructive">
@@ -773,61 +900,31 @@ export function StartFlow({ initial }: { initial: StartInput }) {
             </p>
           )}
 
-          <Diagnostics lines={diagnostics} />
+          {/*
+            버튼 하나가 두 가지를 한다 — 못 채운 필수가 있으면 그 자리로
+            **데려가고**, 다 채웠으면 신청한다. 채우지도 않았는데 신청 버튼이
+            비활성으로 서 있으면, 사용자는 무엇이 모자란지 찾으러 다녀야 한다.
 
-          {/* 실패한 뒤에도 폼으로 돌아갈 수 있어야 한다. `idle` 만 허용했을 때는
-            신청이 한 번 깨지면 에러 문구만 남고 되돌아갈 길이 없었다. */}
-          {prepared &&
-            !needsOpen &&
-            (apply.status === "idle" || apply.status === "error") && (
-              <Button onClick={() => setNeedsOpen(true)}>
-                {apply.status === "error"
-                  ? "입력 고치고 다시 신청"
-                  : "입력 확인하고 신청"}
-              </Button>
-            )}
-
-          {/* 다이얼로그가 아니라 드로어다. 물어볼 항목이 스무 개를 넘길 때가 있어
-            가운데 뜨는 상자로는 스크롤 안에 제출 버튼이 파묻힌다. 아래에서
-            올라오는 판에 머리말·본문·푸터를 갈라 두면 「이 정보로 신청 진행」이
-            스크롤과 무관하게 늘 같은 자리에 있다. */}
-          <Drawer open={needsOpen} onOpenChange={setNeedsOpen} showSwipeHandle>
-            <DrawerContent className="mx-auto sm:max-w-3xl">
-              <DrawerHeader>
-                <DrawerTitle>신청에 필요한 정보</DrawerTitle>
-                <DrawerDescription>{prepared?.title}</DrawerDescription>
-              </DrawerHeader>
-              {prepared && (
-                <>
-                  <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-                    <NeedsForm
-                      needs={prepared.needs}
-                      values={values}
-                      onChange={(key, value) =>
-                        setValues((prev) => ({ ...prev, [key]: value }))
-                      }
-                      artifacts={artifacts}
-                      runId={runId}
-                      sourceNotice={prepared.title}
-                      onUpload={(artifact) =>
-                        setArtifacts((prev) => [
-                          ...prev.filter((item) => item.needKey !== artifact.needKey),
-                          artifact,
-                        ])
-                      }
-                    />
-                  </div>
-                  <NeedsFooter
-                    needs={prepared.needs}
-                    values={values}
-                    onSubmit={() => void startApply(prepared, values)}
-                  />
-                </>
-              )}
-            </DrawerContent>
-          </Drawer>
-
-          <AskDialog item={ask} onAnswer={answer} />
+            실패한 뒤에도 눌린다. `idle` 만 허용했을 때는 신청이 한 번 깨지면
+            에러 문구만 남고 되돌아갈 길이 없었다.
+          */}
+          {prepared && (apply.status === "idle" || apply.status === "error") && (
+            <Button
+              onClick={() => {
+                if (missingRequired > 0) {
+                  pick("data");
+                  return;
+                }
+                void startApply(prepared, values);
+              }}
+            >
+              {missingRequired > 0
+                ? `필수 ${missingRequired}개 입력하기`
+                : apply.status === "error"
+                  ? "다시 신청"
+                  : "이 정보로 신청 진행"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -843,6 +940,17 @@ export function StartFlow({ initial }: { initial: StartInput }) {
         artifacts={artifacts}
         needs={prepared?.needs ?? []}
         result={apply.summary}
+        values={values}
+        onChangeValue={(key, value) => setValues((prev) => ({ ...prev, [key]: value }))}
+        runId={runId}
+        sourceNotice={prepared?.title ?? ""}
+        onUpload={(artifact) =>
+          setArtifacts((prev) => [
+            ...prev.filter((item) => item.needKey !== artifact.needKey),
+            artifact,
+          ])
+        }
+        cards={cards}
       />
     </div>
   );
@@ -888,31 +996,105 @@ function Diagnostics({
 }
 
 /**
- * 드로어 푸터 — 스크롤 밖에 고정된다.
+ * 브라우저 도크 — 푸터에 붙어 있는 손잡이와 그 안의 실제 화면.
  *
- * 항목이 많으면 제출 버튼이 본문 맨 아래로 밀려 스크롤해야 보인다. 무엇이
- * 모자라서 못 누르는지도 버튼 옆에 같이 붙여 둔다 — 비활성 버튼만 있으면
- * 사용자는 이유를 찾아 다시 위로 올라가야 한다.
+ * 실행 카드는 격자 마지막 칸이었다. 준비가 길어지면 그 칸이 스크롤 아래로
+ * 밀려, **이 제품이 실제로 하는 일**(사이트를 대신 조작하는 것)이 정작 그 일이
+ * 벌어지는 동안 화면 밖에 있었다. 손잡이는 늘 같은 자리에 있고, 신청이
+ * 시작되면 저절로 열린다.
+ *
+ * 시작 전에도 접힌 손잡이가 **자리를 예고한다.** 눌러 펼치면 빈 브라우저 틀이
+ * 뜨고(`LiveScreen` 이 이미 그 상태를 그린다), 신청이 시작되면 같은 틀 안이
+ * 실제 화면으로 바뀐다 — 새 것이 튀어나오는 대신 있던 것이 채워진다.
  */
-function NeedsFooter({
-  needs,
-  values,
-  onSubmit,
+function BrowserDock({
+  state,
+  apply,
+  open,
+  onToggle,
+  onOpenPanel,
+  onHumanDone,
 }: {
-  needs: Need[];
-  values: Record<string, string>;
-  onSubmit: () => void;
+  state: CardState;
+  apply: ApplyState;
+  open: boolean;
+  onToggle: () => void;
+  onOpenPanel: () => void;
+  onHumanDone: () => void;
 }) {
-  const { missingRequired } = summarizeNeeds(needs, values);
+  const running = apply.status === "running";
+  const status =
+    state.headline ??
+    (running
+      ? "실행 중"
+      : apply.status === "done"
+        ? "완료"
+        : apply.status === "error"
+          ? "실패"
+          : "대기");
+
   return (
-    <DrawerFooter className="flex-row items-center gap-3 border-t border-border pt-4">
-      <Button onClick={onSubmit} disabled={missingRequired > 0}>
-        이 정보로 신청 진행
-      </Button>
-      <span className="text-xs text-muted-foreground">
-        {missingRequired > 0 ? `필수 ${missingRequired}개 미입력` : "필수 항목 완료"}
-      </span>
-    </DrawerFooter>
+    <div className="overflow-hidden rounded-xl border border-border">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40",
+          open && "border-b border-border",
+        )}
+      >
+        <MonitorPlay
+          className={cn(
+            "size-4 shrink-0",
+            running ? "text-brand" : "text-muted-foreground",
+          )}
+        />
+        <span className="text-sm font-medium">{CARD_LABEL.browser}</span>
+        {running && <Loader2 className="size-3.5 shrink-0 animate-spin text-brand" />}
+        {apply.status === "done" && (
+          <CircleCheck className="size-3.5 shrink-0 text-emerald-500" />
+        )}
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          {status}
+        </span>
+        {/* 사람을 기다리는 중이면 접혀 있어도 보여야 한다 — 접힌 손잡이 뒤에서
+            기다리면 아무도 안 온다. */}
+        {apply.needHuman && (
+          <span className="shrink-0 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+            사람 대기
+          </span>
+        )}
+        <ChevronUp
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            open ? "rotate-0" : "rotate-180",
+          )}
+        />
+      </button>
+
+      {open && (
+        <div className="max-h-[52vh] space-y-3 overflow-y-auto bg-card/40 p-3">
+          <LiveScreen
+            frame={apply.frame}
+            running={running}
+            sessionId={apply.sessionId}
+            needHuman={apply.needHuman}
+            onHumanDone={onHumanDone}
+          />
+
+          {state.body && (
+            <p className="text-sm leading-relaxed text-muted-foreground">{state.body}</p>
+          )}
+
+          {apply.steps.length > 0 && (
+            <Button variant="outline" size="xs" onClick={onOpenPanel}>
+              처리 결과 보기
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -923,13 +1105,13 @@ function NeedsFooter({
  * 아래 접이식으로 두면 스크롤해야 보이고 그러면 진행 격자에서 눈을 떼야 한다.
  */
 const PANEL_TITLE: Record<CardKey, string> = {
-  goal: "입력한 것",
-  gather: "모아 온 자료",
+  goal: "요청사항 분석",
+  gather: "추가 자료 수집",
   analyze: "공고 분석",
-  plan: "지원 계획",
-  data: "수집 정보",
-  file: "작성한 서류",
-  browser: "결과",
+  plan: "진행 계획",
+  data: "필요한 정보",
+  file: "파일 생성",
+  browser: "처리 결과",
 };
 
 function OutputPanel({
@@ -942,6 +1124,12 @@ function OutputPanel({
   artifacts,
   needs,
   result,
+  values,
+  onChangeValue,
+  runId,
+  sourceNotice,
+  onUpload,
+  cards,
 }: {
   panel: CardKey;
   onPick: (card: CardKey) => void;
@@ -952,33 +1140,77 @@ function OutputPanel({
   artifacts: Artifact[];
   needs: Need[];
   result: string | null;
+  /** 「필요한 정보」 탭이 읽기 전용이 아니라 입력 자리가 되면서 함께 온다 */
+  values: Record<string, string>;
+  onChangeValue: (key: string, value: string) => void;
+  runId: string | null;
+  sourceNotice: string;
+  onUpload: (artifact: Artifact) => void;
+  /** 빈 탭이 「왜」 비었는지 — 아직 안 돈 건지, 도는 중인지, 멈춘 건지 */
+  cards: Cards;
 }) {
+  /**
+   * 내용이 있는 탭만 누를 수 있다. 빈 탭을 눌러 「아직 없습니다」를 보는 것은
+   * 아무것도 알려주지 않고, 어디까지 진행됐는지도 탭 자체가 말해 준다.
+   * 지금 보고 있는 탭은 비어 있어도 잠그지 않는다 — 활성 탭이 회색으로 죽는다.
+   */
+  const filled: Record<CardKey, boolean> = {
+    goal: Boolean(summary),
+    gather: files.length > 0,
+    analyze: Boolean(brief),
+    plan: Boolean(plan?.steps.length),
+    data: needs.length > 0,
+    file: artifacts.length > 0,
+    browser: Boolean(result),
+  };
+
   return (
-    <aside className="hidden min-w-0 flex-col border-l border-border/60 lg:flex lg:w-1/2">
-      <nav className="flex flex-wrap gap-1 border-b border-border/60 px-4 py-3">
-        {(Object.keys(PANEL_TITLE) as CardKey[]).map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => onPick(key)}
-            className={cn(
-              "rounded-md px-2.5 py-1 text-xs transition-colors",
-              panel === key
-                ? "bg-brand/15 text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {PANEL_TITLE[key]}
-          </button>
-        ))}
-      </nav>
+    <aside className="hidden min-w-0 shrink-0 flex-col border-l border-border/60 lg:flex lg:w-1/2">
+      <Tabs
+        value={panel}
+        // 자동 폴백(`disabled`·`missing`)까지 받으면 사용자가 고른 적 없는 탭에
+        // 화면이 고정된다. 사람이 누른 것(`none`)만 넘긴다.
+        onValueChange={(value, details) => {
+          if (details.reason === "none") onPick(value as CardKey);
+        }}
+        className="border-b border-border/60 px-4 py-3"
+      >
+        <TabsList
+          variant="line"
+          // 탭이 7개라 반폭에서 두 줄로 접힌다. 리스트 높이를 풀어 주지 않으면
+          // 접힌 줄이 8px 높이 안에서 겹친다.
+          className="w-full flex-wrap justify-start gap-3 group-data-horizontal/tabs:h-auto"
+        >
+          {(Object.keys(PANEL_TITLE) as CardKey[]).map((key) => (
+            <TabsTrigger
+              key={key}
+              value={key}
+              // 도는 중인 칸은 비어 있어도 눌린다 — 거기서 무슨 일이
+              // 벌어지는지 보러 가는 것이 이 탭의 용도다.
+              disabled={!filled[key] && cards[key].status !== "running" && panel !== key}
+              className="h-8 flex-none px-0.5 text-sm font-normal"
+            >
+              {PANEL_TITLE[key]}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {/*
+          요약(`goal`)으로 폴백하지 않는다. 분석이 `brief` 를 못 내면 두 탭이
+          같은 글자를 그려서, 사용자는 같은 것을 두 번 보고 어느 쪽이 분석
+          결과인지 알 수 없다 — 못 만들었으면 못 만들었다고 쓴다.
+        */}
         {panel === "analyze" &&
-          (brief || summary ? (
-            <Prose markdown={brief ?? summary?.markdown ?? ""} />
+          (brief ? (
+            <Prose markdown={brief} />
           ) : (
-            <Empty />
+            <Empty
+              card="analyze"
+              state={cards.analyze}
+              done="공고 분석 결과가 없습니다"
+            />
           ))}
 
         {panel === "plan" &&
@@ -1013,36 +1245,22 @@ function OutputPanel({
               ))}
             </ol>
           ) : (
-            <Empty />
+            <Empty card="plan" state={cards.plan} />
           ))}
 
         {panel === "data" &&
           (needs.length ? (
-            <ul className="space-y-1.5">
-              {needs.map((need) => (
-                <li key={need.key} className="rounded-lg bg-muted/40 px-3 py-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate">{need.label}</span>
-                    {need.required && <span className="text-xs text-brand">필수</span>}
-                    <span
-                      className={cn(
-                        "ml-auto truncate text-xs",
-                        need.value?.trim() ? "" : "text-muted-foreground",
-                      )}
-                    >
-                      {need.value?.trim() || "비어 있음"}
-                    </span>
-                  </div>
-                  {need.from === "memory" && (
-                    <p className="mt-0.5 text-[11px] text-brand">
-                      지식베이스{need.memoryLabel ? ` · ${need.memoryLabel}` : ""}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
+            <NeedsList
+              needs={needs}
+              values={values}
+              onChange={onChangeValue}
+              artifacts={artifacts}
+              runId={runId}
+              sourceNotice={sourceNotice}
+              onUpload={onUpload}
+            />
           ) : (
-            <Empty />
+            <Empty card="data" state={cards.data} />
           ))}
 
         {panel === "file" &&
@@ -1064,7 +1282,7 @@ function OutputPanel({
               ))}
             </ul>
           ) : (
-            <Empty />
+            <Empty card="file" state={cards.file} />
           ))}
 
         {panel === "gather" &&
@@ -1084,11 +1302,15 @@ function OutputPanel({
               ))}
             </ul>
           ) : (
-            <Empty />
+            <Empty card="gather" state={cards.gather} />
           ))}
 
         {panel === "goal" &&
-          (summary ? <Prose markdown={summary.markdown} /> : <Empty />)}
+          (summary ? (
+            <Prose markdown={summary.markdown} />
+          ) : (
+            <Empty card="goal" state={cards.goal} />
+          ))}
 
         {panel === "browser" &&
           (result ? (
@@ -1096,15 +1318,202 @@ function OutputPanel({
               {result}
             </p>
           ) : (
-            <Empty text="결과를 기다리고 있습니다" />
+            <Empty card="browser" state={cards.browser} />
           ))}
       </div>
     </aside>
   );
 }
 
-function Empty({ text = "아직 없습니다" }: { text?: string }) {
-  return <p className="py-10 text-center text-sm text-muted-foreground">{text}</p>;
+/**
+ * 「필요한 정보」 탭 — 읽기 전용 목록이 아니라 **입력 자리**다.
+ *
+ * 예전에는 드로어가 화면을 덮고 열렸다. 항목이 스무 개를 넘기니 그 안에서 또
+ * 스크롤이 생겼고, 무엇보다 **공고와 계획을 보면서 채울 수가 없었다** — 값을
+ * 확인하려면 드로어를 닫고, 닫으면 어디까지 채웠는지 다시 찾아야 했다.
+ *
+ * 한 줄에 항목명·값·펼침만 두고, 펼친 자리에서 고친다. 접힌 줄이 곧 현황이라
+ * 목록을 훑는 것만으로 「무엇이 비었나」가 읽힌다.
+ */
+function NeedsList({
+  needs,
+  values,
+  onChange,
+  artifacts,
+  runId,
+  sourceNotice,
+  onUpload,
+}: {
+  needs: Need[];
+  values: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+  artifacts: Artifact[];
+  runId: string | null;
+  sourceNotice: string;
+  onUpload: (artifact: Artifact) => void;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+
+  return (
+    <ul className="space-y-1.5">
+      {needs.map((need) => {
+        const ready = artifacts.find((item) => item.needKey === need.key) ?? null;
+        const value =
+          need.kind === "file" ? (ready?.filename ?? "") : (values[need.key] ?? "");
+        const expanded = open === need.key;
+        return (
+          <li
+            key={need.key}
+            className={cn(
+              "overflow-hidden rounded-lg bg-muted/40 text-sm",
+              expanded && "ring-1 ring-brand/40",
+            )}
+          >
+            <button
+              type="button"
+              // 한 번에 하나만 연다. 여럿이 열리면 목록이 다시 길어져, 접어 둔
+              // 이유가 사라진다.
+              onClick={() => setOpen(expanded ? null : need.key)}
+              aria-expanded={expanded}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/60"
+            >
+              {/*
+                긴 값이 항목명을 밀어내지 않게 셋의 몫을 못박는다. `truncate` 만
+                걸어 두면 둘 다 자기 내용만큼 자라려 들고, 긴 값 쪽이 이겨서
+                항목명이 「기…」 한 글자로 줄고 「필수」가 두 줄로 접혔다(실측).
+              */}
+              <span className="min-w-0 flex-1 truncate">{need.label}</span>
+              {need.required && !value.trim() && (
+                <span className="shrink-0 text-xs text-brand">필수</span>
+              )}
+              <span
+                className={cn(
+                  "max-w-[45%] min-w-0 shrink-0 truncate text-right text-xs",
+                  value.trim() ? "" : "text-muted-foreground",
+                )}
+                title={value.trim() || undefined}
+              >
+                {value.trim() || "비어 있음"}
+              </span>
+              <ChevronUp
+                className={cn(
+                  "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                  expanded ? "rotate-0" : "rotate-180",
+                )}
+              />
+            </button>
+
+            {need.from === "memory" && !expanded && (
+              <p className="px-3 pb-2 text-[11px] text-brand">
+                지식베이스{need.memoryLabel ? ` · ${need.memoryLabel}` : ""}
+              </p>
+            )}
+
+            {expanded && (
+              <div className="border-t border-border/60 px-3 py-3">
+                {need.kind === "file" ? (
+                  // 파일 칸은 값이 아니라 업로드다. 같은 부품을 쓰되 `<li>` 를
+                  // 겹치지 않게 목록 밖에서 하나만 그린다.
+                  <ul className="[&>li]:bg-transparent [&>li]:px-0 [&>li]:py-0">
+                    <DocumentRow
+                      need={need}
+                      ready={ready}
+                      runId={runId}
+                      sourceNotice={sourceNotice}
+                      onUpload={onUpload}
+                    />
+                  </ul>
+                ) : (
+                  <Field need={need} value={value} onChange={onChange} />
+                )}
+                <div className="mt-3 flex items-center gap-2">
+                  <Button size="xs" onClick={() => setOpen(null)}>
+                    저장
+                  </Button>
+                  {/* 값은 칠 때마다 이미 부모 상태에 들어간다. 이 버튼은 줄을
+                      닫을 뿐이라, 「저장 안 하고 닫으면 날아가나」를 없앤다. */}
+                  <span className="text-[11px] text-muted-foreground">
+                    입력하는 대로 반영됩니다
+                  </span>
+                </div>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** 그 칸이 도는 동안 무엇을 하고 있는지. 「아직 없습니다」가 답이 아닌 자리들 */
+const WORKING: Record<CardKey, string> = {
+  goal: "요청하신 내용을 정리하고 있습니다",
+  gather: "관련 자료를 모으고 있습니다",
+  analyze: "공고를 읽고 신청 양식을 구조화하고 있습니다",
+  plan: "진행 순서를 세우고 있습니다",
+  data: "필요한 입력 항목을 추리고 있습니다",
+  file: "제출할 서류를 만들고 있습니다",
+  browser: "신청 페이지를 조작하고 있습니다",
+};
+
+/**
+ * 빈 판 — **왜** 비었는지 말한다.
+ *
+ * 도는 중인데 「아직 없습니다」라고 하면, 사용자는 이 단계가 실패했거나
+ * 아무 일도 안 하는 것으로 읽는다. 실제로는 왼쪽 카드가 돌고 있고 몇십 초
+ * 뒤에 채워진다 — 그 사실이 이 자리에서도 보여야 기다릴 수 있다.
+ */
+function Empty({
+  card,
+  state,
+  done = "아직 없습니다",
+}: {
+  card?: CardKey;
+  state?: CardState;
+  /** 그 단계가 끝났는데도 비었을 때 할 말. 「없다」가 결과인 경우다 */
+  done?: string;
+}) {
+  const status = card && state ? state.status : "done";
+
+  if (status === "running") {
+    return (
+      <div className="flex flex-col items-center gap-3 py-10 text-center">
+        <Spinner className="size-5 text-brand" />
+        <p className="text-sm text-muted-foreground">{WORKING[card!]}</p>
+        {/* 서술자가 쓴 한 줄이 있으면 같이 낸다 — 「무엇을 하고 있나」가
+            일반 문구보다 그 문장에 더 정확히 들어 있다. */}
+        {state?.headline && (
+          <p className="text-xs text-muted-foreground/70">{state.headline}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (status === "idle") {
+    return (
+      <p className="py-10 text-center text-sm text-muted-foreground">
+        앞 단계가 끝나면 시작합니다
+      </p>
+    );
+  }
+
+  if (status === "skip") {
+    return (
+      <p className="py-10 text-center text-sm text-muted-foreground">
+        이번에는 건너뛴 단계입니다
+      </p>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <p className="py-10 text-center text-sm text-muted-foreground">
+        {state?.headline ?? "여기서 멈췄습니다"}
+      </p>
+    );
+  }
+
+  return <p className="py-10 text-center text-sm text-muted-foreground">{done}</p>;
 }
 
 function Prose({ markdown }: { markdown: string }) {

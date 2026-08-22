@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Brain, Check, FileUp, HelpCircle, Loader2 } from "lucide-react";
+import { Check, HelpCircle, Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,9 @@ import { Textarea } from "@/components/ui/textarea";
 import type { Artifact, Need } from "./types";
 
 /**
- * 항목을 갈라 센다. 화면 세 곳이 같은 숫자를 써야 해서 — 드로어 머리말,
- * 폼 본문, 고정 푸터 — 세는 자리를 하나로 둔다. 세 곳이 각자 세면 어긋난다.
+ * 항목을 갈라 센다. 「필요한 정보」 탭과 푸터 버튼이 같은 숫자를 써야 해서
+ * 세는 자리를 하나로 둔다. 두 곳이 각자 세면 「필수 0개」인데 버튼이 안
+ * 넘어가는 일이 생긴다.
  */
 export function summarizeNeeds(needs: Need[], values: Record<string, string>) {
   const files = needs.filter((need) => need.kind === "file");
@@ -25,114 +26,6 @@ export function summarizeNeeds(needs: Need[], values: Record<string, string>) {
   return { files, filled, missing, missingRequired };
 }
 
-/**
- * 6~8 단계 화면 — 지식베이스로 못 채운 것만 묻는다.
- *
- * 채워진 항목도 보여주되 접어 둔다. 무엇이 자동으로 채워졌는지 보여야 사용자가
- * 틀린 값을 잡을 수 있다 — 숨기면 에이전트가 틀린 값을 제출한다.
- *
- * 제출 버튼은 여기 없다. 드로어 푸터에 고정되어 스크롤과 무관하게 늘 보인다 —
- * 항목이 스무 개 넘어가면 버튼이 화면 밖으로 밀려 「다음은 뭘 눌러야 하나」가 된다.
- */
-export function NeedsForm({
-  needs,
-  values,
-  onChange,
-  artifacts,
-  runId,
-  sourceNotice,
-  onUpload,
-}: {
-  needs: Need[];
-  /**
-   * 입력값은 부모가 쥔다. 이 폼은 Drawer 안에 있어서 닫히면 언마운트되는데,
-   * 값을 여기 두면 그때 통째로 사라진다 — 실제로 제출이 한 번 실패하면
-   * 사용자가 친 것이 전부 날아갔다.
-   */
-  values: Record<string, string>;
-  onChange: (key: string, value: string) => void;
-  /** 이미 준비된 파일 — 에이전트가 썼거나 보관함에서 꺼낸 것 */
-  artifacts: Artifact[];
-  /** 이번 실행 폴더. 올린 파일이 같은 곳으로 가야 브라우저가 첨부한다 */
-  runId: string | null;
-  sourceNotice: string;
-  onUpload: (artifact: Artifact) => void;
-}) {
-  const [showFilled, setShowFilled] = useState(false);
-  const { files, filled, missing } = summarizeNeeds(needs, values);
-
-  return (
-    <section>
-      <h2 className="text-sm font-medium">직접 입력이 필요한 항목 {missing.length}개</h2>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {filled.length > 0
-          ? `${filled.length}개는 지식베이스에서 채웠다. 나머지만 확인하면 에이전트가 이어서 신청한다.`
-          : "지식베이스에 아직 아는 값이 없다. 한 번 입력하면 다음 공고부터는 묻지 않는다."}
-      </p>
-
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        {missing.map((need) => (
-          <Field
-            key={need.key}
-            need={need}
-            value={values[need.key] ?? ""}
-            onChange={onChange}
-          />
-        ))}
-      </div>
-
-      {filled.length > 0 && (
-        <div className="mt-6 rounded-xl border border-dashed border-brand/40 bg-brand/5 p-4">
-          <button
-            type="button"
-            onClick={() => setShowFilled((prev) => !prev)}
-            className="flex items-center gap-1.5 text-xs font-medium text-brand"
-          >
-            <Brain className="size-3.5" />
-            지식베이스에서 채운 {filled.length}개 {showFilled ? "접기" : "펼쳐서 확인"}
-          </button>
-          {showFilled && (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {filled.map((need) => (
-                <Field
-                  key={need.key}
-                  need={need}
-                  value={values[need.key] ?? ""}
-                  onChange={onChange}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {files.length > 0 && (
-        <div className="mt-6">
-          <h3 className="flex items-center gap-1.5 text-xs font-medium">
-            <FileUp className="size-3.5" />
-            제출 서류 {files.length}개
-          </h3>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            한 번 올린 발급 서류는 보관함에 남는다 — 다음 공고에서 다시 묻지 않는다.
-          </p>
-          <ul className="mt-2 space-y-1.5 text-sm">
-            {files.map((need) => (
-              <DocumentRow
-                key={need.key}
-                need={need}
-                ready={artifacts.find((item) => item.needKey === need.key) ?? null}
-                runId={runId}
-                sourceNotice={sourceNotice}
-                onUpload={onUpload}
-              />
-            ))}
-          </ul>
-        </div>
-      )}
-    </section>
-  );
-}
-
 const FROM_LABEL: Record<Artifact["from"], string> = {
   agent: "에이전트가 작성",
   memory: "보관함",
@@ -140,7 +33,7 @@ const FROM_LABEL: Record<Artifact["from"], string> = {
 };
 
 /** 서류 한 줄 — 준비됐으면 그 사실을, 아니면 올릴 자리를 보여준다. */
-function DocumentRow({
+export function DocumentRow({
   need,
   ready,
   runId,
@@ -240,7 +133,7 @@ function DocumentRow({
   );
 }
 
-function Field({
+export function Field({
   need,
   value,
   onChange,

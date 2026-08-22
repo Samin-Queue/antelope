@@ -2,6 +2,9 @@ import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DocumentList } from "@/app/(app)/app/hub/_lib/shelf";
+import type { StoredDocument } from "@/app/(app)/app/start/_lib/documents";
 import type { GraphEdge, Memory } from "@/app/(labs)/lab/notice/_lib/memory";
 
 import { CuratorPanel } from "./curator-panel";
@@ -15,6 +18,14 @@ const KIND_LABEL: Record<Memory["kind"], string> = {
 };
 
 /**
+ * 서술 탭에 묶이는 종류.
+ *
+ * `recallNarratives` 가 사업계획을 쓸 때 꺼내는 것과 **같은 셋**이다. 화면의
+ * 분류가 검색의 분류와 다르면, 여기서 본 것과 문서에 실리는 것이 어긋난다.
+ */
+const NARRATIVE_KINDS: Memory["kind"][] = ["item", "strength", "narrative"];
+
+/**
  * 지식은 하나의 큰 컨텍스트로 보여준다.
  *
  * 항목마다 수정 버튼을 달지 않는다 — 이 컨텍스트를 관리하는 주체는
@@ -23,10 +34,12 @@ const KIND_LABEL: Record<Memory["kind"], string> = {
 export function KnowledgeView({
   memories,
   edges,
+  documents,
   signedIn,
 }: {
   memories: Memory[];
   edges: GraphEdge[];
+  documents: StoredDocument[];
   signedIn: boolean;
 }) {
   if (!signedIn) {
@@ -42,50 +55,93 @@ export function KnowledgeView({
     );
   }
 
-  const grouped = (["fact", "item", "strength", "narrative"] as const)
-    .map((kind) => ({ kind, items: memories.filter((item) => item.kind === kind) }))
-    .filter((group) => group.items.length > 0);
+  const facts = memories.filter((memory) => memory.kind === "fact");
+  const narratives = memories.filter((memory) => NARRATIVE_KINDS.includes(memory.kind));
 
   return (
     <div className="space-y-6">
       <KnowledgeGraph memories={memories} edges={edges} />
       <CuratorPanel />
 
-      {grouped.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-border px-6 py-12 text-center text-sm text-muted-foreground">
-          목표를 하나 처리하면 여기서부터 자란다.
-        </p>
-      ) : (
-        <div className="space-y-5">
-          {grouped.map((group) => (
-            <section key={group.kind}>
-              <h3 className="text-xs font-medium text-muted-foreground">
-                {KIND_LABEL[group.kind]} {group.items.length}
-              </h3>
-              <ul className="mt-2 space-y-1.5">
-                {group.items.map((memory) => (
-                  <li
-                    key={memory.id}
-                    className="rounded-xl border border-border bg-card px-4 py-3"
-                  >
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="text-sm font-medium">{memory.label}</span>
-                      {memory.sourceNotice && (
-                        <Badge variant="outline" className="text-[10px]">
-                          {memory.sourceNotice}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                      {memory.value}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
-      )}
+      {/* 셋을 한 줄로 늘어놓으면 사실 스무 개 아래로 파일이 밀려 안 보인다 */}
+      <Tabs defaultValue="fact" className="gap-4">
+        <TabsList>
+          <TabsTrigger value="fact">
+            사실 <Count value={facts.length} />
+          </TabsTrigger>
+          <TabsTrigger value="narrative">
+            서술 <Count value={narratives.length} />
+          </TabsTrigger>
+          <TabsTrigger value="file">
+            파일 <Count value={documents.length} />
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="fact">
+          <MemoryList
+            items={facts}
+            empty="아직 없다. 목표를 하나 처리하면 여기서부터 자란다."
+          />
+        </TabsContent>
+        <TabsContent value="narrative">
+          <MemoryList
+            items={narratives}
+            showKind
+            empty="아직 없다. 사업계획서를 쓸 때 근거로 꺼내 쓸 강점·서술이 여기 쌓인다."
+          />
+        </TabsContent>
+        <TabsContent value="file">
+          <DocumentList documents={documents} />
+        </TabsContent>
+      </Tabs>
     </div>
+  );
+}
+
+function Count({ value }: { value: number }) {
+  return <span className="font-mono text-xs text-muted-foreground">{value}</span>;
+}
+
+function MemoryList({
+  items,
+  empty,
+  showKind = false,
+}: {
+  items: Memory[];
+  empty: string;
+  /** 서술 탭은 세 종류가 섞여 있다. 어느 것인지 보이지 않으면 구분이 사라진다 */
+  showKind?: boolean;
+}) {
+  if (items.length === 0) {
+    return (
+      <p className="rounded-xl border border-dashed border-border px-6 py-12 text-center text-sm text-muted-foreground">
+        {empty}
+      </p>
+    );
+  }
+
+  return (
+    <ul className="space-y-1.5">
+      {items.map((memory) => (
+        <li key={memory.id} className="rounded-xl border border-border bg-card px-4 py-3">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-sm font-medium">{memory.label}</span>
+            {showKind && (
+              <Badge variant="secondary" className="text-[10px]">
+                {KIND_LABEL[memory.kind]}
+              </Badge>
+            )}
+            {memory.sourceNotice && (
+              <Badge variant="outline" className="text-[10px]">
+                {memory.sourceNotice}
+              </Badge>
+            )}
+          </div>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            {memory.value}
+          </p>
+        </li>
+      ))}
+    </ul>
   );
 }

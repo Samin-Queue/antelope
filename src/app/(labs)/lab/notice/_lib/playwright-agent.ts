@@ -164,6 +164,15 @@ export async function runPlaywrightAgent(opts: {
   maxSteps?: number;
   model?: LanguageModel;
   allowSubmit?: boolean;
+  /**
+   * 사람이 도중에 끼워 넣은 지시를 **꺼내 오는** 통로.
+   *
+   * 값이 아니라 함수다 — 루프가 도는 동안 새로 들어오므로 시작 시점에 한 번
+   * 받아 봐야 소용이 없다. 스텝 경계에서 호출하고, 꺼낸 것은 큐에서 빠진다.
+   * 여기는 실험 폴더라 `app/start` 의 레지스트리를 import 하지 않는다
+   * (`helpers` 와 같은 이유다).
+   */
+  steer?: () => string[];
   onStep?: (entry: TraceEntry) => void;
   onFrame?: (image: string, url: string) => void;
 }): Promise<PlaywrightRun> {
@@ -773,13 +782,37 @@ async function runPlaywrightAgentInLane(
        * 입력이 100KB 를 넘고, 그 대부분이 이미 없는 화면의 ref 목록이다.
        * `read()` 출력이 `URL:` 로 시작하므로 판별에 파서가 필요 없다.
        */
-      prepareStep: ({ messages }) => ({
-        messages: pruneToolResults(messages, {
+      prepareStep: ({ messages }) => {
+        const kept = pruneToolResults(messages, {
           keep: 2,
           isBulky: (text) => text.startsWith("URL: "),
           stub: "[지나간 화면 — 여기 있던 ref 는 이미 무효다. 필요하면 read 를 다시 부른다]",
-        }),
-      }),
+        });
+        /**
+         * 사람이 끼어든 말을 **스텝 경계에서** 넣는다.
+         *
+         * 도구 실행 중간을 끊으면 반쯤 채운 폼이 남는다. 여기는 조작 하나가
+         * 끝나고 다음을 정하기 직전이라, 끊지 않으면서 가장 빨리 닿는 자리다.
+         * 마지막 메시지로 붙여야 모델이 최신 지시로 읽는다.
+         */
+        const said = opts.steer?.() ?? [];
+        if (said.length === 0) return { messages: kept };
+        for (const text of said) {
+          void record("steer", { text }, "사용자 지시를 반영한다");
+        }
+        return {
+          messages: [
+            ...kept,
+            {
+              role: "user" as const,
+              content: [
+                "사용자가 지금 끼어들어 말했다. 다른 지시와 부딪히면 이것을 따른다:",
+                ...said.map((text) => `- ${text}`),
+              ].join("\n"),
+            },
+          ],
+        };
+      },
       system: systemPrompt(allowSubmit, artifacts.length > 0),
       prompt: promptFor(goal, startUrl, facts, plan, artifacts),
     });

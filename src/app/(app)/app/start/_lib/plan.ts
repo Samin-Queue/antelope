@@ -47,6 +47,14 @@ export async function makePlan(
     needs: Need[];
     /** 서버가 아는 오늘. 모델에게 날짜를 지어내게 하지 않는다 */
     today: string;
+    /**
+     * 사용자가 준비 도중 끼워 넣은 말.
+     *
+     * 계획은 준비 단계에서 사람이 끼어들 수 있는 **유일한 자리**다. 이 앞의
+     * 단계(요약·조사·분석)는 원문이 답을 정하지만, 순서와 담당은 사정에 따라
+     * 달라진다 — 「증명서는 내가 뗄 테니 그건 빼라」 같은 말이 그것이다.
+     */
+    directives?: string[];
   },
   ctx: Ctx,
 ): Promise<Plan> {
@@ -73,6 +81,13 @@ export async function makePlan(
         "  진행 순서는 번호 목록으로, 각 항목에 담당과 기한을 함께 적는다.",
         "- 주어진 자료에 없는 절차를 지어내지 않는다. 모르면 '확인 필요' 라고 쓴다.",
         "- Markdown 밖의 인사말·코드 펜스는 쓰지 않는다.",
+        ...(input.directives?.length
+          ? [
+              "",
+              "- **사용자가 직접 지시한 것이 있다.** 위 규칙과 부딪히면 사용자 지시를 따르고,",
+              "  반영한 자리를 markdown 의 해당 단계에 한 줄로 적는다.",
+            ]
+          : []),
       ],
       /**
        * 기한과 담당은 **규칙이 답할 수 있다.** 모델이 마감을 오늘 이전으로
@@ -84,6 +99,15 @@ export async function makePlan(
         oneOf("steps[].owner", OWNERS),
       ],
       prompt: [
+        // 맨 앞에 둔다. 준비 문서 14,000자 뒤에 붙이면 묻히고, 사용자가 방금
+        // 한 말이 자료보다 뒤에 오는 것이 순서로도 맞지 않는다.
+        ...(input.directives?.length
+          ? [
+              "--- 사용자가 지금 직접 지시한 것 ---",
+              ...input.directives.map((text) => `- ${text}`),
+              "",
+            ]
+          : []),
         `오늘: ${input.today}`,
         `신청 대상: ${input.title}`,
         input.organization ? `주관: ${input.organization}` : null,

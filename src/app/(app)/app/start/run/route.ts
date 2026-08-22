@@ -7,6 +7,7 @@ import { guardProcess } from "@/lib/guard";
 import { MAX_FILE_BYTES } from "../_lib/fetch";
 import type { IntakeInput } from "../_lib/intake";
 import { runStart } from "../_lib/pipeline";
+import { closeRun } from "../_lib/run-registry";
 import type { SessionSnapshot, StartEvent } from "../_lib/types";
 import { getGoal } from "../../_lib/goals";
 
@@ -125,6 +126,12 @@ export async function POST(req: Request) {
        * 한 번 더 확인한다: 이미 보냈으면 아무 일도 안 하고, 안 보냈으면 이유를
        * 지어내지 않고 「이유 없이 끝났다」고 그대로 적는다.
        */
+      /**
+       * 파이프라인이 만든 `runId`. 지시 상자(`/app/start/steer`)가 이 열쇠로
+       * 큐에 말을 쌓으므로, 준비가 끝나면 여기서 닫아야 한다 — 안 닫으면
+       * 끝난 실행에 넣은 지시가 200 을 받고 아무 데도 안 간다.
+       */
+      let runId: string | null = null;
       let closed = false;
       const finish = (event: StartEvent) => {
         if (closed) return;
@@ -136,6 +143,7 @@ export async function POST(req: Request) {
         await runStart(
           input,
           (event) => {
+            if (event.type === "run") runId = event.runId;
             if (event.type === "end" || event.type === "error") closed = true;
             emit(event);
           },
@@ -155,6 +163,7 @@ export async function POST(req: Request) {
             "준비가 종료 신호 없이 끝났습니다. 서버 로그의 [start/run] 항목을 확인하세요.",
         });
         clearInterval(beat);
+        if (runId) closeRun(runId);
         try {
           controller.close();
         } catch {

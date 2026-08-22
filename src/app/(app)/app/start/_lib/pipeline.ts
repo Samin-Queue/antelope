@@ -23,6 +23,7 @@ import { makePlan } from "./plan";
 import { prefill } from "./prefill";
 import { reconcileNeeds } from "./reconcile";
 import { research } from "./research";
+import { openRun, takeSteer } from "./run-registry";
 import { createSession, updateSession } from "./session";
 import { judge, summarize, type Summary } from "./summarize";
 import {
@@ -177,6 +178,37 @@ export async function runStart(
   // 이번 실행이 만든 파일을 담을 곳이자 원장의 귀속 키. 세션 id 는 맨 끝에 만든다.
   const runId = crypto.randomUUID();
   emit({ type: "run", runId });
+  /**
+   * 준비 중에도 사람이 끼어들 수 있게 레지스트리를 **여기서** 연다.
+   *
+   * 예전에는 신청(`/apply`)만 `openRun` 했다. 그래서 준비가 도는 몇 분 동안
+   * 지시 상자가 죽어 있었고, 사용자가 할 수 있는 것은 다 끝난 뒤 결과를 통째로
+   * 버리는 것뿐이었다. 닫는 것은 `run/route.ts` 의 `finally` 가 한다.
+   */
+  openRun(runId, opts.userId);
+  /** 사용자가 준비 도중 한 말. 큐에서 꺼낸 것을 계속 들고 간다 */
+  const directives: string[] = [];
+  /**
+   * 쌓인 지시를 꺼내 온다. 단계 경계에서만 부른다 — 단계 중간을 끊으면
+   * 반쯤 만든 산출물이 남는다.
+   *
+   * 꺼낸 것은 **버리지 않고 누적한다.** 「주소는 본사로」는 계획에서 한 번
+   * 쓰이고 마는 말이 아니라 그 뒤 단계에도 계속 유효하다.
+   */
+  const steered = (): string[] => {
+    const fresh = takeSteer(runId);
+    if (fresh.length === 0) return directives;
+    directives.push(...fresh);
+    for (const text of fresh) ctx.log(`사용자 지시: ${text}`);
+    // 어디로 갔는지 화면에도 남긴다. 조용히 반영하면 전달됐는지 알 수 없다.
+    emit({
+      type: "card",
+      card: "plan",
+      headline: `지시 반영: ${text0(fresh)}`,
+      body: "",
+    });
+    return directives;
+  };
 
   /**
    * 서술 — 사실은 코드가 뽑아 넘긴다. 서술자가 산출물을 추측하지 않게.
@@ -214,6 +246,18 @@ export async function runStart(
       .catch((error) => {
         ctx.log(`서술 실패: ${error instanceof Error ? error.message : error}`);
       });
+  };
+
+  /**
+   * 코드가 아는 한 줄을 **먼저** 박는다.
+   *
+   * `tell` 은 직렬 큐에 쌓여 모델을 한 번 더 부르고, 끝단의 서술은 `drainNarration`
+   * 상한에 잘린다 — 계획·서류가 늘 마지막 둘이라 그 두 칸만 비어 있었다.
+   * 서술이 도착하면 같은 칸을 덮어쓰므로(클라이언트 `patch` 는 병합이다) 손해가
+   * 없고, 안 와도 칸이 「…」로 남지 않는다.
+   */
+  const note = (card: CardKey, headline: string) => {
+    emit({ type: "card", card, headline, body: "" });
   };
 
   /**
@@ -542,6 +586,9 @@ export async function runStart(
       brief: restored.brief,
       via: "analysis",
       evidence: restored.evidence ?? [],
+      // 재개는 스냅샷에서 되살린다. 검사 결과는 안 남기므로 없는 것으로 둔다 —
+      // 통과한 척 보이게 하지 않는다.
+      verdict: null,
     };
   } else {
     analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
@@ -554,6 +601,16 @@ export async function runStart(
       `요약 경로: ${summary.via}`,
       `분석 경로: ${analysis?.via ?? "실패"} · 뽑아낸 입력 항목 ${analysis?.needs.length ?? 0}개`,
       analysis?.applicationType ? `신청 유형: ${analysis.applicationType}` : "",
+      // Studio 가 규칙으로 센 결과. 「모델이 잘했다고 한다」와 구분해서 말한다.
+      analysis?.verdict
+        ? `Studio 검사 ${analysis.verdict.verdict}: ${analysis.verdict.checks.filter((check) => check.passed).length}/${analysis.verdict.checks.length} 통과` +
+          (analysis.verdict.verdict === "green"
+            ? ""
+            : ` — 실패: ${analysis.verdict.checks
+                .filter((check) => !check.passed)
+                .map((check) => check.name)
+                .join(", ")}`)
+        : "",
       // 준비 문서 본문은 넘기지 않는다. 서술 한 줄을 만들자고 2,500자를 다시
       // 보내고 있었다 — 서술자가 알아야 하는 것은 내용이 아니라 규모다.
       `준비 문서 ${(analysis?.brief ?? summary.markdown).length.toLocaleString()}자`,
@@ -673,6 +730,7 @@ export async function runStart(
             summary: summary.markdown,
             needs: filled,
             today: new Date().toISOString().slice(0, 10),
+            directives: steered(),
           },
           ctxOf("plan"),
         ),
@@ -764,6 +822,7 @@ export async function runStart(
   artifacts = madeArtifacts ?? [];
 
   if (plan) emit({ type: "plan", plan });
+  note("plan", plan ? `계획 수립 완료 · ${plan.steps.length}단계` : "계획을 세우지 못함");
   tell(
     "plan",
     plan
@@ -778,6 +837,10 @@ export async function runStart(
   );
 
   if (artifacts?.length) emit({ type: "artifacts", artifacts });
+  note(
+    "file",
+    artifacts?.length ? `서류 작성 완료 · ${artifacts.length}건` : "작성한 서류 없음",
+  );
   tell(
     "file",
     artifacts?.length
@@ -830,4 +893,12 @@ function fileInfos(files: IntakeFile[]): FileInfo[] {
     origin: file.origin,
     bytes: file.blob.size,
   }));
+}
+
+/** 여러 줄이 한 번에 들어오면 첫 줄만 화면에 낸다. 손잡이 한 줄에 다 안 들어간다 */
+function text0(lines: string[]): string {
+  const head = lines[0] ?? "";
+  return lines.length > 1
+    ? `${head.slice(0, 24)}… 외 ${lines.length - 1}건`
+    : head.slice(0, 30);
 }

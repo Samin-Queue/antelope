@@ -4,8 +4,15 @@ import { isAbort, runObject } from "@/lib/ai/gateway";
 import { noPlaceholder } from "@/lib/ai/verify";
 import { env } from "@/lib/env";
 import { toEvidence, type Evidence } from "@/lib/grounding";
-import { findStep, parsedElements, runAgent, stepOutputs } from "@/lib/upstage-studio";
-import { BRIEF } from "@/app/(labs)/lab/analysis/_lib/workflow";
+import {
+  findStep,
+  parsedElements,
+  runAgent,
+  stepOutputs,
+  verdictOf,
+  type Verdict,
+} from "@/lib/upstage-studio";
+import { BRIEF, CHECK } from "@/app/(labs)/lab/analysis/_lib/workflow";
 
 import type { IntakeFile } from "./fetch";
 import type { Ctx } from "./intake";
@@ -46,6 +53,14 @@ export type Analysis = {
    * 아무 블록이나 칠하면 하이라이트가 근거인 척하는 장식이 된다.
    */
   evidence: Evidence[];
+  /**
+   * Studio `validate` 스텝의 판정.
+   *
+   * 모델이 「잘 된 것 같다」고 말한 게 아니라 규칙이 통과·실패를 센 것이다.
+   * Solar 로 떨어진 경로에는 없다(`null`) — 없는 검사를 통과한 것처럼
+   * 보이게 하지 않는다.
+   */
+  verdict: Verdict | null;
 };
 
 const APPLICATION_TYPES = [
@@ -155,6 +170,7 @@ export async function analyze(
       }
       const brief = unquote(findStep(outputs, BRIEF)?.text ?? "");
       const evidence = toEvidence(parsedElements(findStep(outputs, "parse")));
+      const verdict = verdictOf(outputs, CHECK);
       ctx.log(
         `정보 분석 완료: ${outputs.map((o) => o.step).join(" → ")} · 필드 ${parsed.data.fields.length}개` +
           (brief
@@ -162,10 +178,27 @@ export async function analyze(
             : " · 준비 문서 없음") +
           (evidence.length ? ` · 근거 요소 ${evidence.length}개` : " · 근거 없음"),
       );
+      /**
+       * 실패한 검사만 말한다.
+       *
+       * 통과한 것까지 늘어놓으면 카드가 「이상 없음」 스무 줄로 덮여서 정작
+       * 실패 한 줄이 안 보인다. 이유 문자열에는 좌변 실제값이 들어 있어
+       * 「왜 red 인가」를 되물을 필요가 없다.
+       */
+      if (verdict) {
+        const failed = verdict.checks.filter((check) => !check.passed);
+        ctx.log(
+          `Studio 검사 ${verdict.verdict}: ${verdict.checks.length - failed.length}/${verdict.checks.length} 통과`,
+        );
+        for (const check of failed) {
+          ctx.log(`  ✗ ${check.name} — ${check.reason.slice(0, 160)}`);
+        }
+      }
       return {
         ...toAnalysis(parsed.data, "analysis"),
         brief: brief || null,
         evidence,
+        verdict,
       };
     } catch (error) {
       if (isAbort(error)) throw error;
@@ -185,6 +218,7 @@ export async function analyze(
       brief: null,
       via: "none",
       evidence: [],
+      verdict: null,
     };
 
   try {
@@ -216,6 +250,7 @@ export async function analyze(
       brief: null,
       via: "none",
       evidence: [],
+      verdict: null,
     };
   }
 }
@@ -252,6 +287,7 @@ function toAnalysis(data: Fields, via: Analysis["via"]): Analysis {
     brief: null,
     via,
     evidence: [],
+    verdict: null,
   };
 }
 

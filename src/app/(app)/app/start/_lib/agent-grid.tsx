@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  CircleCheck,
   FileSearch,
   ListChecks,
   Loader2,
@@ -14,6 +16,13 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import { CARD_LABEL, type CardKey } from "./types";
 
@@ -122,6 +131,14 @@ export function AgentCard({
             />
             {CARD_LABEL[card]}
             {running && <Loader2 className="size-4 animate-spin text-brand" />}
+            {/*
+              끝난 칸을 초록 체크 하나로 못박는다. 상태가 아이콘 색에만 실려
+              있어서 「끝난 것」과 「아직 안 돈 것」이 회색 두 단계로만 갈렸다 —
+              일곱 칸을 훑을 때 어디까지 왔는지가 안 잡힌다.
+            */}
+            {state.status === "done" && (
+              <CircleCheck className="size-4 shrink-0 text-emerald-500" />
+            )}
           </h3>
 
           <p
@@ -138,12 +155,7 @@ export function AgentCard({
                   : "…")}
           </p>
 
-          {state.body && (
-            // 4줄에서 자른다. 카드가 늘면 격자가 어긋나고, 전문은 오른쪽에 있다.
-            <p className="mt-3 line-clamp-4 text-sm leading-relaxed text-muted-foreground">
-              {state.body}
-            </p>
-          )}
+          {state.body && <CardBody title={CARD_LABEL[card]} body={state.body} />}
 
           {state.via && (
             <p className="mt-2 font-mono text-[11px] text-muted-foreground/70">
@@ -161,5 +173,80 @@ export function AgentCard({
         {children}
       </div>
     </section>
+  );
+}
+
+/**
+ * 카드 본문 — 3줄에서 자르고, 넘치면 넷째 줄에 「더보기」를 둔다.
+ *
+ * 카드 높이가 본문을 따라 늘면 일곱 칸 격자가 통째로 어긋난다. 그렇다고 그냥
+ * 잘라 두면 잘렸다는 사실 자체가 안 보여서, 사용자는 문장이 거기서 끝난 줄 안다.
+ *
+ * 넘치는지는 **재어서** 판단한다. 글자 수로 어림하면 카드 폭·글꼴·줄바꿈에
+ * 따라 틀리고, 안 넘치는데 「더보기」가 붙으면 눌러도 같은 글이 뜬다.
+ */
+function CardBody({ title, body }: { title: string; body: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [clipped, setClipped] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  // 레이아웃 확정 뒤에 재야 한다. `useEffect` 로 재면 첫 프레임에 「더보기」가
+  // 없다가 뒤늦게 붙어 카드가 한 번 튄다.
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const measure = () => setClipped(node.scrollHeight - node.clientHeight > 1);
+    measure();
+    // 카드 폭은 격자·사이드바·창 크기로 바뀐다. 폭이 줄면 3줄이던 글이 4줄이
+    // 되므로 한 번 재고 마는 것으로는 부족하다.
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [body]);
+
+  // 웹폰트가 늦게 붙으면 줄 수가 달라진다. 폰트 로딩 뒤 한 번 더 잰다.
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || !document.fonts) return;
+    let alive = true;
+    void document.fonts.ready.then(() => {
+      if (alive) setClipped(node.scrollHeight - node.clientHeight > 1);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [body]);
+
+  return (
+    <>
+      <p
+        ref={ref}
+        className="mt-3 line-clamp-3 text-sm leading-relaxed text-muted-foreground"
+      >
+        {body}
+      </p>
+
+      {clipped && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="mt-0.5 w-fit text-sm leading-relaxed text-brand hover:underline"
+        >
+          더보기
+        </button>
+      )}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription className="sr-only">에이전트 설명 전문</DialogDescription>
+          </DialogHeader>
+          <p className="max-h-[60vh] overflow-y-auto text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
+            {body}
+          </p>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
