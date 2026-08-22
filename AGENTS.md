@@ -541,6 +541,55 @@ authClient.linkSocial({ provider: "google", scopes, additionalParams }); // 로�
 재연동이 필요하다. `gmail.modify` 가 제한됨 등급이라 Publish 하려면 CASA 심사를
 받아야 한다.
 
+### 브랜딩 심사 — `*.up.railway.app` 으로는 통과할 수 없다
+
+Testing 모드로 데모하는 동안은 상관없다. **앱을 Publish 하려면 브랜딩 심사가
+먼저 통과해야 하고**(스코프 심사는 그다음이다), 여기서 도메인 때문에 막힌다.
+
+반려 사유 세 가지 중 **홈페이지 소유 확인만 코드로 못 푼다.**
+
+| 반려 사유                | 상태                                                               |
+| ------------------------ | ------------------------------------------------------------------ |
+| 홈페이지 소유 미확인     | ❌ 커스텀 도메인을 사야 한다                                       |
+| 앱 목적 설명 없음        | ✅ `sections/about.tsx` — 목적과 스코프 용도를 한/영으로 낸다      |
+| 동의 화면 앱 이름 불일치 | ✅ `Antelope` 를 조사 없는 맨 텍스트로 About `<h2>` 와 푸터에 둔다 |
+
+⚠ **Search Console 「URL 접두어」 속성은 인정되지 않는다.** OAuth 심사는
+**「도메인」 속성**만 본다 — 그리고 도메인 속성은 **DNS TXT 검증만** 지원한다.
+`google-site-verification` 메타 태그·HTML 파일 업로드는 URL 접두어 전용이다.
+메타 태그로 「확인됨」을 받아도 심사는 같은 오류를 그대로 돌려준다.
+검증한 구글 계정이 GCP 프로젝트의 **소유자(Owner)** 여야 한다는 조건도 붙는다.
+→ https://support.google.com/cloud/answer/13804266
+
+`up.railway.app` 은 **Public Suffix List 등재 도메인**이다(`public_suffix_list.dat`
+15370행, Railway 가 직접 제출). 그래서 `antelope.up.railway.app` 은 형식상
+top private domain 이라 「승인된 도메인」 필드에는 들어간다 — 그런데 그 도메인의
+DNS 는 Railway 소유이고, Railway 는 "**임의 DNS 레코드 추가는 의도적으로 막는다**"
+고 명시한다. TXT 를 꽂을 수단이 없으니 도메인 속성 검증이 영원히 불가능하다.
+
+거기에 Google 이 이 상황을 대놓고 금지한다 — 「서브도메인 소유를 확인할 수 없는
+서드파티 플랫폼에 홈페이지·개인정보처리방침을 두지 말 것」. `github.io` 에 대해
+실제 거절 통보가 나온 사례가 있다. → https://support.google.com/cloud/answer/13807376
+
+**푸는 방법은 하나다.** 도메인을 사서 Railway 커스텀 도메인으로 붙이고,
+Search Console 에서 **도메인 속성 + DNS TXT** 로 검증한 뒤,
+승인된 도메인·홈페이지·개인정보처리방침 URL 을 전부 새 도메인으로 바꾼다.
+개인정보처리방침도 **홈페이지와 같은 도메인**에 있어야 한다.
+코드에서 고칠 곳은 `site.url` 한 곳과 `BETTER_AUTH_URL`, 구글 콜백 URI 다.
+
+**앱 목적 설명은 개인정보처리방침에 있는 것으로 부족하다.** 심사 지침이
+「홈페이지를 고쳐 앱의 목적**과 요청한 구글 사용자 데이터를 어떻게 쓰는지**를
+설명하라」고 못박는다. 그래서 `about` 이 스코프마다 용도를 한 줄씩 적는다.
+
+**앱 이름은 「보이는 본문 텍스트」여야 한다.** 로고 `alt` 속성만으로는 안 되고,
+`<title>`·`og:site_name`·JSON-LD 가 판정에 쓰인다는 근거는 어느 문서에도 없다
+(보조로 넣되 의존하지 않는다). 히어로의 「Antelope로」는 조사가 붙어 토큰이
+`Antelope로` 라 정확히 일치하지 않는다 — 이래서 About `<h2>` 가 이름만 낸다.
+
+심사 크롤러가 JS 를 돌린다는 보장이 없다. About 은 **서버 렌더링**으로 둔다.
+
+자동 검증을 통과해도 **7일 안에 Publish branding 을 누르지 않으면 만료**된다.
+
 **웹훅은 스코프 밖에 일이 더 있다.** Gmail 은 Pub/Sub 토픽을 만들고
 `gmail-api-push@system.gserviceaccount.com` 에 Publisher 를 준 뒤 push 구독을
 공개 HTTPS 로 걸어야 한다. `users.watch` 는 **7일마다 갱신**해야 하고, 알림에는

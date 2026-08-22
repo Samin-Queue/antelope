@@ -25,8 +25,12 @@ export const metadata: Metadata = {
     type: "website",
   },
   alternates: { canonical: "/" },
-  // Search Console 소유권 확인용. 구글이 홈페이지 소유자를 여기서 대조한다 —
-  // `antelope.up.railway.app` 은 Railway 소유 도메인이라 DNS TXT 는 못 넣는다.
+  // Search Console 「URL 접두어」 속성 확인용.
+  //
+  // ⚠ 이것으로 구글 OAuth 브랜딩 심사는 통과하지 못한다. 심사는 「도메인」 속성만
+  //   보고, 도메인 속성은 DNS TXT 검증만 지원한다 — 메타 태그는 URL 접두어 전용이다.
+  //   `antelope.up.railway.app` 은 Railway 소유라 TXT 를 못 넣으므로 커스텀 도메인이
+  //   필요하다. AGENTS.md 「브랜딩 심사」 참고. 색인 목적으로는 유효해서 남긴다.
   verification: { google: "-XuSTupyONbotnbKrenTkRoKK9vVnCZeY23defiTpeo" },
 };
 
