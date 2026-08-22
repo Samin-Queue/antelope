@@ -88,6 +88,32 @@ export const applicationForms = pgTable(
   (table) => [index("application_forms_document_idx").on(table.documentId)],
 );
 
+export const crawlRuns = pgTable("crawl_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export const opportunityCards = pgTable(
+  "opportunity_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    crawlRunId: uuid("crawl_run_id").references(() => crawlRuns.id, {
+      onDelete: "set null",
+    }),
+    category: text("category").notNull(),
+    source: text("source").notNull(),
+    title: text("title").notNull(),
+    url: text("url").notNull(),
+    content: text("content").notNull(),
+    screenshot: text("screenshot").notNull(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("opportunity_cards_category_idx").on(table.category, table.capturedAt),
+  ],
+);
+
 /**
  * 기업 지식베이스 — 이 제품의 해자.
  *

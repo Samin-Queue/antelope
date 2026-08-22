@@ -22,7 +22,8 @@
     "doctor": "tsx scripts/doctor.ts",
     "studio:provision": "tsx --env-file=.env.local scripts/studio-provision.ts",
     "studio:provision:samson": "tsx --env-file=.env.local scripts/studio-provision-samson.ts",
-    "studio:provision:michael": "tsx --env-file=.env.local scripts/studio-provision-michael.ts"
+    "studio:provision:michael": "tsx --env-file=.env.local scripts/studio-provision-michael.ts",
+    "crawl:opportunities": "tsx --env-file=.env.local scripts/crawl-opportunities.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.33",
