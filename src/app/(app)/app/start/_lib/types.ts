@@ -6,7 +6,8 @@
  */
 
 /** 1~5 단계. 화면의 진행 레일이 이 순서로 그린다 */
-export type Stage = "intake" | "summarize" | "judge" | "research" | "analyze" | "prefill";
+export type Stage =
+  "intake" | "summarize" | "judge" | "research" | "analyze" | "prefill" | "plan";
 
 export const STAGES: Stage[] = [
   "intake",
@@ -15,6 +16,7 @@ export const STAGES: Stage[] = [
   "research",
   "analyze",
   "prefill",
+  "plan",
 ];
 
 export const STAGE_LABEL: Record<Stage, { title: string; agent: string }> = {
@@ -24,6 +26,7 @@ export const STAGE_LABEL: Record<Stage, { title: string; agent: string }> = {
   research: { title: "추가 조사", agent: "solar-pro4" },
   analyze: { title: "양식 분석", agent: "정보 분석 에이전트" },
   prefill: { title: "지식베이스 선채움", agent: "memories" },
+  plan: { title: "진행 계획", agent: "계획 에이전트" },
 };
 
 export type NeedKind =
@@ -53,6 +56,35 @@ export type Need = {
   memoryLabel?: string;
 };
 
+/**
+ * 계획서의 한 단계.
+ *
+ * `owner` 가 핵심이다 — 사람이 직접 해야 하는 일(증명서 발급·본인인증)을
+ * 미리 갈라 두지 않으면 브라우저 에이전트가 그 앞에서 멈춰 선다.
+ */
+export type PlanStep = {
+  id: string;
+  title: string;
+  owner: "browser" | "data" | "file" | "user";
+  detail: string | null;
+  /** YYYY-MM-DD. 마감에서 역산한다 */
+  dueDate: string | null;
+  url: string | null;
+};
+
+export type Plan = {
+  /** 사람이 읽는 계획서 */
+  markdown: string;
+  steps: PlanStep[];
+};
+
+export const PLAN_OWNER_LABEL: Record<PlanStep["owner"], string> = {
+  browser: "브라우저",
+  data: "정보 수집",
+  file: "파일 작성",
+  user: "직접",
+};
+
 export type FileInfo = {
   name: string;
   origin: "upload" | "url" | "crawl";
@@ -76,6 +108,8 @@ export type SessionSnapshot = {
   files: FileInfo[];
   /** 마스터 테이블 */
   needs: Need[];
+  /** 진행 계획. 브라우저 에이전트가 들고 다닐 순서표 */
+  plan: Plan | null;
   /** 어디까지 갔는지. 다시 열었을 때 레일을 그대로 그린다 */
   stages: Partial<Record<Stage, "done" | "error" | "skip">>;
 };
@@ -92,6 +126,7 @@ export type StartEvent =
   | { type: "summary"; markdown: string; via: string }
   /** 정보 분석 의 신청 준비 문서 */
   | { type: "brief"; markdown: string }
+  | { type: "plan"; plan: Plan }
   | { type: "verdict"; verdict: "good" | "bad"; reason: string }
   /** 세션이 DB 에 만들어졌다. 이후 갱신은 이 id 로 한다 */
   | { type: "session"; id: string }

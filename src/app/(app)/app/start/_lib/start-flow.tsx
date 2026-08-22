@@ -22,11 +22,13 @@ import { LiveScreen } from "@/app/(labs)/lab/notice/_lib/run-view";
 import { NeedsForm } from "./needs-form";
 import {
   APPLY_URL_KEY,
+  PLAN_OWNER_LABEL,
   STAGE_LABEL,
   STAGES,
   type ApplyEvent,
   type FileInfo,
   type Need,
+  type Plan,
   type Stage,
   type StartEvent,
 } from "./types";
@@ -81,6 +83,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [summary, setSummary] = useState<{ markdown: string; via: string } | null>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
   const [verdict, setVerdict] = useState<{
     verdict: "good" | "bad";
     reason: string;
@@ -128,6 +131,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         setSummary({ markdown: event.markdown, via: event.via });
       } else if (event.type === "verdict") {
         setVerdict({ verdict: event.verdict, reason: event.reason });
+      } else if (event.type === "plan") {
+        setPlan(event.plan);
       } else if (event.type === "session") {
         setSessionId(event.id);
       } else if (event.type === "needs") {
@@ -315,6 +320,54 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
                 {summary.markdown}
               </ReactMarkdown>
             </article>
+          </section>
+        )}
+
+        {plan && (plan.markdown || plan.steps.length > 0) && (
+          <section className="rounded-2xl border border-border bg-card p-6">
+            <Badge variant="secondary">진행 계획</Badge>
+            {plan.steps.length > 0 && (
+              <ol className="mt-4 space-y-2">
+                {plan.steps.map((step, index) => (
+                  <li
+                    key={step.id}
+                    className="flex flex-wrap items-start gap-2 rounded-lg bg-muted/40 px-3 py-2.5"
+                  >
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm">{step.title}</p>
+                      {step.detail && (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {step.detail}
+                        </p>
+                      )}
+                    </div>
+                    <Badge variant={step.owner === "user" ? "default" : "outline"}>
+                      {PLAN_OWNER_LABEL[step.owner]}
+                    </Badge>
+                    {step.dueDate && (
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {step.dueDate}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
+            {plan.markdown && (
+              <details className="mt-4">
+                <summary className="cursor-pointer text-xs text-muted-foreground">
+                  계획서 전문
+                </summary>
+                <article className="mt-3 max-w-none text-sm leading-6 break-words [&_a]:text-brand [&_a]:underline [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_li]:pl-1 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {plan.markdown}
+                  </ReactMarkdown>
+                </article>
+              </details>
+            )}
           </section>
         )}
 

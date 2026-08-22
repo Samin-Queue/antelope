@@ -2,6 +2,7 @@ import { analyze } from "./analyze";
 import type { IntakeFile } from "./fetch";
 import { intake, type Ctx, type IntakeInput } from "./intake";
 import { mergeNeeds } from "./needs";
+import { makePlan } from "./plan";
 import { prefill } from "./prefill";
 import { reconcileNeeds } from "./reconcile";
 import { research } from "./research";
@@ -133,6 +134,25 @@ export async function runStart(
     gathered.pages[0]?.title ??
     "제목 미상";
 
+  // 7 — 계획. 마스터 테이블이 확정된 뒤에 세운다 — 무엇을 사용자에게 물어야
+  // 하는지가 계획의 일부이기 때문이다.
+  const plan = await stage("plan", () =>
+    makePlan(
+      {
+        title,
+        organization: found?.organization ?? null,
+        deadline: found?.deadline ?? null,
+        applyUrl: found?.applyUrl ?? null,
+        brief: analysis?.brief ?? null,
+        summary: summary.markdown,
+        needs: filled,
+        today: new Date().toISOString().slice(0, 10),
+      },
+      ctx,
+    ),
+  );
+  if (plan) emit({ type: "plan", plan });
+
   const snapshot: SessionSnapshot = {
     title,
     organization: found?.organization ?? null,
@@ -142,6 +162,7 @@ export async function runStart(
     brief: analysis?.brief ?? null,
     files: fileInfos(allFiles),
     needs: filled,
+    plan,
     stages,
   };
 

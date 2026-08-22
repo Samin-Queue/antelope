@@ -7,7 +7,12 @@ import { hasDb } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { AppHeader } from "@/components/app/app-header";
 import { Badge } from "@/components/ui/badge";
-import type { Need, SessionSnapshot } from "@/app/(app)/app/start/_lib/types";
+import {
+  PLAN_OWNER_LABEL,
+  type Need,
+  type Plan,
+  type SessionSnapshot,
+} from "@/app/(app)/app/start/_lib/types";
 import type { Notice } from "@/app/(labs)/lab/notice/_lib/schema";
 
 import { getGoal, OUTCOME_LABEL, STAGE_LABEL } from "../../_lib/goals";
@@ -81,6 +86,8 @@ export default async function SessionPage({
           </div>
         </header>
 
+        {snapshot?.plan?.steps?.length ? <PlanView plan={snapshot.plan} /> : null}
+
         {snapshot?.needs?.length ? (
           <MasterTable needs={snapshot.needs} />
         ) : (
@@ -135,6 +142,49 @@ export default async function SessionPage({
         ) : null}
       </div>
     </>
+  );
+}
+
+/** 진행 계획 — 언제 · 어디서 · 누가. */
+function PlanView({ plan }: { plan: Plan }) {
+  return (
+    <section>
+      <h2 className="text-sm font-medium">진행 계획 {plan.steps.length}단계</h2>
+      <ol className="mt-3 space-y-1.5">
+        {plan.steps.map((step, index) => (
+          <li
+            key={step.id}
+            className="flex flex-wrap items-start gap-2 rounded-lg bg-muted/40 px-3 py-2.5"
+          >
+            <span className="font-mono text-xs text-muted-foreground">{index + 1}</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm">{step.title}</p>
+              {step.detail && (
+                <p className="mt-0.5 text-xs text-muted-foreground">{step.detail}</p>
+              )}
+            </div>
+            <Badge variant={step.owner === "user" ? "default" : "outline"}>
+              {PLAN_OWNER_LABEL[step.owner]}
+            </Badge>
+            {step.dueDate && (
+              <span className="font-mono text-xs text-muted-foreground">
+                {step.dueDate}
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+      {plan.markdown && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-muted-foreground">
+            계획서 전문
+          </summary>
+          <pre className="mt-2 overflow-x-auto rounded-xl bg-muted/40 p-4 text-sm leading-relaxed whitespace-pre-wrap">
+            {plan.markdown}
+          </pre>
+        </details>
+      )}
+    </section>
   );
 }
 
