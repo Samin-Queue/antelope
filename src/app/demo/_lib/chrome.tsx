@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Download, ExternalLink } from "lucide-react";
+import { Download } from "lucide-react";
 
 import type { DemoSite } from "./sites";
 
@@ -98,13 +98,6 @@ export function NoticeHead({
           <Download className="size-3.5" />
           공고문 PDF 다운로드
         </a>
-        <Link
-          href={`/demo/${site.slug}/apply`}
-          className={`${site.accent} inline-flex items-center gap-1.5 rounded px-3 py-2 text-xs font-semibold text-white hover:opacity-90`}
-        >
-          신청하러 가기
-          <ExternalLink className="size-3.5" />
-        </Link>
       </div>
     </div>
   );
@@ -176,17 +169,18 @@ export function NoticeTable({
 
 export function ApplyCta({ site }: { site: DemoSite }) {
   return (
-    <div className="mt-10 flex flex-col items-start gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-5 sm:flex-row sm:items-center sm:justify-between">
-      <div className="text-[13px]">
-        <p className="font-semibold text-neutral-800">접수 마감</p>
-        <p className="text-neutral-500">{site.deadline} 까지</p>
-      </div>
-      <Link
-        href={`/demo/${site.slug}/apply`}
-        className={`${site.accent} rounded px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90`}
-      >
-        온라인 신청하기
-      </Link>
-    </div>
+    <section className="mt-10 border-y border-neutral-200 py-5 text-[13px] leading-[1.85] text-neutral-700">
+      <h2 className="font-bold text-neutral-900">신청 방법</h2>
+      <p className="mt-2">
+        접수 마감은 {site.deadline}이며, 신청서는{" "}
+        <Link
+          href={`/demo/${site.slug}/apply`}
+          className={`font-semibold underline underline-offset-4 ${site.accentText}`}
+        >
+          온라인 신청 페이지
+        </Link>
+        에서 작성·제출한다.
+      </p>
+    </section>
   );
 }
