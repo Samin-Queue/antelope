@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { Brain, FileUp, HelpCircle } from "lucide-react";
+import { useRef, useState } from "react";
+import { Brain, Check, FileUp, HelpCircle, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { Need } from "./types";
+import type { Artifact, Need } from "./types";
 
 /**
  * 6~8 단계 화면 — 지식베이스로 못 채운 것만 묻는다.
@@ -17,9 +17,19 @@ import type { Need } from "./types";
  */
 export function NeedsForm({
   needs,
+  artifacts,
+  runId,
+  sourceNotice,
+  onUpload,
   onSubmit,
 }: {
   needs: Need[];
+  /** 이미 준비된 파일 — 에이전트가 썼거나 보관함에서 꺼낸 것 */
+  artifacts: Artifact[];
+  /** 이번 실행 폴더. 올린 파일이 같은 곳으로 가야 브라우저가 첨부한다 */
+  runId: string | null;
+  sourceNotice: string;
+  onUpload: (artifact: Artifact) => void;
   onSubmit: (values: Record<string, string>) => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>(() =>
@@ -87,20 +97,21 @@ export function NeedsForm({
         <div className="mt-6">
           <h3 className="flex items-center gap-1.5 text-xs font-medium">
             <FileUp className="size-3.5" />
-            직접 준비해 제출할 서류 {files.length}개
+            제출 서류 {files.length}개
           </h3>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            파일 업로드는 에이전트가 대신 못 한다. 신청 화면에서 업로드 차례가 오면
-            조작권을 넘긴다.
+            한 번 올린 발급 서류는 보관함에 남는다 — 다음 공고에서 다시 묻지 않는다.
           </p>
-          <ul className="mt-2 space-y-1 text-sm">
+          <ul className="mt-2 space-y-1.5 text-sm">
             {files.map((need) => (
-              <li key={need.key} className="rounded-lg bg-muted/40 px-3 py-2">
-                {need.label}
-                {need.why && (
-                  <span className="ml-2 text-xs text-muted-foreground">— {need.why}</span>
-                )}
-              </li>
+              <DocumentRow
+                key={need.key}
+                need={need}
+                ready={artifacts.find((item) => item.needKey === need.key) ?? null}
+                runId={runId}
+                sourceNotice={sourceNotice}
+                onUpload={onUpload}
+              />
             ))}
           </ul>
         </div>
@@ -115,6 +126,100 @@ export function NeedsForm({
         </span>
       </div>
     </section>
+  );
+}
+
+const FROM_LABEL: Record<Artifact["from"], string> = {
+  agent: "에이전트가 작성",
+  memory: "보관함",
+  user: "직접 올림",
+};
+
+/** 서류 한 줄 — 준비됐으면 그 사실을, 아니면 올릴 자리를 보여준다. */
+function DocumentRow({
+  need,
+  ready,
+  runId,
+  sourceNotice,
+  onUpload,
+}: {
+  need: Need;
+  ready: Artifact | null;
+  runId: string | null;
+  sourceNotice: string;
+  onUpload: (artifact: Artifact) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send(file: File) {
+    if (!runId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("label", need.label);
+      body.append("needKey", need.key);
+      body.append("runId", runId);
+      body.append("sourceNotice", sourceNotice);
+      const response = await fetch("/app/start/documents", { method: "POST", body });
+      const json = (await response.json()) as { artifact?: Artifact; error?: string };
+      if (!response.ok || !json.artifact) throw new Error(json.error ?? "업로드 실패");
+      onUpload(json.artifact);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="rounded-lg bg-muted/40 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {ready ? (
+          <Check className="size-3.5 shrink-0 text-brand" />
+        ) : (
+          <span className="size-3.5 shrink-0 rounded-full border border-dashed border-muted-foreground/50" />
+        )}
+        <span>{need.label}</span>
+        {ready ? (
+          <>
+            <span className="truncate text-xs text-muted-foreground">
+              {ready.filename}
+            </span>
+            <span className="text-xs text-brand">{FROM_LABEL[ready.from]}</span>
+          </>
+        ) : (
+          <>
+            {need.why && (
+              <span className="truncate text-xs text-muted-foreground">— {need.why}</span>
+            )}
+            <input
+              ref={inputRef}
+              type="file"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void send(file);
+              }}
+            />
+            <Button
+              variant="outline"
+              size="xs"
+              className="ml-auto"
+              disabled={busy || !runId}
+              onClick={() => inputRef.current?.click()}
+            >
+              {busy && <Loader2 className="animate-spin" />}
+              올리기
+            </Button>
+          </>
+        )}
+      </div>
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+    </li>
   );
 }
 

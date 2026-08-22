@@ -110,6 +110,8 @@ export type Artifact = {
   path: string;
   /** 어떤 값으로 채웠는지 — 마스터 테이블 key 목록 */
   usedKeys: string[];
+  /** 어디서 왔는가. agent=파일 에이전트가 씀, memory=보관함, user=직접 올림 */
+  from: "agent" | "memory" | "user";
 };
 
 export type FileInfo = {
@@ -157,6 +159,8 @@ export type StartEvent =
   | { type: "brief"; markdown: string }
   | { type: "plan"; plan: Plan }
   | { type: "artifacts"; artifacts: Artifact[] }
+  /** 이번 실행이 파일을 담는 폴더 id. 사용자가 서류를 올릴 때 같이 보낸다 */
+  | { type: "run"; runId: string }
   | { type: "verdict"; verdict: "good" | "bad"; reason: string }
   /** 세션이 DB 에 만들어졌다. 이후 갱신은 이 id 로 한다 */
   | { type: "session"; id: string }

@@ -214,6 +214,39 @@ export const goals = pgTable(
   (table) => [index("goals_user_idx").on(table.userId, table.updatedAt)],
 );
 
+/**
+ * 재사용하는 제출 서류.
+ *
+ * 사업자등록증·4대보험 명부·재무제표는 공고마다 똑같은 것을 낸다. 한 번 올린
+ * 것을 다음 공고에서 다시 달라고 하면, 이 제품이 파는 「다시 묻지 않는다」가
+ * 값에만 해당하고 파일에는 해당하지 않는 셈이 된다.
+ *
+ * 바이트를 base64 로 담는다. `bytea` 가 더 알뜰하지만 drizzle 에 기본 타입이
+ * 없어 customType 을 얹어야 하고, 서류 한 장은 대개 1MB 미만이라 TOAST 압축으로
+ * 충분하다. 상한은 애플리케이션에서 막는다.
+ */
+export const userDocuments = pgTable(
+  "user_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    /** 사람이 읽는 서류 이름 — 「사업자등록증 사본」 */
+    label: text("label").notNull(),
+    /** 조회 키. 공백·「사본」 같은 접미어를 턴 것 */
+    matchKey: text("match_key").notNull(),
+    filename: text("filename").notNull(),
+    mime: text("mime").notNull(),
+    bytes: integer("bytes").notNull(),
+    /** base64 */
+    data: text("data").notNull(),
+    /** 어느 공고에서 올렸는지 — 출처를 잃으면 신뢰할 수 없다 */
+    sourceNotice: text("source_notice"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("user_documents_key_idx").on(table.userId, table.matchKey)],
+);
+
 export const chatSessions = pgTable("chat_sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title"),

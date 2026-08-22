@@ -6,6 +6,7 @@ import { generateObject, generateText } from "ai";
 import { chromium } from "playwright";
 import { z } from "zod";
 
+import { documentBytes, recallDocuments } from "./documents";
 import type { Ctx } from "./intake";
 import { bigModel, clip } from "./llm";
 import type { Artifact, Need } from "./types";
@@ -167,7 +168,60 @@ export async function writeDocument(
     bytes: pdf.length,
     path,
     usedKeys: known.map((need) => need.key),
+    from: "agent",
   };
+}
+
+/**
+ * 보관함에 이미 있는 발급 서류를 꺼내 놓는다.
+ *
+ * 사업자등록증·4대보험 명부는 공고마다 같은 것을 낸다. 지난번에 올린 것을
+ * 다시 달라고 하면 이 제품이 파는 「다시 묻지 않는다」가 값에만 해당하는
+ * 셈이 된다.
+ */
+export async function recallArtifacts(
+  labels: string[],
+  userId: string | null,
+  dir: string,
+  ctx: Ctx,
+): Promise<Artifact[]> {
+  if (!userId || labels.length === 0) return [];
+  const found = await recallDocuments(userId, labels);
+  const hits = Object.entries(found);
+  if (hits.length === 0) {
+    ctx.log(`보관함에 없음 — ${labels.join(", ")}`);
+    return [];
+  }
+
+  await mkdir(dir, { recursive: true });
+  const out: Artifact[] = [];
+  for (const [label, stored] of hits) {
+    const file = await documentBytes(userId, stored.id);
+    if (!file) continue;
+    const path = join(dir, file.filename);
+    await writeFile(path, file.data);
+    out.push({
+      needKey: documentKeyOf(label),
+      label,
+      filename: file.filename,
+      mime: file.mime,
+      bytes: file.data.length,
+      path,
+      usedKeys: [],
+      from: "memory",
+    });
+  }
+  ctx.log(`보관함에서 ${out.map((a) => a.label).join(", ")} 를 꺼냈다`);
+  return out;
+}
+
+/** needs 의 key 는 `normalizeKey(label)` 이다. 여기서도 같은 규칙을 쓴다. */
+function documentKeyOf(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[\s\-_·.,:()（）*※]/g, "")
+    .replace(/필수|선택/g, "")
+    .trim();
 }
 
 /** 세션마다 따로 둔다. 컨테이너가 재시작하면 사라지고, 그때는 다시 만든다. */

@@ -1,6 +1,6 @@
 import { analyze } from "./analyze";
 import type { IntakeFile } from "./fetch";
-import { artifactDir, planDocuments, writeDocument } from "./file-agent";
+import { artifactDir, planDocuments, recallArtifacts, writeDocument } from "./file-agent";
 import { intake, type Ctx, type IntakeInput } from "./intake";
 import { mergeNeeds } from "./needs";
 import { makePlan } from "./plan";
@@ -38,6 +38,7 @@ export async function runStart(
   const ctx: Ctx = { log: (text) => emit({ type: "log", text }) };
   // 이번 실행이 만든 파일을 담을 곳. 세션 id 는 아직 없다(맨 끝에 만든다).
   const runId = crypto.randomUUID();
+  emit({ type: "run", runId });
 
   // 세션에 그대로 실린다 — 다시 열었을 때 진행 레일을 같은 모양으로 그린다.
   const stages: SessionSnapshot["stages"] = {};
@@ -160,10 +161,13 @@ export async function runStart(
   // 8 — 서류 작성. 발급 서류는 손대지 않는다 — 만들면 위조다.
   const artifacts = await stage("documents", async () => {
     const brief = analysis?.brief ?? summary.markdown;
-    const { jobs } = await planDocuments(filled, brief, ctx);
-    if (jobs.length === 0) return [];
+    const { jobs, obtain } = await planDocuments(filled, brief, ctx);
     const dir = artifactDir(runId);
-    const made: Artifact[] = [];
+
+    // 발급 서류는 만들지 않는다 — 보관함에 있으면 꺼내 쓴다.
+    const recalled = await recallArtifacts(obtain, opts.userId, dir, ctx);
+    if (jobs.length === 0) return recalled;
+    const made: Artifact[] = [...recalled];
     for (const job of jobs) {
       try {
         made.push(

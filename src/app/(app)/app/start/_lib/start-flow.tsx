@@ -88,6 +88,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   const [summary, setSummary] = useState<{ markdown: string; via: string } | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [runId, setRunId] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<{
     verdict: "good" | "bad";
     reason: string;
@@ -140,6 +141,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         setPlan(event.plan);
       } else if (event.type === "artifacts") {
         setArtifacts(event.artifacts);
+      } else if (event.type === "run") {
+        setRunId(event.runId);
       } else if (event.type === "session") {
         setSessionId(event.id);
       } else if (event.type === "needs") {
@@ -451,6 +454,15 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         {showForm && (
           <NeedsForm
             needs={prepared.needs}
+            artifacts={artifacts}
+            runId={runId}
+            sourceNotice={prepared.title}
+            onUpload={(artifact) =>
+              setArtifacts((prev) => [
+                ...prev.filter((item) => item.needKey !== artifact.needKey),
+                artifact,
+              ])
+            }
             onSubmit={(values) => void startApply(prepared, values)}
           />
         )}

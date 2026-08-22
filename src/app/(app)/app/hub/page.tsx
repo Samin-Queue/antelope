@@ -3,9 +3,11 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { hasDb } from "@/lib/db";
 import { AppHeader } from "@/components/app/app-header";
+import { listDocuments } from "@/app/(app)/app/start/_lib/documents";
 import { graphEdges, listMemories } from "@/app/(labs)/lab/notice/_lib/memory";
 
 import { KnowledgeView } from "../knowledge/_lib/view";
+import { DocumentShelf } from "./_lib/shelf";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "데이터 허브" };
@@ -16,15 +18,20 @@ export default async function HubPage() {
     ? await auth.api.getSession({ headers: await headers() })
     : null;
 
-  const [memories, edges] = session
-    ? await Promise.all([listMemories(session.user.id), graphEdges(session.user.id)])
-    : [[], []];
+  const [memories, edges, documents] = session
+    ? await Promise.all([
+        listMemories(session.user.id),
+        graphEdges(session.user.id),
+        listDocuments(session.user.id),
+      ])
+    : [[], [], []];
 
   return (
     <>
       <AppHeader trail={["데이터 허브"]} />
       <div className="mx-auto w-full max-w-4xl px-6 py-8">
         <KnowledgeView memories={memories} edges={edges} signedIn={Boolean(session)} />
+        {session && <DocumentShelf documents={documents} />}
       </div>
     </>
   );
