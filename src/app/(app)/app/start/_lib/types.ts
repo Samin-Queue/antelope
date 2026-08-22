@@ -39,6 +39,49 @@ export const STAGES: Stage[] = [
 /** 브라우저까지 포함한 전체 어휘. 두 스트림이 이걸로 말한다 */
 export type AgentKey = Stage | "browser";
 
+/**
+ * 화면의 카드.
+ *
+ * 단계와 1:1 이 아니다 — 「유효성 검사」·「착수 판정」 은 우리 내부 용어이고,
+ * 사용자가 알아야 하는 것은 「목표를 파악했다」·「자료를 모았다」 다.
+ * 여러 단계가 한 카드로 모인다.
+ */
+export type CardKey =
+  "goal" | "gather" | "analyze" | "plan" | "data" | "file" | "browser";
+
+export const CARDS: CardKey[] = [
+  "goal",
+  "gather",
+  "analyze",
+  "plan",
+  "data",
+  "file",
+  "browser",
+];
+
+export const CARD_LABEL: Record<CardKey, string> = {
+  goal: "목표 파악",
+  gather: "배경 정보 수집",
+  analyze: "수집 자료 분석",
+  plan: "계획 수립",
+  data: "필요 데이터 수집",
+  file: "파일 에디터",
+  browser: "작업 실행",
+};
+
+/** 단계가 어느 카드에 속하는가 */
+export const CARD_OF: Record<AgentKey, CardKey> = {
+  intake: "goal",
+  judge: "goal",
+  research: "gather",
+  summarize: "analyze",
+  analyze: "analyze",
+  plan: "plan",
+  prefill: "data",
+  documents: "file",
+  browser: "browser",
+};
+
 export const STAGE_LABEL: Record<AgentKey, { title: string; agent: string }> = {
   intake: { title: "입력 정리", agent: "solar-mini" },
   summarize: { title: "유효성 검사", agent: "Studio" },
@@ -176,6 +219,8 @@ export type StartEvent =
   | { type: "brief"; markdown: string }
   /** 어느 단계가 실제로 무엇으로 돌았는지. 고정 라벨이 거짓이 되는 자리를 고친다 */
   | { type: "via"; stage: Stage; via: string }
+  /** 오케스트레이터가 쓴 상태 문장. 카드에 그대로 뜬다 */
+  | { type: "card"; card: CardKey; headline: string; body: string }
   | { type: "plan"; plan: Plan }
   | { type: "artifacts"; artifacts: Artifact[] }
   /** 이번 실행이 파일을 담는 폴더 id. 사용자가 서류를 올릴 때 같이 보낸다 */
@@ -214,6 +259,8 @@ export type ApplyEvent =
   /** 값이 없어 사용자에게 묻는다. 답이 올 때까지 브라우저는 멈춰 기다린다 */
   | { type: "ask"; id: string; label: string; why: string; kind: NeedKind }
   | { type: "answered"; id: string; label: string }
+  /** 신청 도중의 서술. 준비 단계와 같은 카드에 쌓인다 */
+  | { type: "card"; card: CardKey; headline: string; body: string }
   | { type: "step"; tool: string; detail: string; title: string }
   | { type: "frame"; image: string; title: string }
   | { type: "need:human"; reason: string }

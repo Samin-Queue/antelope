@@ -9,6 +9,7 @@ import {
   writeDocument,
 } from "./file-agent";
 import { intake, type Ctx, type IntakeInput } from "./intake";
+import { narrate, type NarrationTurn } from "./narrator";
 import { mergeNeeds } from "./needs";
 import { makePlan } from "./plan";
 import { prefill } from "./prefill";
@@ -19,6 +20,7 @@ import { judge, summarize } from "./summarize";
 import {
   APPLY_URL_KEY,
   type Artifact,
+  type CardKey,
   type FileInfo,
   type SessionSnapshot,
   type Stage,
@@ -46,6 +48,23 @@ export async function runStart(
   // 실행 중인 단계를 여기에 남긴다.
   let current: Stage = "intake";
   const ctx: Ctx = { log: (text) => emit({ type: "log", stage: current, text }) };
+
+  /**
+   * 서술자의 기억.
+   *
+   * 단계마다 따로 쓰면 매번 처음부터 설명하는 글이 된다 — 앞에서 무엇을
+   * 말했는지 알아야 「자료 조사에서 못 찾은 신청 URL 을 계획에서 사람에게
+   * 묻기로 했다」 같은 이어진 말이 나온다.
+   */
+  const history: NarrationTurn[] = [];
+
+  /** 사실은 코드가 뽑아 넘긴다. 서술자가 산출물을 추측하지 않게 */
+  const tell = async (card: CardKey, facts: string, reason?: string) => {
+    const said = await narrate({ card, facts, history, reason }, ctx);
+    if (!said) return;
+    history.push({ card, ...said });
+    emit({ type: "card", card, headline: said.headline, body: said.body });
+  };
   // 이번 실행이 만든 파일을 담을 곳. 세션 id 는 아직 없다(맨 끝에 만든다).
   const runId = crypto.randomUUID();
   emit({ type: "run", runId });
@@ -100,6 +119,19 @@ export async function runStart(
     return;
   }
   emit({ type: "files", files: fileInfos(gathered.files) });
+  await tell(
+    "goal",
+    [
+      `사용자가 하려는 일: ${gathered.intent || "(문장 없음)"}`,
+      `받은 파일 ${gathered.files.length}개: ${gathered.files.map((f) => f.name).join(", ") || "없음"}`,
+      `읽은 페이지 ${gathered.pages.length}개: ${gathered.pages.map((p) => p.title || p.url).join(", ") || "없음"}`,
+      gathered.failures.length
+        ? `가져오지 못한 링크 ${gathered.failures.length}개: ${gathered.failures.map((f) => `${f.url} (${f.reason})`).join(" / ")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
 
   // 2 — 요약
   const summary = await stage("summarize", () => summarize(gathered, ctx));
@@ -124,11 +156,34 @@ export async function runStart(
   const found = await stage("research", () => research(gathered, summary, ctx));
   const allFiles: IntakeFile[] = [...gathered.files, ...(found?.files ?? [])];
   if (found?.files.length) emit({ type: "files", files: fileInfos(allFiles) });
+  await tell(
+    "gather",
+    [
+      `제목: ${found?.title ?? "확인 안 됨"}`,
+      `주관: ${found?.organization ?? "확인 안 됨"} · 마감: ${found?.deadline ?? "확인 안 됨"}`,
+      `신청 URL: ${found?.applyUrl ?? "못 찾음 — 사람에게 물어야 한다"}`,
+      `새로 받은 자료 ${found?.files.length ?? 0}개: ${(found?.files ?? []).map((f) => f.name).join(", ") || "없음"}`,
+      `신청 페이지에서 뽑은 입력 항목 ${found?.needs.length ?? 0}개`,
+    ].join("\n"),
+  );
 
   // 5 — 정밀 분석 (1·3단계가 모은 파일 전부)
   const analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
   if (analysis) emit({ type: "via", stage: "analyze", via: analysis.via });
   if (analysis?.brief) emit({ type: "brief", markdown: analysis.brief });
+  await tell(
+    "analyze",
+    [
+      `요약 경로: ${summary.via}`,
+      `분석 경로: ${analysis?.via ?? "실패"} · 뽑아낸 입력 항목 ${analysis?.needs.length ?? 0}개`,
+      analysis?.applicationType ? `신청 유형: ${analysis.applicationType}` : "",
+      "",
+      "준비 문서(앞부분):",
+      (analysis?.brief ?? summary.markdown).slice(0, 2_500),
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
 
   // 병합 — 신청 링크를 묻는 항목은 맨 앞, 그다음 정보 분석, 그다음 research.
   const researchNeeds = found?.needs ?? [];
@@ -143,6 +198,20 @@ export async function runStart(
   // 6 — 선채움
   const filled =
     (await stage("prefill", () => prefill(merged, opts.userId, ctx))) ?? merged;
+  const known = filled.filter((need) => need.value?.trim());
+  await tell(
+    "data",
+    [
+      `필요한 항목 ${filled.length}개 · 지식베이스로 채운 것 ${known.length}개`,
+      known.length
+        ? `채운 항목: ${known.map((need) => `${need.label}=${need.value}`).join(", ")}`
+        : "채운 것이 없다 — 처음 신청이거나 로그인 전이다",
+      `물어야 하는 항목: ${filled
+        .filter((need) => !need.value?.trim())
+        .map((need) => need.label)
+        .join(", ")}`,
+    ].join("\n"),
+  );
 
   const title =
     (found?.title && found.title !== "제목 미상" ? found.title : null) ??
@@ -169,6 +238,18 @@ export async function runStart(
     ),
   );
   if (plan) emit({ type: "plan", plan });
+  await tell(
+    "plan",
+    plan
+      ? [
+          `${plan.steps.length}단계로 세웠다.`,
+          ...plan.steps.map(
+            (step) =>
+              `  ${step.title} — 담당 ${step.owner}${step.dueDate ? ` · ${step.dueDate}` : ""}`,
+          ),
+        ].join("\n")
+      : "계획을 세우지 못했다.",
+  );
 
   // 8 — 서류 작성. 발급 서류는 손대지 않는다 — 만들면 위조다.
   const artifacts = await stage("documents", async () => {
@@ -204,6 +285,17 @@ export async function runStart(
     return made;
   });
   if (artifacts?.length) emit({ type: "artifacts", artifacts });
+  await tell(
+    "file",
+    artifacts?.length
+      ? artifacts
+          .map(
+            (item) =>
+              `${item.filename} — ${item.label} (${item.from === "agent" ? "직접 작성" : item.from === "memory" ? "보관함에서 꺼냄" : "사용자가 올림"})`,
+          )
+          .join("\n")
+      : "만든 서류가 없다. 발급받아야 하는 것뿐이거나 작성할 것이 없었다.",
+  );
 
   const snapshot: SessionSnapshot = {
     title,

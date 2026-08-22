@@ -8,9 +8,10 @@ import {
 } from "@/app/(labs)/lab/notice/_lib/playwright-agent";
 
 import { artifactDir, writeDocument } from "../_lib/file-agent";
+import { narrate, type NarrationTurn } from "../_lib/narrator";
 import { makePlan } from "../_lib/plan";
 import { ask, closeRun, openRun } from "../_lib/run-registry";
-import type { AgentKey, ApplyEvent, Need, Plan } from "../_lib/types";
+import type { AgentKey, ApplyEvent, CardKey, Need, Plan } from "../_lib/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 900;
@@ -51,6 +52,20 @@ const body = z.object({
   brief: z.string().max(40_000).optional(),
   organization: z.string().max(200).nullish(),
   deadline: z.string().max(40).nullish(),
+  /**
+   * 준비 단계에서 서술자가 이미 한 말. 스트림이 둘로 갈려 있어서 클라이언트를
+   * 거쳐 넘긴다 — 이게 없으면 신청 단계 서술이 매번 처음부터 다시 설명한다.
+   */
+  narration: z
+    .array(
+      z.object({
+        card: z.string().max(20),
+        headline: z.string().max(200),
+        body: z.string().max(2000),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 
 /** 신청이 끝난 뒤 화면을 이만큼 더 남긴다. 접수 완료 화면을 사람이 봐야 한다 */
@@ -77,6 +92,7 @@ export async function POST(req: Request) {
   }
   const { applyUrl, title, facts, plan, runId, brief, organization, deadline } =
     parsed.data;
+  const history = (parsed.data.narration ?? []) as NarrationTurn[];
   const artifacts = [...(parsed.data.artifacts ?? [])];
   const needs = (parsed.data.needs ?? []) as unknown as Need[];
   const sessionId = `start-${Date.now()}`;
@@ -118,6 +134,20 @@ export async function POST(req: Request) {
         }
       };
 
+      /**
+       * 준비 단계와 **같은 서술자**가 이어서 쓴다. 그래서 「계획에서 사람이
+       * 해야 한다고 표시한 두 가지를 빼고 나머지를 넣는다」 같은 말이 나온다.
+       */
+      const tell = async (card: CardKey, factText: string, reason?: string) => {
+        const said = await narrate(
+          { card, facts: factText, history, reason },
+          { log: (text) => emit({ type: "step", tool: "say", detail: text, title: "" }) },
+        );
+        if (!said) return;
+        history.push({ card, ...said });
+        emit({ type: "card", card, headline: said.headline, body: said.body });
+      };
+
       openRun(runId);
       emit({ type: "agent", agent: "browser", status: "start" });
 
@@ -136,6 +166,11 @@ export async function POST(req: Request) {
           const value = await ask(runId, { id, label });
           emit({ type: "answered", id, label });
           emit({ type: "agent", agent: "prefill", status: "done" });
+          void tell(
+            "data",
+            `신청 폼에 「${label}」 칸이 있는데 준비 단계에서 채우지 못했다. 사용자에게 물어 값을 받았다.`,
+            why,
+          );
           return value;
         },
 
@@ -162,6 +197,11 @@ export async function POST(req: Request) {
             ),
           );
           if (!made) return null;
+          void tell(
+            "file",
+            `신청 폼이 「${label}」 파일을 요구해 그 자리에서 만들었다. 파일명 ${made.artifact.filename}, 형식 ${format}.`,
+            "신청 도중 없던 첨부 파일이 필요해졌다",
+          );
           artifacts.push({
             label,
             filename: made.artifact.filename,
@@ -189,12 +229,27 @@ export async function POST(req: Request) {
               },
             ),
           );
+          if (revised) {
+            void tell(
+              "plan",
+              `신청 도중 막혀 계획을 다시 세웠다. 새 순서: ${revised.steps.map((step) => step.title).join(" → ")}`,
+              problem,
+            );
+          }
           return revised ? summarizePlan(revised) : null;
         },
       };
 
       let usedDesktop = false;
       try {
+        await tell(
+          "browser",
+          `신청 페이지 ${applyUrl} 를 연다. 채울 값 ${Object.keys(facts).length}개, 첨부할 파일 ${artifacts.length}개를 들고 간다.` +
+            (plan?.human?.length
+              ? ` 계획에서 사람이 해야 한다고 표시한 것: ${plan.human.join(", ")} — 브라우저는 건드리지 않는다.`
+              : ""),
+        );
+
         const probe = await probeCaptcha(applyUrl);
 
         if (!probe.found) {
@@ -217,6 +272,10 @@ export async function POST(req: Request) {
           });
 
           if (!run.captcha) {
+            await tell(
+              "browser",
+              `신청을 마쳤다. ${run.steps}번 조작했다. ${run.summary}`,
+            );
             emit({ type: "done", summary: run.summary, steps: run.steps });
             return;
           }
@@ -249,6 +308,10 @@ export async function POST(req: Request) {
           onNeedHuman: (reason) => emit({ type: "need:human", reason }),
           onHumanDone: () => emit({ type: "human:done" }),
         });
+        await tell(
+          "browser",
+          `직접 조작 모드로 신청을 마쳤다. ${run.steps}번 조작했다. ${run.summary}`,
+        );
         emit({ type: "done", summary: run.summary, steps: run.steps });
       } catch (error) {
         emit({
