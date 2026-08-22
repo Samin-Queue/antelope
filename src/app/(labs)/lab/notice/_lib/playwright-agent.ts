@@ -81,6 +81,8 @@ const SNAPSHOT = `(() => {
       // 파일 칸이 받는 형식. 안 맞는 파일을 올리면 브라우저가 조용히 무시한다.
       accept: String(el.getAttribute('accept') || '').slice(0, 120),
       multiple: el.multiple === true,
+      // 폼 밖으로 나가는 링크. 누르면 되돌아오느라 시간을 태운다.
+      href: el.tagName === 'A' ? String(el.getAttribute('href') || '').slice(0, 200) : '',
     });
   }
   return { elements: out, text: (document.body?.innerText || '').replace(/\\n{2,}/g, '\\n').slice(0, 1800) };
@@ -101,6 +103,7 @@ type Snapshot = {
     validationMessage: string;
     accept: string;
     multiple: boolean;
+    href: string;
   }>;
   text: string;
 };
@@ -222,6 +225,8 @@ export async function runPlaywrightAgent(opts: {
           bits.push(`[미충족${el.validationMessage ? ` ${el.validationMessage}` : ""}]`);
         if (el.options?.length) bits.push(`선택지: ${el.options.join(" / ")}`);
         if (el.accept) bits.push(`받는 형식: ${el.accept}`);
+        // 폼 밖으로 나가는 링크는 눌러도 되돌려진다. 미리 알려 왕복을 없앤다.
+        if (el.href && leavesForm(startUrl, el.href, page.url())) bits.push("[폼 밖]");
         return "  " + bits.join(" ");
       });
       return [
@@ -539,6 +544,16 @@ async function settle(page: Page, extraMs = 700) {
  * 나가는 것이 실제로 문제였던 이동이다. 다단계 폼이 쿼리·해시를 바꾸는 것은
  * 이탈이 아니다.
  */
+/** 이 링크를 누르면 폼을 벗어나는가. 상대 경로를 현재 URL 기준으로 푼다. */
+function leavesForm(startUrl: string, href: string, current: string): boolean {
+  if (!href || href.startsWith("#") || href.startsWith("javascript:")) return false;
+  try {
+    return left(startUrl, new URL(href, current).href);
+  } catch {
+    return false;
+  }
+}
+
 function left(startUrl: string, current: string): boolean {
   try {
     const from = new URL(startUrl);
@@ -583,6 +598,7 @@ function systemPrompt(allowSubmit: boolean, hasArtifacts: boolean): string {
     "사용자는 진행 화면을 실시간으로 보고 있다. 없는 사실을 지어내지 않고 주어진 값만 옮긴다.",
     "",
     "규칙:",
+    "- `[폼 밖]` 이 붙은 링크는 누르지 않는다. 눌러도 자동으로 되돌려지고 시간만 태운다.",
     "- 맨 처음 한 번 read 한다. **click 은 바뀐 화면을 함께 돌려주므로 그 뒤에 read 를 또 부르지 않는다.** ref 는 가장 최근에 받은 목록의 것만 쓴다.",
     "- **여러 칸은 fill 을 한 번에 여러 개 호출해 채운다.** 한 칸씩 왕복하면 그만큼 느려진다.",
     "- 날짜는 `2024-03-15` 형태로 fill 한다. 화면 표기(mm/dd/yyyy 등)로 바꾸지 않는다.",
