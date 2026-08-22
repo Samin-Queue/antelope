@@ -20,7 +20,6 @@ const TYPE_LABEL: Record<Step["type"], string> = {
   "document-classify": "Document Classify",
   "information-extract": "Information Extract",
   instruct: "Instruct",
-  validate: "Validate",
 };
 
 type Placed = {
