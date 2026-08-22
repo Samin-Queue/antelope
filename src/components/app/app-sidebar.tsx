@@ -75,7 +75,12 @@ export function AppSidebar({
   const pathname = usePathname();
 
   return (
-    <Sidebar collapsible="none" className="h-svh border-r border-sidebar-border">
+    <Sidebar
+      collapsible="none"
+      // ⚠ `collapsible="none"` 은 평범한 div 로 렌더된다 — 문서 흐름에 있어서
+      // 본문을 스크롤하면 사이드바도 같이 밀려 올라간다. sticky 로 붙인다.
+      className="sticky top-0 h-svh shrink-0 overflow-y-auto border-r border-sidebar-border"
+    >
       <SidebarHeader className="h-14 justify-center px-3">
         <div className="flex items-center gap-1">
           <Link href="/app" aria-label="워크스페이스" className="min-w-0 pl-1">

@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Brain, Check, FileUp, HelpCircle, Loader2 } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -247,11 +248,25 @@ function Field({
           {need.source}
         </span>
       </span>
+      {/* 정규화된 항목은 정규화된 UI 로 받는다. 「예 / 아니오」 를 글자로 치게
+          하면 「Y」·「있음」·「해당없음」 이 섞여 들어와 폼에 못 넣는다. */}
       {long ? (
         <Textarea
           rows={3}
           value={value}
           onChange={(event) => onChange(need.key, event.target.value)}
+        />
+      ) : need.kind === "checkbox" ? (
+        <Choice
+          options={["예", "아니오"]}
+          value={value}
+          onChange={(next) => onChange(need.key, next)}
+        />
+      ) : need.kind === "select" && need.options?.length ? (
+        <Choice
+          options={need.options}
+          value={value}
+          onChange={(next) => onChange(need.key, next)}
         />
       ) : (
         <Input
@@ -259,13 +274,9 @@ function Field({
             need.kind === "date" ? "date" : need.kind === "number" ? "number" : "text"
           }
           value={value}
-          placeholder={
-            need.kind === "checkbox"
-              ? "예 / 아니오"
-              : need.kind === "select"
-                ? "고를 항목"
-                : ""
-          }
+          // 선택지를 못 뽑은 select 는 자유 입력으로 떨어진다. 고를 것이 없는데
+          // 고르라고 하는 것보다 낫다.
+          placeholder={need.kind === "select" ? "직접 입력" : ""}
           onChange={(event) => onChange(need.key, event.target.value)}
         />
       )}
@@ -276,5 +287,39 @@ function Field({
         </span>
       )}
     </label>
+  );
+}
+
+/** 선택지를 눌러 고른다. 다시 누르면 해제된다 — 잘못 고르고 못 무르면 안 된다 */
+function Choice({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.slice(0, 12).map((option) => {
+        const picked = value === option;
+        return (
+          <button
+            key={option}
+            type="button"
+            onClick={() => onChange(picked ? "" : option)}
+            className={cn(
+              "rounded-md border px-2.5 py-1 text-xs transition-colors",
+              picked
+                ? "border-brand bg-brand/15 text-foreground"
+                : "border-border text-muted-foreground hover:border-brand/40 hover:text-foreground",
+            )}
+          >
+            {option}
+          </button>
+        );
+      })}
+    </div>
   );
 }

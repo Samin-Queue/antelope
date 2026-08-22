@@ -174,6 +174,8 @@ export type StartEvent =
   | { type: "summary"; markdown: string; via: string }
   /** 정보 분석 의 신청 준비 문서 */
   | { type: "brief"; markdown: string }
+  /** 어느 단계가 실제로 무엇으로 돌았는지. 고정 라벨이 거짓이 되는 자리를 고친다 */
+  | { type: "via"; stage: Stage; via: string }
   | { type: "plan"; plan: Plan }
   | { type: "artifacts"; artifacts: Artifact[] }
   /** 이번 실행이 파일을 담는 폴더 id. 사용자가 서류를 올릴 때 같이 보낸다 */

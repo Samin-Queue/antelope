@@ -141,7 +141,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           break;
         case "summary":
           setSummary({ markdown: event.markdown, via: event.via });
-          patch("summarize", { output: `요약 ${event.via}` });
+          // 파일이 없으면 Studio 를 못 탄다. 실제로 무엇이 돌았는지 적는다.
+          patch("summarize", { via: event.via, output: `${event.via}` });
           break;
         case "brief":
           setBrief(event.markdown);
@@ -381,73 +382,106 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   const running = preparing || apply.status === "running";
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4 px-6 py-6">
-      <header className="flex flex-wrap items-center gap-2">
-        <h1 className="text-base font-medium">{prepared?.title ?? "공고를 읽는 중"}</h1>
-        {prepared?.organization && (
-          <span className="text-sm text-muted-foreground">{prepared.organization}</span>
-        )}
-        {prepared?.deadline && (
-          <Badge variant="secondary">{prepared.deadline.replace("T", " ")}</Badge>
-        )}
-        {prepared?.applyUrl && (
-          <a
-            href={prepared.applyUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1 text-xs text-brand hover:underline"
-          >
-            <Link2 className="size-3" />
-            신청 페이지
-          </a>
-        )}
-        {running && <Loader2 className="ml-auto size-4 animate-spin text-brand" />}
-      </header>
+    <div className="flex min-h-[calc(100svh-3.5rem)]">
+      <div className="min-w-0 flex-1 space-y-4 px-6 py-6">
+        <header className="flex flex-wrap items-center gap-2">
+          <h1 className="text-base font-medium">{prepared?.title ?? "공고를 읽는 중"}</h1>
+          {prepared?.organization && (
+            <span className="text-sm text-muted-foreground">{prepared.organization}</span>
+          )}
+          {prepared?.deadline && (
+            <Badge variant="secondary">{prepared.deadline.replace("T", " ")}</Badge>
+          )}
+          {prepared?.applyUrl && (
+            <a
+              href={prepared.applyUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 text-xs text-brand hover:underline"
+            >
+              <Link2 className="size-3" />
+              신청 페이지
+            </a>
+          )}
+          {running && <Loader2 className="ml-auto size-4 animate-spin text-brand" />}
+        </header>
 
-      <AgentGrid cards={cards} />
+        <AgentGrid cards={cards} />
 
-      <SteerBox disabled={!runId || apply.status !== "running"} onSend={steer} />
+        <SteerBox disabled={!runId || apply.status !== "running"} onSend={steer} />
 
-      {(apply.status !== "idle" || cards.browser.status !== "idle") && (
-        <div className="grid gap-3 lg:grid-cols-[1fr_20rem]">
-          <div className="space-y-2">
-            {apply.mode && (
-              <p className="text-xs text-muted-foreground">{apply.mode.reason}</p>
-            )}
-            <LiveScreen
-              frame={apply.frame}
-              running={apply.status === "running"}
-              sessionId={apply.sessionId}
-              needHuman={apply.needHuman}
-              onHumanDone={() => setApply((prev) => ({ ...prev, needHuman: null }))}
+        {(apply.status !== "idle" || cards.browser.status !== "idle") && (
+          <div className="grid gap-3 lg:grid-cols-[1fr_20rem]">
+            <div className="space-y-2">
+              {apply.mode && (
+                <p className="text-xs text-muted-foreground">{apply.mode.reason}</p>
+              )}
+              <LiveScreen
+                frame={apply.frame}
+                running={apply.status === "running"}
+                sessionId={apply.sessionId}
+                needHuman={apply.needHuman}
+                onHumanDone={() => setApply((prev) => ({ ...prev, needHuman: null }))}
+              />
+            </div>
+            <AgentCard
+              agent="browser"
+              state={cards.browser}
+              className="h-full min-h-56"
             />
           </div>
-          <AgentCard agent="browser" state={cards.browser} className="h-full min-h-56" />
-        </div>
-      )}
+        )}
 
-      {apply.summary && (
-        <section className="rounded-xl border border-brand/40 bg-brand/5 p-4 text-sm">
-          <p className="flex items-center gap-1.5 font-medium text-brand">
-            <CheckCircle2 className="size-4" />
-            신청 결과
+        {apply.summary && (
+          <section className="rounded-xl border border-brand/40 bg-brand/5 p-4 text-sm">
+            <p className="flex items-center gap-1.5 font-medium text-brand">
+              <CheckCircle2 className="size-4" />
+              신청 결과
+            </p>
+            <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+              {apply.summary}
+            </p>
+          </section>
+        )}
+
+        {(apply.error || error) && (
+          <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words text-destructive">
+            {apply.error ?? error}
           </p>
-          <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
-            {apply.summary}
-          </p>
-        </section>
-      )}
+        )}
 
-      {(apply.error || error) && (
-        <p className="rounded-lg bg-destructive/10 px-4 py-3 font-mono text-xs break-words text-destructive">
-          {apply.error ?? error}
-        </p>
-      )}
+        {prepared && !needsOpen && apply.status === "idle" && (
+          <Button onClick={() => setNeedsOpen(true)}>입력 확인하고 신청</Button>
+        )}
 
-      {prepared && !needsOpen && apply.status === "idle" && (
-        <Button onClick={() => setNeedsOpen(true)}>입력 확인하고 신청</Button>
-      )}
+        <Dialog open={needsOpen} onOpenChange={setNeedsOpen}>
+          <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>신청에 필요한 정보</DialogTitle>
+            </DialogHeader>
+            {prepared && (
+              <NeedsForm
+                needs={prepared.needs}
+                artifacts={artifacts}
+                runId={runId}
+                sourceNotice={prepared.title}
+                onUpload={(artifact) =>
+                  setArtifacts((prev) => [
+                    ...prev.filter((item) => item.needKey !== artifact.needKey),
+                    artifact,
+                  ])
+                }
+                onSubmit={(values) => void startApply(prepared, values)}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
 
+        <AskDialog item={ask} onAnswer={answer} />
+      </div>
+
+      {/* 산출물은 오른쪽에 세워 둔다. 아래에 접어 두면 스크롤해야 보이고,
+          그러면 격자에서 눈을 떼야 한다 — 진행과 결과를 같이 봐야 한다. */}
       <Details
         summary={summary}
         brief={brief}
@@ -455,31 +489,6 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         files={files}
         artifacts={artifacts}
       />
-
-      <Dialog open={needsOpen} onOpenChange={setNeedsOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>신청에 필요한 정보</DialogTitle>
-          </DialogHeader>
-          {prepared && (
-            <NeedsForm
-              needs={prepared.needs}
-              artifacts={artifacts}
-              runId={runId}
-              sourceNotice={prepared.title}
-              onUpload={(artifact) =>
-                setArtifacts((prev) => [
-                  ...prev.filter((item) => item.needKey !== artifact.needKey),
-                  artifact,
-                ])
-              }
-              onSubmit={(values) => void startApply(prepared, values)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <AskDialog item={ask} onAnswer={answer} />
     </div>
   );
 }
@@ -501,7 +510,7 @@ function Details({
   if (!summary && !brief && !plan && files.length === 0) return null;
 
   return (
-    <div className="space-y-2">
+    <aside className="sticky top-14 hidden h-[calc(100svh-3.5rem)] w-80 shrink-0 space-y-2 overflow-y-auto border-l border-border/60 px-4 py-6 xl:block">
       {plan && plan.steps.length > 0 && (
         <Block title={`진행 계획 ${plan.steps.length}단계`} open>
           <ol className="space-y-1.5">
@@ -582,7 +591,7 @@ function Details({
           </ul>
         </Block>
       )}
-    </div>
+    </aside>
   );
 }
 

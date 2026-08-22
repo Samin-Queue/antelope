@@ -18,6 +18,8 @@ export function normalizeKey(label: string): string {
 export function makeNeed(input: {
   label: string;
   kind?: string | null;
+  /** select 일 때 고를 수 있는 값. 없으면 자유 입력으로 그려진다 */
+  options?: string[] | null;
   required?: boolean | null;
   source: Need["source"];
   why?: string | null;
@@ -27,10 +29,16 @@ export function makeNeed(input: {
   // 예시 값·URL·전화번호 패턴은 항목이 아니다. 플레이스홀더가 새어 들어온 것이다.
   if (/^https?:\/\/|^[\d\s\-().+]{6,}$|^[\w.+-]+@[\w-]+\.[\w.]+$/.test(label))
     return null;
+  const options = (input.options ?? [])
+    .map((option) => String(option).trim())
+    .filter(Boolean)
+    .slice(0, 12);
+
   return {
     key: normalizeKey(label),
     label,
     kind: toKind(input.kind),
+    ...(options.length > 1 ? { options } : {}),
     required: input.required ?? false,
     source: input.source,
     why: input.why?.trim().slice(0, 160) || null,

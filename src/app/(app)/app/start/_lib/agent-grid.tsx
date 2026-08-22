@@ -24,6 +24,12 @@ export type CardState = {
   logs: string[];
   /** 그 에이전트가 낸 것 한 줄 */
   output?: string;
+  /**
+   * 실제로 무엇이 돌았는가. 고정 라벨이 거짓이 되는 자리가 있다 —
+   * 「유효성 검사 / Studio」 카드는 파일이 없으면 Solar 가 대신 요약하는데,
+   * 그때도 Studio 라고 적혀 있으면 화면이 사실과 다르다.
+   */
+  via?: string;
 };
 
 export type Cards = Record<AgentKey, CardState>;
@@ -74,7 +80,7 @@ export function AgentCard({
         <StatusMark status={state.status} />
         <span className="truncate text-xs font-medium">{label.title}</span>
         <span className="ml-auto shrink-0 truncate font-mono text-[10px] text-muted-foreground">
-          {label.agent}
+          {state.via ?? label.agent}
         </span>
       </header>
 

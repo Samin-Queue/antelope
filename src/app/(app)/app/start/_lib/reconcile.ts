@@ -19,6 +19,7 @@ const schema = z.object({
       z.object({
         label: z.string(),
         kind: z.string().nullish(),
+        options: z.array(z.string()).nullish(),
         required: z.boolean().nullish(),
         why: z.string().nullish(),
         source: z.string().nullish(),
@@ -41,7 +42,8 @@ export async function reconcileNeeds(
       system: [
         "너는 두 출처에서 나온 신청 입력 항목을 하나의 목록으로 합치는 편집자다.",
         "결과를 아래 JSON 구조 그대로 낸다. 키 이름을 바꾸거나 새로 만들지 않는다.",
-        `{ "needs": [{ "label": string, "kind": "text"|"long"|"date"|"number"|"select"|"checkbox"|"file", "required": boolean, "why": string, "source": "analysis"|"research" }] }`,
+        `{ "needs": [{ "label": string, "kind": "text"|"long"|"date"|"number"|"select"|"checkbox"|"file", "options": [string], "required": boolean, "why": string, "source": "analysis"|"research" }] }`,
+        "- **`select` 이면 `options` 에 고를 값을 넣는다.** 원문에 선택지가 적혀 있으면 그대로, 없으면 그 항목에서 실제로 가능한 값(예: 투자 단계 → 시드/시리즈 A/시리즈 B/해당 없음). 선택지를 못 만들겠으면 `text` 로 둔다 — 고를 것이 없는데 고르라고 하지 않는다.",
         "",
         "규칙:",
         "- 같은 것을 묻는 항목은 **하나로** 합친다 (성명=이름, 연락처=휴대전화, 경력 년수=백엔드 개발 경력 등).",
@@ -68,6 +70,7 @@ export async function reconcileNeeds(
         makeNeed({
           label: item.label,
           kind: item.kind,
+          options: item.options,
           required: item.required,
           why: item.why,
           source: item.source === "analysis" ? "analysis" : "research",

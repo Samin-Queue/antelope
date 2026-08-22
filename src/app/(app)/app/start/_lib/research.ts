@@ -218,6 +218,7 @@ const needsSchema = z.object({
       z.object({
         label: z.string(),
         kind: z.string().nullish(),
+        options: z.array(z.string()).nullish(),
         required: z.boolean().nullish(),
         why: z.string().nullish(),
       }),
@@ -238,7 +239,8 @@ async function deriveNeeds(markdown: string, applyPage: Page | null): Promise<Ne
       system: [
         "너는 공고를 읽고 신청자가 직접 입력해야 하는 항목을 정리하는 설계자다.",
         "결과를 아래 JSON 구조 그대로 낸다. 키 이름을 바꾸거나 새로 만들지 않는다.",
-        `{ "needs": [{ "label": string, "kind": "text"|"long"|"date"|"number"|"select"|"checkbox"|"file", "required": boolean, "why": string }] }`,
+        `{ "needs": [{ "label": string, "kind": "text"|"long"|"date"|"number"|"select"|"checkbox"|"file", "options": [string], "required": boolean, "why": string }] }`,
+        "- **`select` 이면 `options` 에 고를 값을 넣는다.** 원문에 선택지가 적혀 있으면 그대로, 없으면 그 항목에서 실제로 가능한 값(예: 투자 단계 → 시드/시리즈 A/시리즈 B/해당 없음). 선택지를 못 만들겠으면 `text` 로 둔다 — 고를 것이 없는데 고르라고 하지 않는다.",
         "",
         "- 신청 페이지의 폼 항목이 주어지면 그것을 **그대로** 항목으로 만든다. 라벨 글자를 바꾸지 않는다.",
         "- 제출 서류(파일 업로드)는 kind 를 file 로 둔다.",
@@ -271,6 +273,7 @@ async function deriveNeeds(markdown: string, applyPage: Page | null): Promise<Ne
         makeNeed({
           label: item.label,
           kind: item.kind,
+          options: item.options,
           required: item.required,
           why: item.why,
           source,

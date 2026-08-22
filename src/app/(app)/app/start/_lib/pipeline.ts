@@ -127,6 +127,7 @@ export async function runStart(
 
   // 5 — 정밀 분석 (1·3단계가 모은 파일 전부)
   const analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
+  if (analysis) emit({ type: "via", stage: "analyze", via: analysis.via });
   if (analysis?.brief) emit({ type: "brief", markdown: analysis.brief });
 
   // 병합 — 신청 링크를 묻는 항목은 맨 앞, 그다음 정보 분석, 그다음 research.
