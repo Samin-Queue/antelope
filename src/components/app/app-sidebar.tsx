@@ -48,12 +48,10 @@ import { SessionSearch, type SearchSession } from "./session-search";
  * (각자 `UPSTAGE_*_AGENT_ID` 가 있어야 돌아간다. 없으면 503).
  */
 /** 「세션 시작하기」와 「모든 세션」은 따로 그린다 — 앞은 버튼, 뒤는 하위 목록을 단다. */
-const WORKSPACE = [
-  { href: "/app/hub", label: "데이터 허브", icon: BookUser },
-  { href: "/app/calendar", label: "캘린더", icon: CalendarDays },
-] as const;
+const WORKSPACE = [{ href: "/app/hub", label: "데이터 허브", icon: BookUser }] as const;
 
 const TOOLS = [
+  { href: "/app/calendar", label: "캘린더", icon: CalendarDays },
   { href: "/app/notices", label: "공고 분석", icon: Sparkles },
   { href: "/app/documents", label: "문서 파이프라인", icon: FileText },
   { href: "/app/playground", label: "플레이그라운드", icon: MessagesSquare },

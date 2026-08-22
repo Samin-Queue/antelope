@@ -46,7 +46,7 @@ export default async function CalendarPage({
 
   return (
     <>
-      <AppHeader trail={["캘린더"]} />
+      <AppHeader trail={["개발자 도구", "캘린더"]} />
       <div className="mx-auto w-full max-w-5xl px-6 py-8">
         <CalendarBoard
           month={month}
