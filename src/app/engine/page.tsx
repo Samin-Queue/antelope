@@ -13,12 +13,12 @@ import {
   DualVector,
   Duo,
   GatewayLoop,
-  Handoff,
   LaneBars,
   PipelineRail,
   StudioSequence,
   WindowStrip,
 } from "./_lib/diagrams";
+import { Handoff } from "./_lib/handoff";
 import {
   Card,
   DefGrid,
