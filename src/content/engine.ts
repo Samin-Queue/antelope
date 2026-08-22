@@ -14,7 +14,7 @@
 export const engine = {
   eyebrow: "Engine · 내부 구조",
   headline: "문서는 Studio 가 읽고, 나머지는 Solar 가 합니다",
-  sub: "있던 파이프라인 사이에 Upstage Studio 를 한 번 끼워 넣은 것이 아닙니다. 문서를 구조로 바꾸는 일은 Studio 가, 무엇을 찾고 무엇을 할지 정하는 일은 Solar 가 맡고, 둘이 서로의 출력을 받아 네 번 주고받습니다. 사용자가 파일을 하나도 넣지 않아도 — Solar 가 웹에서 자료를 찾고, 읽을 파일이 없으면 만들어서, 다시 Studio 에 넘깁니다.",
+  sub: "있던 파이프라인 사이에 Upstage Studio 를 한 번 끼워 넣은 것이 아닙니다. 문서를 구조로 바꾸는 일은 Studio 가, 무엇을 찾고 무엇을 할지 정하는 일은 Solar 가 맡고, 둘이 서로의 출력을 받아 네 번 주고받습니다. 사용자가 파일을 올리지 않아도 Solar 가 웹에서 공고문 첨부를 찾아오고, 그마저 없으면 읽은 내용을 파일로 만들어 Studio 에 넘깁니다.",
   note: "이 페이지의 스텝 이름·임계값·동시성 상한은 저장소의 값과 같습니다. 파일 경로를 함께 적어 대조할 수 있게 했습니다.",
 
   /** 상단 지표. 전부 셀 수 있는 것만 둔다 */
@@ -109,11 +109,11 @@ export const engine = {
     },
   },
 
-  // ── 0.5 파일 없이 시작하는 길 ────────────────────────────────────────
+  // ── 0.5 읽을 파일을 구해 오는 길 ─────────────────────────────────────
   journey: {
     eyebrow: "0.5 · 왕복",
-    headline: "파일을 하나도 안 넣어도 제출까지 갑니다",
-    sub: "「이 공고 우리 회사로 신청해줘」 한 줄과 링크 하나. 그것이 제출된 신청서가 되기까지 두 엔진이 네 번 주고받습니다. 아래 줄이 바뀔 때마다 담당이 바뀝니다.",
+    headline: "읽을 파일은 에이전트가 구해 옵니다",
+    sub: "「이 공고 우리 회사로 신청해줘」 한 줄과 링크 하나. 사용자가 파일을 올리지 않아도 Solar 가 페이지를 열어 공고문 첨부를 찾아 내려받고, 첨부가 없으면 읽은 내용을 파일로 만듭니다 — 어느 경우든 문서는 Studio 의 Document Parse 를 지납니다. 아래 줄이 바뀔 때마다 담당이 바뀝니다.",
     steps: [
       {
         lane: "solar",
@@ -285,7 +285,7 @@ export const engine = {
     close:
       "왕복이 요점입니다. Studio 가 낸 구조를 Solar 가 읽고 다음에 무엇을 찾을지 정하고, Solar 가 찾아온 것을 다시 Studio 가 구조로 바꿉니다. 한쪽만으로는 어느 지점에서도 멈춥니다.",
     synth: {
-      headline: "「없으면 만든다」가 왜 필요했나",
+      headline: "첨부가 없어도 Studio 를 지나게 하려고",
       body: "이게 없으면 파일을 준 입력과 링크만 준 입력이 다른 성능을 냅니다. 첨부가 없으면 Studio 를 한 번도 안 타고 Solar 가 요약에서 필드를 추측하게 됩니다 — 분류 분기도, 준비 문서도, 원문 좌표도 없이. 그런데 그때도 읽을 내용은 이미 있습니다. Document Parse 가 평문을 안 받을 뿐입니다.",
       file: "src/app/(app)/app/start/_lib/analyze.ts",
     },
@@ -446,7 +446,7 @@ export const engine = {
     stepTypes: [
       {
         type: "document-parse",
-        body: "HWP·PDF·이미지·DOCX·PPTX·XLSX 를 표와 서식을 지킨 채 HTML/Markdown 으로. `coordinates: true` 로 요소마다 정규화 좌표(0~1)를 받습니다 — 근거 하이라이트의 재료입니다.",
+        body: "HWP·PDF·DOCX·PPTX·XLSX 는 물론 스캔본과 사진도 `ocr: auto` 로 읽어 표와 서식을 지킨 채 HTML/Markdown 으로 냅니다. `coordinates: true` 로 요소마다 정규화 좌표(0~1)를 받습니다 — 근거 하이라이트의 재료입니다.",
         opts: "ocr: auto · lang: ko · merge_multipage_tables · coordinates",
       },
       {
