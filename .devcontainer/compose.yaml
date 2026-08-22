@@ -20,8 +20,13 @@ services:
       - railway_config:/root/.config/railway
       - railway_home:/root/.railway
       - shell_history:/commandhistory
-      # pnpm store 를 볼륨으로 들고 있어야 리빌드 때 전부 재다운로드하지 않는다.
-      # (Dockerfile 의 BuildKit 캐시 마운트는 Railway Metal 빌더 실패로 제거됨)
+      # ⚠ 이 볼륨은 사실상 비어 있다. pnpm 은 store 가 프로젝트와 다른 드라이브에
+      # 있으면 하드링크를 못 걸어 프로젝트 드라이브에 폴백 스토어를 만드는데,
+      # /app 은 bind mount 고 /pnpm/store 는 볼륨이라 항상 다른 드라이브다.
+      # 실제 캐시는 호스트 레포의 .pnpm-store 에 쌓이고(그래서 리빌드해도 남는다),
+      # 그 폴더는 .dockerignore 에 있어야 한다 — 없으면 COPY . . 가 1.7GB 를
+      # 이미지에 넣어 빌드가 no space left on device 로 죽는다.
+      # 볼륨 자체는 무해해서 남겨 둔다(PNPM_HOME 설정이 바뀌면 다시 쓰인다).
       - pnpm_store:/pnpm/store
       # Playwright 브라우저도 같은 이유로 볼륨에 둔다. 리빌드마다 150MB 를 다시
       # 받지 않으려는 것이고, post-create 의 install 은 이미 있으면 즉시 끝난다.

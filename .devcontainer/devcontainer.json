@@ -17,10 +17,13 @@
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
   },
 
-  "forwardPorts": [3000, 5432],
+  // ⚠ 5432 를 넣지 않는다. Zed 는 forwardPorts 를 app 컨테이너의 퍼블리시 포트로
+  // 번역하는데, db 가 이미 호스트 5432 를 잡고 있어 app 이 "port is already
+  // allocated" 로 못 뜬다. 컨테이너 안에서는 db:5432 로 직접 붙고,
+  // 호스트에서 필요하면 db 가 이미 열어 준다.
+  "forwardPorts": [3000],
   "portsAttributes": {
-    "3000": { "label": "next dev" },
-    "5432": { "label": "postgres" }
+    "3000": { "label": "next dev" }
   },
 
   "postCreateCommand": "bash .devcontainer/post-create.sh",

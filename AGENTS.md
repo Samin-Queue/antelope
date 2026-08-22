@@ -23,7 +23,7 @@
   `asChild` 가 아니라 base-ui `render` prop 을 쓴다: `<Button render={<Link href="/x" />}>`.
 - 제목 세리프는 `.heading-display` 유틸리티로만 쓴다. 현재 사용처는 2곳이고, 늘리기 전에 한 번 더 생각한다.
 - DB 접근은 `getDb()` 로. `DATABASE_URL` 없이도 앱이 떠야 한다.
-- **"지우면 안 되는 것들" 표를 먼저 읽는다.** 7개 항목 전부 실제로 한 번씩 깨져서 고친 것이다.
+- **"지우면 안 되는 것들" 표를 먼저 읽는다.** 14개 항목 전부 실제로 한 번씩 깨져서 고친 것이다.
 
 **작업 후**
 
@@ -62,6 +62,27 @@ devcontainer 는 `.devcontainer/compose.yaml` 이 루트 `compose.yaml` 위에 �
 `devcontainer-lock.json` 이 feature 를 sha256 으로 고정하므로 3명이 같은 버전을 쓴다.
 인증(railway/gh/claude)은 named volume 에 남아 리빌드해도 유지되지만 최초 1회는
 각자 컨테이너 안에서 로그인해야 한다.
+
+### devcontainer 의 함정 두 가지
+
+둘 다 실제로 밟아서 컨테이너가 아예 안 떴다.
+
+**pnpm store 는 볼륨이 아니라 `/app/.pnpm-store` 에 쌓인다.** `.devcontainer/compose.yaml`
+에 `pnpm_store:/pnpm/store` 볼륨이 있지만 **실제로는 안 쓰인다.** pnpm 은 store 가
+프로젝트와 다른 드라이브에 있으면 하드링크를 못 걸어서 프로젝트 드라이브 쪽에 폴백
+스토어를 만드는데, `/app` 은 macOS bind mount 고 `/pnpm/store` 는 도커 볼륨이라
+항상 다른 드라이브다. 그래서 캐시는 호스트 레포 안 `.pnpm-store` 에 남는다 — 리빌드해도
+살아남는 건 맞지만, 그건 볼륨 덕이 아니라 bind mount 덕이다. 실측 1.7GB.
+
+→ 그래서 **`.dockerignore` 에 `.pnpm-store` 가 반드시 있어야 한다.** 빼면 `COPY . .` 가
+그 1.7GB 를 매 빌드마다 이미지 레이어로 밀어 넣어 OrbStack VM 디스크(32GB)를 태우고
+`no space left on device` 로 빌드가 죽는다.
+
+**`forwardPorts` 에 5432 를 넣지 않는다.** Zed 는 이 값을 **app 컨테이너의 퍼블리시
+포트**로 번역하는데, 루트 `compose.yaml` 의 `db` 가 이미 호스트 5432 를 잡고 있다.
+db 가 healthy 로 뜬 직후 app 이 같은 포트를 물다 죽는다 —
+`Bind for 0.0.0.0:5432 failed: port is already allocated`. 컨테이너 안에서는
+`db:5432` 로 직접 붙고, 호스트에서 psql 로 붙어야 하면 db 가 이미 열어 둔 포트를 쓴다.
 
 ---
 
@@ -896,6 +917,7 @@ src/lib/ai/
 | `memory.ts`                    | `ORDER BY <=> ASC` 형태 (`1 - distance DESC` 금지)              | pgvector HNSW 가 안 붙어 전체 스캔이 된다 — 실측 17.9ms → 0.100ms                                                                                                       |
 | `.devcontainer/compose.yaml`   | `NODE_ENV: ""`                                                  | Dockerfile dev 타깃의 `NODE_ENV=development` 상태로 `pnpm build` 하면 React 가 dev/prod 로 갈려 프리렌더 깨짐                                                           |
 | `src/lib/session.ts`           | `headers()` 를 `hasDb()` **밖에서** 먼저 부르는 순서            | 도커 빌드엔 `DATABASE_URL` 이 없어 호출이 통째로 안 돌고, 동적 API 가 사라진 `/` 를 Next 가 정적 프리렌더한다 → 랜딩이 「로그아웃 + 프로바이더 없음」 스냅샷으로 굳는다 |
+| `.dockerignore`                | `.pnpm-store`                                                   | devcontainer 안 pnpm 이 bind mount 위에 만드는 폴백 스토어(1.7GB)를 `COPY . .` 가 이미지에 넣는다 → 도커 VM 디스크가 차서 `no space left on device`                     |
 | `src/proxy.ts`                 | `/app`·`/sign-in` 세션 게이트                                   | 로그인 없이 `/app` 이 열린다. 레이아웃 `redirect()` 만으로는 셸이 이미 흘러 나간 뒤라 200 + `NEXT_REDIRECT` 가 되어 로그아웃 화면이 한 번 번쩍인다                      |
 
 ## 이름 규칙

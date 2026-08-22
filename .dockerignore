@@ -1,5 +1,9 @@
 node_modules
 .next
+# devcontainer 안에서 pnpm 이 만드는 폴백 스토어(1.7GB). /app 이 bind mount 라
+# pnpm 이 /pnpm/store 대신 여기에 store 를 만든다. 빼지 않으면 COPY . . 가
+# 이걸 통째로 이미지에 넣어 빌드가 "no space left on device" 로 죽는다.
+.pnpm-store
 .git
 .env*
 !.env.example
