@@ -1,7 +1,4 @@
-import { headers } from "next/headers";
-
-import { auth } from "@/lib/auth";
-import { hasDb } from "@/lib/db";
+import { currentSession } from "@/lib/session";
 import { AppHeader } from "@/components/app/app-header";
 
 import { GoalList } from "../_lib/goal-list";
@@ -11,9 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "모든 세션" };
 
 export default async function SessionsPage() {
-  const session = hasDb()
-    ? await auth.api.getSession({ headers: await headers() })
-    : null;
+  const session = await currentSession();
   const goals = session ? await listGoals(session.user.id) : [];
 
   return (

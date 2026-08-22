@@ -1,8 +1,5 @@
-import { headers } from "next/headers";
-
-import { auth } from "@/lib/auth";
-import { hasDb } from "@/lib/db";
 import { llmInfo } from "@/lib/llm";
+import { currentSession } from "@/lib/session";
 import { AppHeader } from "@/components/app/app-header";
 
 import { StartSession } from "./_lib/start-session";
@@ -11,9 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "세션 시작하기" };
 
 export default async function AppHomePage() {
-  const session = hasDb()
-    ? await auth.api.getSession({ headers: await headers() })
-    : null;
+  const session = await currentSession();
 
   // 표시가 곧 사실이 되도록 실제 설정값에서 만든다. 하드코딩하지 않는다.
   const llm = llmInfo();

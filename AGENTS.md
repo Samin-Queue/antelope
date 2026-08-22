@@ -567,6 +567,51 @@ better-auth + Drizzle. **OAuth 만 쓴다** — 도메인이 없어 Resend 무�
   `BETTER_AUTH_URL=http://localhost:3001` 도 같이 넘긴다 — 안 그러면 3000 으로
   돌아간다.
 
+### 세션은 두 곳에서만 읽는다
+
+**`headers()` 를 조건문 안에 넣지 않는다.** 이게 프로덕션 랜딩을 통째로 얼렸다.
+
+```ts
+// ❌ DATABASE_URL 없는 도커 빌드에서 이 줄이 아예 안 돈다 → 동적 API 가 사라지고
+//    Next 가 `/` 를 빌드 시점 스냅샷으로 정적 프리렌더한다
+const session = hasDb() ? await auth.api.getSession({ headers: await headers() }) : null;
+
+// ✅ 순서를 바꾼다. 이게 `src/lib/session.ts` 의 `currentSession()` 이다
+const requestHeaders = await headers();
+if (!hasDb()) return null;
+return auth.api.getSession({ headers: requestHeaders });
+```
+
+증상이 셋으로 흩어져 나와 원인을 엉뚱한 데서 찾게 된다 —
+`cache-control: s-maxage=31536000` · `x-nextjs-prerender: 1` 로 굳은 HTML 이
+
+- 로그인해도 헤더에 계속 「로그인」을 보여주고 (세션이 풀린 것처럼 보인다),
+- 그 버튼을 누르면 `/sign-in` 이 되돌려 보내 **아무 일도 안 일어나고**,
+- 히어로 로그인 다이얼로그가 `enabledProviders: []` 로 굳어
+  「GOOGLE_CLIENT_ID 를 확인하세요」를 띄운다 — 키는 멀쩡히 설정돼 있는데도.
+
+세션이 필요한 서버 컴포넌트는 전부 `currentSession()` 을 거친다.
+
+### `/app` 게이트는 `src/proxy.ts` 하나다
+
+Next 16 에서 `middleware.ts` 는 **`proxy.ts`** 로 이름이 바뀌었다. `app` 과 같은 층,
+즉 `src/` 바로 아래여야 잡힌다.
+
+|            | 로그인 안 함                  | 로그인함             |
+| ---------- | ----------------------------- | -------------------- |
+| `/app/*`   | → `/sign-in?next=<원래 경로>` | 통과                 |
+| `/sign-in` | 통과                          | → `next` 또는 `/app` |
+
+- **레이아웃 `redirect()` 로는 부족하다.** 그때는 셸이 이미 흘러 나간 뒤라 Next 가
+  HTTP 상태를 못 바꾸고 리디렉트를 RSC 페이로드에 `NEXT_REDIRECT` 로 싣는다 —
+  응답은 200 이고 브라우저는 하이드레이션 뒤에야 움직여서 로그아웃 화면이 한 번
+  번쩍인다(실측). 프록시에서 막으면 문서 요청 자체가 307 이다.
+- 쿠키 존재만 보지 않고 **DB 까지 확인한다.** 프록시가 Node.js 런타임이라 가능하다.
+  만료·로그아웃 후 남은 쿠키·위조 쿠키가 전부 여기서 걸린다.
+- `(app)/layout.tsx` 의 검사는 그대로 둔다. matcher 는 문자열 상수라 경로를 옮기면
+  **조용히 커버리지가 빠진다** — 그때 앱이 그냥 열리는 것보다 튕기는 편이 낫다.
+- `?next=` 는 사용자가 손대는 값이다. `/` 로 시작하고 `//` 가 아닌 경로만 통과시킨다.
+
 ### 구글 캘린더 · Gmail 연동
 
 Google Cloud 프로젝트 `antelope-506205`. 로그인 스코프와 API 스코프를 갈라 둔다.
@@ -753,16 +798,18 @@ src/content/labs.ts                  레지스트리 (제목·가설·상태·�
 
 전부 한 번씩 실제로 깨져서 고친 것들이다.
 
-| 위치                           | 무엇                                                            | 지우면                                                                                                                                                        |
-| ------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Dockerfile`                   | `pnpm config set node-linker hoisted`                           | pnpm 심볼릭 링크 레이아웃을 Next standalone 트레이싱이 못 따라가 `@swc/helpers` 누락 → 런타임 MODULE_NOT_FOUND                                                |
-| `Dockerfile`                   | BuildKit 지시자(`# syntax`, `--mount=type=cache`) **없는** 상태 | Railway Metal 빌더가 빈 로그로 FAILED. 다시 넣지 말 것                                                                                                        |
-| Railway 변수                   | `PORT=3000`                                                     | Railway 기본값 8080 과 도메인 타깃 포트(3000)가 어긋나 502                                                                                                    |
-| `public/.gitkeep`              | 빈 디렉터리 유지                                                | git 이 빈 디렉터리를 추적하지 않아 fresh clone 에서 `COPY /app/public` 이 not found                                                                           |
-| `package.json`                 | `studio:provision` 의 `--env-file=.env.local`                   | `@/lib/env` 가 import 시점에 `process.env` 를 굳혀서, 스크립트 안에서 `dotenv` 를 부르면 이미 늦다 → `Missing required environment variable: UPSTAGE_API_KEY` |
-| `drizzle.config.ts`            | `config({ path: ".env.local" })`                                | dotenv 기본값은 `.env` 인데 Next 는 `.env.local` 을 쓴다 → `db:push` 가 DATABASE_URL 을 못 찾음                                                               |
-| `.devcontainer/post-create.sh` | `--config.confirmModulesPurge=false`                            | pnpm 이 "reinstall from scratch? (Y/n)" 를 띄우고 비대화형에서 응답이 안 돼 postCreate 무한 대기                                                              |
-| `.devcontainer/compose.yaml`   | `NODE_ENV: ""`                                                  | Dockerfile dev 타깃의 `NODE_ENV=development` 상태로 `pnpm build` 하면 React 가 dev/prod 로 갈려 프리렌더 깨짐                                                 |
+| 위치                           | 무엇                                                            | 지우면                                                                                                                                                                  |
+| ------------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Dockerfile`                   | `pnpm config set node-linker hoisted`                           | pnpm 심볼릭 링크 레이아웃을 Next standalone 트레이싱이 못 따라가 `@swc/helpers` 누락 → 런타임 MODULE_NOT_FOUND                                                          |
+| `Dockerfile`                   | BuildKit 지시자(`# syntax`, `--mount=type=cache`) **없는** 상태 | Railway Metal 빌더가 빈 로그로 FAILED. 다시 넣지 말 것                                                                                                                  |
+| Railway 변수                   | `PORT=3000`                                                     | Railway 기본값 8080 과 도메인 타깃 포트(3000)가 어긋나 502                                                                                                              |
+| `public/.gitkeep`              | 빈 디렉터리 유지                                                | git 이 빈 디렉터리를 추적하지 않아 fresh clone 에서 `COPY /app/public` 이 not found                                                                                     |
+| `package.json`                 | `studio:provision` 의 `--env-file=.env.local`                   | `@/lib/env` 가 import 시점에 `process.env` 를 굳혀서, 스크립트 안에서 `dotenv` 를 부르면 이미 늦다 → `Missing required environment variable: UPSTAGE_API_KEY`           |
+| `drizzle.config.ts`            | `config({ path: ".env.local" })`                                | dotenv 기본값은 `.env` 인데 Next 는 `.env.local` 을 쓴다 → `db:push` 가 DATABASE_URL 을 못 찾음                                                                         |
+| `.devcontainer/post-create.sh` | `--config.confirmModulesPurge=false`                            | pnpm 이 "reinstall from scratch? (Y/n)" 를 띄우고 비대화형에서 응답이 안 돼 postCreate 무한 대기                                                                        |
+| `.devcontainer/compose.yaml`   | `NODE_ENV: ""`                                                  | Dockerfile dev 타깃의 `NODE_ENV=development` 상태로 `pnpm build` 하면 React 가 dev/prod 로 갈려 프리렌더 깨짐                                                           |
+| `src/lib/session.ts`           | `headers()` 를 `hasDb()` **밖에서** 먼저 부르는 순서            | 도커 빌드엔 `DATABASE_URL` 이 없어 호출이 통째로 안 돌고, 동적 API 가 사라진 `/` 를 Next 가 정적 프리렌더한다 → 랜딩이 「로그아웃 + 프로바이더 없음」 스냅샷으로 굳는다 |
+| `src/proxy.ts`                 | `/app`·`/sign-in` 세션 게이트                                   | 로그인 없이 `/app` 이 열린다. 레이아웃 `redirect()` 만으로는 셸이 이미 흘러 나간 뒤라 200 + `NEXT_REDIRECT` 가 되어 로그아웃 화면이 한 번 번쩍인다                      |
 
 ## 이름 규칙
 

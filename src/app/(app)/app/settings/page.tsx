@@ -1,8 +1,5 @@
-import { headers } from "next/headers";
-
-import { auth } from "@/lib/auth";
-import { hasDb } from "@/lib/db";
 import { googleConnections } from "@/lib/google";
+import { currentSession } from "@/lib/session";
 import { AppHeader } from "@/components/app/app-header";
 
 import { GoogleConnections } from "./_lib/google-connections";
@@ -11,9 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "설정" };
 
 export default async function SettingsPage() {
-  const session = hasDb()
-    ? await auth.api.getSession({ headers: await headers() })
-    : null;
+  const session = await currentSession();
   const connections = session ? await googleConnections() : [];
 
   return (

@@ -1,19 +1,15 @@
-import { headers } from "next/headers";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-import { auth, enabledProviders } from "@/lib/auth";
-import { hasDb } from "@/lib/db";
+import { enabledProviders } from "@/lib/auth";
 import { llmInfo } from "@/lib/llm";
+import { currentSession } from "@/lib/session";
 import { HeroComposer } from "@/components/sections/hero-composer";
 import { HeroRotator } from "@/components/sections/hero-rotator";
 import { site } from "@/content/site";
 
 export async function Hero() {
-  // DB 가 없으면 세션 조회 자체가 불가능하다 — 로그아웃 상태로 렌더한다.
-  const session = hasDb()
-    ? await auth.api.getSession({ headers: await headers() })
-    : null;
+  const session = await currentSession();
 
   // 모델 표시를 하드코딩하지 않는다. 랜딩에 보이는 것이 실제로 붙어 있는 것이다.
   const llm = llmInfo();

@@ -1,8 +1,6 @@
-import { headers } from "next/headers";
 import Link from "next/link";
 
-import { auth } from "@/lib/auth";
-import { hasDb } from "@/lib/db";
+import { currentSession } from "@/lib/session";
 import { Combination } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -10,10 +8,7 @@ import { UserMenu } from "@/components/user-menu";
 import { site } from "@/content/site";
 
 export async function SiteHeader({ marketing = false }: { marketing?: boolean }) {
-  // DB 가 없으면 세션 조회 자체가 불가능하다 — 로그아웃 상태로 렌더한다.
-  const session = hasDb()
-    ? await auth.api.getSession({ headers: await headers() })
-    : null;
+  const session = await currentSession();
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-xl">

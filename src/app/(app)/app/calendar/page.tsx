@@ -1,8 +1,5 @@
-import { headers } from "next/headers";
-
-import { auth } from "@/lib/auth";
-import { hasDb } from "@/lib/db";
 import { monthEvents } from "@/lib/google-calendar";
+import { currentSession } from "@/lib/session";
 import { AppHeader } from "@/components/app/app-header";
 
 import { listGoals } from "../_lib/goals";
@@ -23,9 +20,7 @@ export default async function CalendarPage({
 }: {
   searchParams: Promise<{ month?: string }>;
 }) {
-  const session = hasDb()
-    ? await auth.api.getSession({ headers: await headers() })
-    : null;
+  const session = await currentSession();
 
   const now = new Date();
   const today = ymdOf(now);

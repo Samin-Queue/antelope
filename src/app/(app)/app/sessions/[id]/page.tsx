@@ -1,9 +1,7 @@
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { CalendarDays, ExternalLink, FileText } from "lucide-react";
 
-import { auth } from "@/lib/auth";
-import { hasDb } from "@/lib/db";
+import { currentSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { AppHeader } from "@/components/app/app-header";
 import { Badge } from "@/components/ui/badge";
@@ -41,9 +39,7 @@ export default async function SessionPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const session = hasDb()
-    ? await auth.api.getSession({ headers: await headers() })
-    : null;
+  const session = await currentSession();
   if (!session) notFound();
 
   const goal = await getGoal(session.user.id, id);
