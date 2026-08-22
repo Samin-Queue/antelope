@@ -103,6 +103,12 @@ function launchOptions() {
 export async function runPlaywrightAgent(opts: {
   goal: string;
   facts?: Record<string, string>;
+  /**
+   * 계획 에이전트가 세운 순서. 타입이 아니라 문자열 목록으로 받는다 —
+   * 여기는 실험 폴더라 `app/start` 의 `PlanStep` 을 import 하면 의존 방향이
+   * 거꾸로 선다. `human` 은 브라우저가 손대면 안 되는 일이다.
+   */
+  plan?: { browser?: string[]; human?: string[] };
   startUrl: string;
   maxSteps?: number;
   model?: LanguageModel;
@@ -110,7 +116,7 @@ export async function runPlaywrightAgent(opts: {
   onStep?: (entry: TraceEntry) => void;
   onFrame?: (image: string, url: string) => void;
 }): Promise<PlaywrightRun> {
-  const { goal, facts = {}, startUrl, maxSteps = 40, allowSubmit = false } = opts;
+  const { goal, facts = {}, plan, startUrl, maxSteps = 40, allowSubmit = false } = opts;
 
   let browser: Browser | null = null;
   const trace: TraceEntry[] = [];
@@ -296,7 +302,7 @@ export async function runPlaywrightAgent(opts: {
       tools,
       stopWhen: stepCountIs(maxSteps),
       system: systemPrompt(allowSubmit),
-      prompt: promptFor(goal, startUrl, facts),
+      prompt: promptFor(goal, startUrl, facts, plan),
     });
 
     return {
@@ -349,6 +355,8 @@ function systemPrompt(allowSubmit: boolean): string {
     "- 파일 업로드 칸은 채울 수 없다. 건너뛰고 마지막에 무엇이 남았는지 보고한다.",
     "- 여러 단계로 나뉜 폼은 한 단계를 다 채우고 「다음」을 눌러 넘어간다. 남은 단계가 있으면 끝난 게 아니다.",
     "- 값이 없는 항목은 비워 둔다. 지어내지 않는다.",
+    "- **계획서가 주어지면 그 순서를 따른다.** 계획에 없는 곳으로 가지 않는다.",
+    "- **「사람이 직접 해야 하는 것」에 적힌 일은 시도하지 않는다.** 증명서 발급·본인인증·서류 작성은 네 몫이 아니다. 그 자리에 오면 건너뛰고 마지막에 보고한다.",
     allowSubmit
       ? "- 결제·회원 탈퇴처럼 되돌릴 수 없는 조작은 하지 않는다. 단, **신청서 제출 버튼은 누른다** — 제출까지가 목표다. 제출 뒤 접수번호나 완료 문구가 보이면 read 로 확인하고 보고한다."
       : "- 결제·최종 제출·회원 탈퇴처럼 되돌릴 수 없는 버튼은 누르지 않는다. 직전에서 멈추고 보고한다.",
@@ -361,10 +369,25 @@ function promptFor(
   goal: string,
   startUrl: string,
   facts: Record<string, string>,
+  plan?: { browser?: string[]; human?: string[] },
 ): string {
   return [
     `목표: ${goal}`,
     `시작 URL: ${startUrl} (이미 열려 있다)`,
+    plan?.browser?.length
+      ? [
+          "",
+          "계획서 — 네가 할 순서:",
+          ...plan.browser.map((line, index) => `  ${index + 1}. ${line}`),
+        ].join("\n")
+      : "",
+    plan?.human?.length
+      ? [
+          "",
+          "사람이 직접 해야 하는 것 (너는 하지 않는다):",
+          ...plan.human.map((line) => `  - ${line}`),
+        ].join("\n")
+      : "",
     Object.keys(facts).length
       ? [
           "",

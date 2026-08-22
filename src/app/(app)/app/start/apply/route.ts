@@ -87,6 +87,7 @@ export async function POST(req: Request) {
             startUrl: applyUrl,
             goal,
             facts,
+            plan,
             maxSteps: 60,
             allowSubmit: true,
             onStep: step,
