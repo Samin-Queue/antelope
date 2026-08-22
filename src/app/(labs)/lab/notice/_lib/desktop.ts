@@ -130,6 +130,10 @@ export async function openSession(
       "--disable-extensions",
       "--metrics-recording-only",
       "--mute-audio",
+      // 렌더러를 하나로 묶는다. 탭마다 프로세스를 띄우면 컨테이너 메모리 한도를
+      // 넘고, 그때 커널이 죽이는 건 Chromium 이 아니라 Node 서버일 수 있다.
+      "--renderer-process-limit=1",
+      "--disable-site-isolation-trials",
       // ⚠ 이게 없으면 컨테이너에서 기동 자체가 막힌다. 크래시 리포터(crashpad)가
       // 쓸 디렉터리를 HOME 에서 유도하는데, 비루트 사용자의 HOME 이 쓰기 불가라
       // `chrome_crashpad_handler: --database is required` 로 주저앉는다.
