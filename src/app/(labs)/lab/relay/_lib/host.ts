@@ -8,6 +8,7 @@ import { remember } from "@/app/(labs)/lab/notice/_lib/memory";
 
 import { applyAnswers, missingOf, parseAnswers } from "./answers";
 import type { Incoming, RelayChannel } from "./channel";
+import { applyFiles, missingFiles, pickNotice, takeFiles } from "./files";
 import { acquire } from "./queue";
 import { makeSink } from "./sink";
 import { findIdentity, openThread, updateThread, type ThreadRow } from "./store";
@@ -105,10 +106,17 @@ export async function handle(channel: RelayChannel, incoming: Incoming): Promise
   }
 
   const input = toInput(incoming.text);
-  if (!input.url && !input.text) {
+  if (incoming.files.length) {
+    const { file, tooBig } = await pickNotice(incoming.files);
+    if (file) input.file = file;
+    if (tooBig.length) {
+      void channel.post(incoming.ref, `25MB 를 넘어 건너뛴 파일: ${tooBig.join(", ")}`);
+    }
+  }
+  if (!input.url && !input.text && !input.file) {
     await channel.post(
       incoming.ref,
-      "공고 링크나 원하는 것을 한 줄로 적어 주세요. (파일 첨부는 아직입니다 — Step 3)",
+      "공고 링크나 파일, 아니면 원하는 것을 한 줄로 적어 주세요.",
     );
     return;
   }
@@ -163,19 +171,22 @@ async function prepare(
   const out = sink.result();
   const needs = (out.needs ?? []) as Need[];
   const missing = missingOf(needs);
+  const files = missingFiles(needs);
   /**
    * 빈 항목이 있으면 **스레드가 계속 열려 있다.** 답은 여기서 받는다 —
    * `asking` 이 그 상태이고, `pendingNeeds` 가 「지금 무엇을 묻고 있는가」의
    * 단일 진실이라 서버가 재시작해도 그 뒤에 온 답이 같은 질문에 붙는다.
    */
   await updateThread(thread.id, {
-    status: out.error ? "error" : missing.length ? "asking" : "ready",
+    status: out.error ? "error" : missing.length || files.length ? "asking" : "ready",
     goalId: out.goalId,
+    // 사람이 올린 서류가 갈 자리. 이게 없으면 첨부가 신청 단계에 닿지 않는다.
+    runId: out.runId,
     progressMessageId: sink.progressMessageId(),
     pendingNeeds: needs.length ? needs : null,
   });
 
-  await channel.post(incoming.ref, closing(out, missing, channel, incoming));
+  await channel.post(incoming.ref, closing(out, missing, files, channel, incoming));
 }
 
 /**
@@ -199,12 +210,43 @@ async function absorb(
     return;
   }
 
+  /**
+   * 파일이 먼저다. 「사업자등록증이야」 같은 말은 글이 아니라 **첨부의 라벨**이라
+   * 항목 배분에 넣으면 엉뚱한 칸을 채운다.
+   */
+  let working = needs;
+  const notes: string[] = [];
+  if (incoming.files.length) {
+    const got = await takeFiles({
+      files: incoming.files,
+      text: incoming.text,
+      needs,
+      runId: thread.runId,
+      userId: thread.userId,
+      sourceNotice: thread.lastNote,
+    });
+    if (got.taken.length) {
+      working = applyFiles(working, got.taken);
+      notes.push(
+        ...got.taken.map(
+          (t) => `· ${t.need.label} — ${t.filename} (보관함에도 남겼습니다)`,
+        ),
+      );
+    }
+    if (got.unmatched.length) {
+      notes.push(`· 어느 서류인지 몰라 받지 못했습니다: ${got.unmatched.join(", ")}`);
+    }
+    if (got.tooBig.length) {
+      notes.push(`· 5MB 를 넘어 건너뛰었습니다: ${got.tooBig.join(", ")}`);
+    }
+  }
+
   const { filled, leftover } = await parseAnswers(
-    needs,
+    working,
     incoming.text,
     thread.runId ?? undefined,
   );
-  if (Object.keys(filled).length === 0) {
+  if (Object.keys(filled).length === 0 && notes.length === 0) {
     await channel.post(
       incoming.ref,
       leftover.length
@@ -214,10 +256,11 @@ async function absorb(
     return;
   }
 
-  const next = applyAnswers(needs, filled);
+  const next = applyAnswers(working, filled);
   const missing = missingOf(next);
+  const files = missingFiles(next);
   await updateThread(thread.id, {
-    status: missing.length ? "asking" : "ready",
+    status: missing.length || files.length ? "asking" : "ready",
     pendingNeeds: next,
   });
 
@@ -233,11 +276,14 @@ async function absorb(
     })),
   ).catch((error) => console.error("[relay/absorb] 기억 저장 실패", error));
 
-  const took = Object.entries(filled)
-    .map(([label, value]) => `· ${label} — ${value.slice(0, 60)}`)
-    .join("\n");
+  const took = [
+    ...notes,
+    ...Object.entries(filled).map(
+      ([label, value]) => `· ${label} — ${value.slice(0, 60)}`,
+    ),
+  ].join("\n");
 
-  if (missing.length === 0) {
+  if (missing.length === 0 && files.length === 0) {
     await channel.post(
       incoming.ref,
       `받았습니다.\n${took}\n\n✅ 필요한 값이 모두 모였습니다. ${appUrl()} 에서 신청을 실행할 수 있습니다.`,
@@ -246,7 +292,7 @@ async function absorb(
   }
   await channel.post(
     incoming.ref,
-    `받았습니다.\n${took}\n\n${askText(missing, channel, incoming)}` +
+    `받았습니다.\n${took}\n\n${askText(missing, files, channel, incoming)}` +
       (leftover.length
         ? `\n\n(이건 어느 항목인지 몰라 남겨 뒀습니다: ${leftover.slice(0, 2).join(" / ")})`
         : ""),
@@ -254,24 +300,46 @@ async function absorb(
 }
 
 /** 무엇이 비었는지 묻는 말. 준비 직후와 답을 받은 뒤 같은 글로 묻는다 */
-function askText(missing: Need[], channel: RelayChannel, incoming: Incoming): string {
-  const list = missing
-    .slice(0, 10)
-    .map(
-      (need, i) =>
-        `${i + 1}. ${need.label}${need.options?.length ? ` (${need.options.slice(0, 4).join(" / ")})` : ""}`,
-    )
-    .join("\n");
+function askText(
+  missing: Need[],
+  files: Need[],
+  channel: RelayChannel,
+  incoming: Incoming,
+): string {
+  const parts: string[] = [];
+  if (missing.length) {
+    const list = missing
+      .slice(0, 10)
+      .map(
+        (need, i) =>
+          `${i + 1}. ${need.label}${need.options?.length ? ` (${need.options.slice(0, 4).join(" / ")})` : ""}`,
+      )
+      .join("\n");
+    parts.push(
+      `아직 ${missing.length}가지가 비어 있습니다.\n${list}` +
+        (missing.length > 10 ? `\n… 외 ${missing.length - 10}건` : ""),
+    );
+  }
+  if (files.length) {
+    parts.push(
+      `서류 ${files.length}건이 필요합니다.\n` +
+        files
+          .slice(0, 8)
+          .map((need) => `· ${need.label}`)
+          .join("\n") +
+        (files.length > 8 ? `\n… 외 ${files.length - 8}건` : ""),
+    );
+  }
   return (
-    `${channel.mention(incoming.from)} 아직 ${missing.length}가지가 비어 있습니다.\n${list}` +
-    (missing.length > 10 ? `\n… 외 ${missing.length - 10}건` : "") +
-    "\n\n이 스레드에 답장으로 적어 주세요. 「기업명은 …, 총사업비는 …」처럼 한 번에 적어도 됩니다."
+    `${channel.mention(incoming.from)} ${parts.join("\n\n")}` +
+    "\n\n이 스레드에 답장으로 적거나 파일을 올려 주세요. 「기업명은 …, 총사업비는 …」처럼 한 번에 적어도 됩니다."
   );
 }
 
 function closing(
   out: ReturnType<Sink["result"]>,
   missing: Need[],
+  files: Need[],
   channel: RelayChannel,
   incoming: Incoming,
 ): string {
@@ -290,13 +358,13 @@ function closing(
   }
 
   const head = `✅ ${out.title ?? "공고"} 준비를 마쳤습니다.`;
-  if (missing.length === 0 && out.applyUrl) {
+  if (missing.length === 0 && files.length === 0 && out.applyUrl) {
     return `${head}\n빈 항목이 없습니다. ${appUrl()} 에서 신청을 실행할 수 있습니다.`;
   }
-  if (missing.length === 0) {
+  if (missing.length === 0 && files.length === 0) {
     return `${head}\n신청 페이지 주소를 찾지 못했습니다. 링크를 알려주시면 이어갑니다.${link}`;
   }
-  return `${head}\n${askText(missing, channel, incoming)}`;
+  return `${head}\n${askText(missing, files, channel, incoming)}`;
 }
 
 type Sink = ReturnType<typeof makeSink>;

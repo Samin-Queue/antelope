@@ -27,6 +27,13 @@ const THROTTLE_MS = 3_000;
 export type SinkResult = {
   /** `goals.id`. 「이어서 하기」 링크의 재료 */
   goalId: string | null;
+  /**
+   * 이번 실행이 파일을 담는 폴더 id.
+   *
+   * 사람이 스레드에 올린 서류를 **같은 자리**에 두어야 신청 단계가 그것을
+   * 찾는다. 버리면 첨부가 갈 곳을 잃는다.
+   */
+  runId: string | null;
   needs: Need[] | null;
   applyUrl: string | null;
   title: string | null;
@@ -48,6 +55,7 @@ export type Sink = {
 export function makeSink(channel: RelayChannel, ref: ThreadRef): Sink {
   const result: SinkResult = {
     goalId: null,
+    runId: null,
     needs: null,
     applyUrl: null,
     title: null,
@@ -164,6 +172,10 @@ export function makeSink(channel: RelayChannel, ref: ThreadRef): Sink {
         result.title = event.title;
         break;
 
+      case "run":
+        result.runId = event.runId;
+        break;
+
       case "session":
         result.goalId = event.id;
         break;
@@ -179,7 +191,7 @@ export function makeSink(channel: RelayChannel, ref: ThreadRef): Sink {
         break;
 
       default:
-        // files · summary · brief · via · run · plan · orchestrator — 표시줄에도 안 싣는다.
+        // files · summary · brief · via · plan · orchestrator — 표시줄에도 안 싣는다.
         break;
     }
   };
