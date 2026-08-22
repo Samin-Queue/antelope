@@ -51,6 +51,7 @@ export const engine = {
     { id: "gateway", label: "Solar" },
     { id: "runtime", label: "자원" },
     { id: "browser", label: "브라우저" },
+    { id: "human", label: "사람" },
     { id: "relay", label: "슬랙" },
     { id: "memory", label: "지식베이스" },
     { id: "artifacts", label: "산출물" },
@@ -443,6 +444,110 @@ export const engine = {
         steps: 10,
       },
     ],
+    /**
+     * 어떤 입력이든 문서 처리는 Studio 를 지난다.
+     *
+     * 트랙 요건이 「Studio must power the core document-processing stages」라
+     * 이 표가 곧 그 답이다. 링크·문장 입력에서 Studio 호출이 0회였던 구간을
+     * 없앤 뒤에야 세 줄이 모두 채워졌다(`analyze.ts` 의 합성 경로).
+     */
+    coverage: {
+      headline: "입력이 무엇이든 문서 처리는 Studio 가 합니다",
+      sub: "파일·링크·문장 어느 쪽으로 시작해도 Document Parse 를 지납니다. 첨부가 없으면 Solar 가 정돈한 내용을 PDF 로 만들어 넣기 때문입니다.",
+      head: ["입력", "Studio 가 받는 것", "job", "나오는 것"],
+      rows: [
+        [
+          "공고문 파일 업로드",
+          "원본 그대로 (HWP·PDF·이미지·오피스)",
+          "2",
+          "요약 · 분류 · 필드 · 준비 문서 · 좌표",
+        ],
+        ["공고 페이지 링크", "페이지에서 찾아 내려받은 첨부", "2", "같음"],
+        ["링크만 있고 첨부가 없음", "읽은 내용을 PDF 로 만들어 넣음", "2", "같음"],
+        ["문장만", "정돈한 내용을 PDF 로 만들어 넣음", "1", "분류 · 필드 · 준비 문서"],
+      ],
+      note: "job 2회는 유효성 검사와 정보 분석입니다. 요약이 올린 파일은 분석이 `file_id` 로 재사용하므로 같은 문서를 두 번 파싱하지 않습니다 — Document Parse 는 페이지 과금입니다.",
+    },
+
+    /**
+     * API 를 실제로 두드려 확인한 것.
+     *
+     * 스펙에 없거나 스펙과 다른 것만 적는다. 문서를 읽어서 알 수 있는 것은
+     * 여기 넣지 않는다 — 그건 Upstage 쪽이 우리보다 잘 안다.
+     */
+    api: {
+      headline: "Studio API 에서 확인한 것",
+      sub: "config 를 코드로 만들다 보면 스펙 밖의 계약이 드러납니다. 아래는 전부 실제 요청과 응답으로 확인한 것입니다.",
+      rows: [
+        {
+          what: "`validate` 조건식",
+          body: "연산자 `eq neq gt gte lt lte filled empty contains matches`. 피연산자는 `{path}` `{const}` `{node}` `{nodeType+nodeName}` 중 정확히 하나. `{logic, conditions}` 로 AND/OR 묶음이 됩니다",
+        },
+        {
+          what: "`review` 는 터미널 노드",
+          body: "`next_steps` 를 비워야 config 가 생성됩니다 — 사람 확인 지점 뒤에 자동 스텝을 둘 수 없습니다",
+        },
+        {
+          what: "`merge` 의 전제",
+          body: "`split: true` 인 `document-classify` 가 **정확히 하나** 있어야 합니다. 없으면 config 생성이 거절됩니다",
+        },
+        {
+          what: "`match` 의 대상",
+          body: "`targets[].collection_id` 를 요구하는데 `/v2/collections` 가 404 입니다. 이 환경에서는 대상을 만들 수 없습니다",
+        },
+        {
+          what: "HTTP Export",
+          body: "이 환경에서는 `feature_disabled` 입니다. 결과를 밖으로 밀어내는 대신 우리가 폴링합니다",
+        },
+      ],
+      used: {
+        headline: "우리가 쓰는 스텝",
+        body: "`document-parse` → `document-classify` → `information-extract` → `validate` → `instruct`. 세 에이전트가 이 다섯 가지로 20스텝을 이룹니다.",
+      },
+    },
+
+    /**
+     * 검사 스텝.
+     *
+     * 「추측하지 않는다」는 제품 주장을 Studio 그래프 안에서 증명하는 자리다.
+     */
+    validate: {
+      headline: "추출 결과를 Studio 안에서 검사합니다",
+      sub: "값이 맞는지가 아니라 **빈 채로 다음 단계에 넘어가는지**를 봅니다. 필드 목록이 빈 채 흘러가면 사용자는 질문이 하나도 없는 빈 화면을 보고, 브라우저는 채울 값이 없어 헛돕니다 — 그때 원인을 되짚기가 가장 어렵습니다.",
+      key: "조건식의 뿌리는 스텝 이름이 아니라 타입 별칭 `extract` 입니다. 그래서 추출 분기가 일곱이어도 **검사는 하나면 됩니다.**",
+      checks: [
+        {
+          name: "제목이 있다",
+          severity: "error",
+          cond: "`extract.applicationTitle.value` filled",
+        },
+        {
+          name: "입력 항목이 하나라도 있다",
+          severity: "error",
+          cond: "`extract.fields.value[0].key` filled",
+        },
+        {
+          name: "첫 항목에 한글 라벨이 있다",
+          severity: "error",
+          cond: "`extract.fields.value[0].label` filled",
+        },
+        {
+          name: "추출 신뢰도가 0.7 이상",
+          severity: "warning",
+          cond: "`extract.applicationTitle.confidence` gte 0.7",
+        },
+        {
+          name: "신청 유형이 분류됐다",
+          severity: "warning",
+          cond: "`extract.applicationType.value` filled",
+        },
+      ],
+      verdict:
+        "판정은 green · yellow · red 로 옵니다. `error` 가 걸리면 red, `warning` 만이면 yellow 입니다. 실패한 검사만 화면에 적습니다 — 통과한 것까지 늘어놓으면 「이상 없음」 스무 줄에 실패 한 줄이 묻힙니다.",
+      reason:
+        "이유 문자열에 좌변의 실제값이 들어 있어 「왜 red 인가」를 되물을 필요가 없습니다.",
+    },
+
     stepTypes: [
       {
         type: "document-parse",
@@ -829,9 +934,49 @@ export const engine = {
     stop: "최종 제출 버튼 앞에서 멈추는 것이 기본값입니다. 빈 항목이 0 이고 신청 URL 이 확인된 경우에만 끝까지 갑니다.",
   },
 
+  // ── 6. 사람이 개입하는 지점 ─────────────────────────────────────────
+  human: {
+    eyebrow: "6 · 사람",
+    headline: "사람을 부르는 자리를 정해 두었습니다",
+    sub: "끝까지 자동으로 가는 것이 목표가 아닙니다. 사람이 결정해야 하는 것과 사람만 할 수 있는 것을 나누고, 그 자리에서만 멈춥니다.",
+    rows: [
+      {
+        where: "최종 제출 버튼",
+        who: "사람이 누른다",
+        how: "기본값입니다. 제출 도구는 허용된 실행에서만 정의되고, 그 전에는 모델에게 그런 도구가 있는지조차 보이지 않습니다",
+      },
+      {
+        where: "캡챠",
+        who: "사람이 푼다",
+        how: "우회하지 않습니다. 화면을 사람에게 넘기고 탭 제목·브라우저 알림·소리 셋으로 부릅니다 — 보고 있지 않아도 알 수 있게",
+      },
+      {
+        where: "폼에 없던 값",
+        who: "사람이 답한다",
+        how: "브라우저가 `askUser` 로 묻고 답이 올 때까지 기다립니다. 지어내지 않습니다",
+      },
+      {
+        where: "발급 서류",
+        who: "사람이 발급받는다",
+        how: "사업자등록증·졸업증명서 같은 것은 만들지 않습니다. 무엇이 없어 못 냈는지 보고하고 멈춥니다",
+      },
+      {
+        where: "기억을 고칠 때",
+        who: "사람이 말로 시킨다",
+        how: "지시가 모호하면 큐레이터가 추측하지 않고 되묻습니다 — 「그거 좀 바꿔줘」는 아무것도 하지 않습니다",
+      },
+      {
+        where: "빈 항목이 남으면",
+        who: "사람이 채운다",
+        how: "슬랙 스레드가 열린 채 기다립니다. 무엇을 묻고 있는지가 DB 에 남아 서버가 재시작해도 이어집니다",
+      },
+    ],
+    note: "빈 항목이 0 이고 신청 URL 이 확인된 경우에만 사람을 거치지 않고 끝까지 갑니다.",
+  },
+
   // ── 7. 슬랙 릴레이 ──────────────────────────────────────────────────
   relay: {
-    eyebrow: "6 · 슬랙",
+    eyebrow: "7 · 슬랙",
     headline: "채널에서 멘션 한 번으로 시작합니다",
     sub: "웹에서 쓰는 것과 같은 파이프라인을 다른 입구로 엽니다. 준비를 시작하는 자리가 저장소 전체에 하나뿐이라, 슬랙에서 들어와도 웹과 같은 단계를 같은 순서로 지납니다.",
     file: "src/app/(labs)/lab/relay/_lib/host.ts",
@@ -889,7 +1034,7 @@ export const engine = {
 
   // ── 6. 지식베이스 · 근거 ────────────────────────────────────────────
   memory: {
-    eyebrow: "7 · 지식베이스 · 근거",
+    eyebrow: "8 · 지식베이스 · 근거",
     headline: "한 번 답한 것을 다시 묻지 않습니다",
     sub: "다음 공고가 「상시근로자 수」로 물어도 「현재 직원 수」로 저장한 값을 찾아야 합니다. 조회는 2단계입니다 — label 정확 일치를 먼저 보고, 없으면 임베딩 유사도로 찾습니다.",
     dual: {
@@ -944,7 +1089,7 @@ export const engine = {
 
   // ── 7. 산출물 ───────────────────────────────────────────────────────
   artifacts: {
-    eyebrow: "8 · 산출물",
+    eyebrow: "9 · 산출물",
     headline: "만드는 것과 만들면 안 되는 것",
     sub: "제출 서류를 두 갈래로 가릅니다. 작성 서류만 만들고, 기관에서 발급받는 것은 손대지 않습니다 — 만들면 위조입니다. 이 판정이 게이트웨이의 유일한 `reject` 규칙입니다.",
     formats: [
@@ -969,7 +1114,7 @@ export const engine = {
 
   // ── 8. 폴백 지도 ────────────────────────────────────────────────────
   fallback: {
-    eyebrow: "9 · 폴백",
+    eyebrow: "10 · 폴백",
     headline: "한 곳이 실패해도 신청은 계속됩니다",
     sub: "단계 하나가 죽어도 준비는 끝까지 갑니다. 어느 자리에서 무엇으로 갈아타는지, 그때 무엇을 잃는지를 적어 둡니다.",
     rows: [
@@ -1018,8 +1163,9 @@ export const engine = {
 
   cta: {
     headline: "직접 돌려 보세요",
-    sub: "공고문 파일이든 링크든 넣으면 위 여덟 단계가 그대로 화면에 흐릅니다. 각 카드에 무엇으로 돌았는지(`via`)가 적힙니다.",
-    primary: { label: "워크스페이스 열기", href: "/app" },
-    secondary: { label: "실시간 상태 · /api/health", href: "/api/health" },
+    sub: "공고문 파일이든 링크든 넣으면 위 단계가 그대로 화면에 흐릅니다. 각 카드에 무엇으로 돌았는지(`via`)가 적힙니다. 데모 공고는 로그인 없이 열립니다.",
+    primary: { label: "데모 공고 열기", href: "/demo" },
+    secondary: { label: "워크스페이스", href: "/app" },
+    tertiary: { label: "실시간 상태 · /api/health", href: "/api/health" },
   },
 } as const;

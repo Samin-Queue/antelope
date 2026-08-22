@@ -287,6 +287,31 @@ export default function EnginePage() {
           </p>
 
           <div className="mt-12">
+            <Sub>
+              <T>{engine.studio.coverage.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.studio.coverage.sub}</T>
+            </p>
+            <div className="mt-5">
+              <Table
+                head={engine.studio.coverage.head}
+                rows={engine.studio.coverage.rows.map((row) => [
+                  row[0],
+                  row[1],
+                  <span key="j" className="font-mono text-xs text-brand">
+                    {row[2]}
+                  </span>,
+                  row[3],
+                ])}
+              />
+            </div>
+            <p className="mt-3 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+              <T>{engine.studio.coverage.note}</T>
+            </p>
+          </div>
+
+          <div className="mt-12">
             <Sub>스텝 유형</Sub>
             <div className="mt-4">
               <DefGrid
@@ -323,6 +348,70 @@ export default function EnginePage() {
             <div className="mt-4">
               <StudioSequence />
             </div>
+          </div>
+
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.studio.validate.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.studio.validate.sub}</T>
+            </p>
+            <div className="mt-5">
+              <Table
+                head={["검사", "등급", "조건식"]}
+                rows={engine.studio.validate.checks.map((check) => [
+                  check.name,
+                  <span
+                    key="s"
+                    className={
+                      check.severity === "error"
+                        ? "font-mono text-[11px] text-brand"
+                        : "font-mono text-[11px]"
+                    }
+                  >
+                    {check.severity}
+                  </span>,
+                  <T key="c">{check.cond}</T>,
+                ])}
+              />
+            </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <Card className="border-brand/25 bg-brand/5">
+                <p className="text-xs leading-relaxed">
+                  <T>{engine.studio.validate.key}</T>
+                </p>
+              </Card>
+              <Card>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  <T>{engine.studio.validate.verdict}</T>
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  <T>{engine.studio.validate.reason}</T>
+                </p>
+              </Card>
+            </div>
+          </div>
+
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.studio.api.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.studio.api.sub}</T>
+            </p>
+            <div className="mt-5">
+              <DefGrid
+                items={engine.studio.api.rows.map((row) => ({
+                  name: row.what,
+                  body: row.body,
+                }))}
+              />
+            </div>
+            <p className="mt-3 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+              <span className="text-foreground">{engine.studio.api.used.headline}</span>{" "}
+              <T>{engine.studio.api.used.body}</T>
+            </p>
           </div>
 
           <div className="mt-12">
@@ -688,6 +777,28 @@ export default function EnginePage() {
           </p>
         </Section>
 
+        {/* ── 6. 사람이 개입하는 지점 ───────────────────────────── */}
+        <Section
+          id="human"
+          eyebrow={engine.human.eyebrow}
+          headline={engine.human.headline}
+          sub={engine.human.sub}
+        >
+          <Table
+            head={["어디서", "누가", "어떻게"]}
+            rows={engine.human.rows.map((row) => [
+              row.where,
+              <span key="w" className="text-foreground">
+                {row.who}
+              </span>,
+              <T key="h">{row.how}</T>,
+            ])}
+          />
+          <p className="mt-4 rounded-xl border border-brand/25 bg-brand/5 px-4 py-3 text-sm leading-relaxed">
+            <T>{engine.human.note}</T>
+          </p>
+        </Section>
+
         {/* ── 6. 슬랙 릴레이 ───────────────────────────────────── */}
         <Section
           id="relay"
@@ -950,6 +1061,9 @@ export default function EnginePage() {
                 variant="outline"
               >
                 <T>{engine.cta.secondary.label}</T>
+              </Button>
+              <Button render={<Link href={engine.cta.tertiary.href} />} variant="ghost">
+                <T>{engine.cta.tertiary.label}</T>
               </Button>
             </div>
           </div>
