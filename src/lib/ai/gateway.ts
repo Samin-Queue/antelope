@@ -131,9 +131,7 @@ export async function runObject<Raw, Out = Raw>(
         if (issues.length) {
           meta.log?.(`검증에서 ${issues.length}개를 버렸다: ${issues[0].message}`);
         }
-        const value = (
-          opts.normalize ? opts.normalize(object, issues) : object
-        ) as Out;
+        const value = (opts.normalize ? opts.normalize(object, issues) : object) as Out;
         return { value, repaired: attempt > 0, issues };
       }
 

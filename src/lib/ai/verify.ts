@@ -23,7 +23,9 @@ const at = (value: unknown, path: string): unknown =>
     .split(".")
     .reduce<unknown>(
       (node, key) =>
-        node && typeof node === "object" ? (node as Record<string, unknown>)[key] : undefined,
+        node && typeof node === "object"
+          ? (node as Record<string, unknown>)[key]
+          : undefined,
       value,
     );
 
@@ -40,7 +42,10 @@ function collect(value: unknown, path: string): Array<{ path: string; value: unk
   if (!Array.isArray(list)) return [];
   return list.flatMap((item, index) =>
     tail
-      ? collect(item, tail).map((hit) => ({ path: `${head}[${index}].${hit.path}`, value: hit.value }))
+      ? collect(item, tail).map((hit) => ({
+          path: `${head}[${index}].${hit.path}`,
+          value: hit.value,
+        }))
       : [{ path: `${head}[${index}]`, value: item }],
   );
 }
@@ -113,7 +118,8 @@ export function oneOf<T>(path: string, allowed: readonly string[]): Rule<T> {
  * 「010-0000-0000」을 항목으로 만들면 사용자에게 그걸 묻게 된다.
  * `needs.ts` 의 정규식을 규칙으로 승격한 것이다.
  */
-const PLACEHOLDER = /^https?:\/\/|^[\d\s\-().+]{6,}$|^[\w.+-]+@[\w-]+\.[\w.]+$|^예\)|^예시/;
+const PLACEHOLDER =
+  /^https?:\/\/|^[\d\s\-().+]{6,}$|^[\w.+-]+@[\w-]+\.[\w.]+$|^예\)|^예시/;
 
 export function noPlaceholder<T>(path: string): Rule<T> {
   return (value) =>
