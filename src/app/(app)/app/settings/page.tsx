@@ -4,6 +4,7 @@ import { AppHeader } from "@/components/app/app-header";
 import { listMemories } from "@/app/(labs)/lab/notice/_lib/memory";
 import { oidcReady } from "@/app/(labs)/lab/relay/_lib/oidc";
 import { identitiesOf } from "@/app/(labs)/lab/relay/_lib/store";
+import { telegram } from "@/app/(labs)/lab/relay/_lib/telegram";
 
 import { listGoals } from "../_lib/goals";
 import { listDocuments } from "../start/_lib/documents";
@@ -57,7 +58,11 @@ export default async function SettingsPage() {
                 이어받는다.
               </p>
             </header>
-            <RelayConnections links={relayLinks} configured={oidcReady()} />
+            <RelayConnections
+              links={relayLinks}
+              configured={oidcReady()}
+              telegramConfigured={telegram.ready()}
+            />
           </section>
         )}
 

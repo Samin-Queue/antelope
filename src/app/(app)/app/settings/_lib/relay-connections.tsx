@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Check, Loader2, MessageSquare, Unplug } from "lucide-react";
+import { Check, Loader2, MessageSquare, Send, Unplug } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,7 @@ const WHY: Record<string, string> = {
   "bad-state": "연결 요청이 만료됐습니다. 다시 눌러 주세요.",
   access_denied: "동의를 취소했습니다.",
   bad_redirect_uri: "슬랙 앱의 Redirect URL 설정이 이 주소와 다릅니다.",
+  "telegram-link": "텔레그램 연결 링크를 만들지 못했습니다. 서버 로그를 확인하세요.",
 };
 
 /**
@@ -40,18 +41,23 @@ const WHY: Record<string, string> = {
 export function RelayConnections({
   links,
   configured,
+  telegramConfigured,
 }: {
   links: RelayLink[];
+  /** 슬랙 OIDC 가 설정됐는가 */
   configured: boolean;
+  /** 텔레그램 봇 토큰·웹훅 시크릿이 설정됐는가 */
+  telegramConfigured: boolean;
 }) {
   const [pending, setPending] = useState(false);
+  const telegramLinked = links.some((link) => link.channel === "telegram");
   const params = useSearchParams();
 
   // 콜백이 결과를 쿼리로 싣고 돌아온다. 조용히 끝나면 됐는지 알 수 없다.
   useEffect(() => {
     const status = params.get("relay");
     if (!status) return;
-    if (status === "connected") toast.success("슬랙 계정을 연결했습니다.");
+    if (status === "connected") toast.success("계정을 연결했습니다.");
     else {
       const why = params.get("why") ?? "";
       toast.error(WHY[why] ?? `연결에 실패했습니다${why ? ` — ${why}` : ""}`);
@@ -100,6 +106,33 @@ export function RelayConnections({
         >
           {pending ? <Loader2 className="animate-spin" /> : <MessageSquare />}
           {links.length ? "다시 연결" : "슬랙 연결"}
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-muted/30 px-4 py-3">
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-sm">
+            텔레그램에서는 봇에게 직접 말을 겁니다. 멘션이 없어서 답장으로 이어집니다.
+          </p>
+          {!telegramConfigured && (
+            <p className="text-sm text-muted-foreground">
+              서버에 텔레그램 봇이 설정되지 않았습니다 — <code>TELEGRAM_BOT_TOKEN</code> ·
+              <code>TELEGRAM_WEBHOOK_SECRET</code> 이 필요합니다.
+            </p>
+          )}
+        </div>
+        {/*
+          라우트가 t.me 딥링크로 302 를 준다. 슬랙과 같은 이유로 평범한 링크다 —
+          `router.push` 는 바깥 리다이렉트를 못 따라간다.
+        */}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!telegramConfigured}
+          render={<a href="/app/settings/relay/telegram" />}
+        >
+          <Send />
+          {telegramLinked ? "다시 연결" : "텔레그램 연결"}
         </Button>
       </div>
 

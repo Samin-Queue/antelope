@@ -1,5 +1,4 @@
 import { hasDb } from "@/lib/db";
-import { env } from "@/lib/env";
 import type { IntakeInput } from "@/app/(app)/app/start/_lib/intake";
 import { runStart } from "@/app/(app)/app/start/_lib/pipeline";
 import { saveNeeds } from "@/app/(app)/app/start/_lib/session";
@@ -11,6 +10,7 @@ import type { Incoming, RelayChannel } from "./channel";
 import { applyFiles, missingFiles, pickNotice, takeFiles } from "./files";
 import { acquire } from "./queue";
 import { makeSink } from "./sink";
+import { appUrl } from "./site";
 import { findIdentity, openThread, updateThread, type ThreadRow } from "./store";
 
 /**
@@ -23,14 +23,6 @@ import { findIdentity, openThread, updateThread, type ThreadRow } from "./store"
  * ⚠ **`runStart` 를 부르는 유일한 자리다.** LLM 계층 개편이 그 시그니처를
  * 바꿔도 고칠 곳이 아래 한 줄이 되도록 다른 곳에서 부르지 않는다.
  */
-
-function appUrl(path = "/app"): string {
-  const base = (env.BETTER_AUTH_URL || "https://antelope.up.railway.app").replace(
-    /\/+$/,
-    "",
-  );
-  return `${base}${path}`;
-}
 
 /**
  * 한 통의 말을 파이프라인 입력으로 바꾼다.
@@ -69,10 +61,7 @@ export async function handle(channel: RelayChannel, incoming: Incoming): Promise
    * 링크는 공개돼도 무해하다. 로그인한 사람만 열 수 있다.
    */
   if (!identity) {
-    await channel.post(
-      incoming.ref,
-      `${channel.mention(incoming.from)} 이 슬랙 계정이 아직 Antelope 에 연결되어 있지 않습니다.\n${appUrl("/app/settings")} 에서 「슬랙 연결」을 한 번 누르면 됩니다.`,
-    );
+    await channel.post(incoming.ref, channel.linkHint());
     return;
   }
 

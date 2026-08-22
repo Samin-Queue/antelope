@@ -97,6 +97,15 @@ const schema = z.object({
    * 「슬랙 계정 연결」 동의 화면(OIDC)에 쓴다. Basic Information 의 App Credentials.
    * 없으면 설정 화면에 연결 버튼이 그려지지 않는다 — 구글 연동과 같은 방식이다.
    */
+  /**
+   * 텔레그램 봇. BotFather 가 준 토큰과, `setWebhook` 에 등록한 비밀값.
+   *
+   * ⚠ `TELEGRAM_WEBHOOK_SECRET` 은 **고정값이다.** 빌드마다 새로 만들면
+   *   등록해 둔 값과 어긋나 모든 웹훅이 401 이 되고, 증상은 「봇이 아무
+   *   반응이 없다」로만 나타난다. 한 번 정하고 바꾸지 않는다.
+   */
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   SLACK_CLIENT_ID: z.string().optional(),
   SLACK_CLIENT_SECRET: z.string().optional(),
 });

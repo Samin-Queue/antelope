@@ -80,6 +80,8 @@ export interface RelayChannel {
   post(ref: ThreadRef, text: string): Promise<string | null>;
   /** 이미 보낸 메시지를 고친다. 진행 표시줄이 이걸로 산다 */
   edit(ref: ThreadRef, messageId: string, text: string): Promise<void>;
-  /** 그 사람을 부르는 표기 */
+  /** 그 사람을 부르는 표기. 텔레그램처럼 멘션이 없는 채널은 빈 문자열 */
   mention(externalId: string): string;
+  /** 아직 연결되지 않은 사람에게 할 말. 채널마다 버튼 이름이 다르다 */
+  linkHint(): string;
 }

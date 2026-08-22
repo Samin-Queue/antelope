@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "@/lib/env";
 
 import type { Incoming, IncomingFile, RelayChannel, ThreadRef } from "./channel";
+import { appUrl } from "./site";
 
 /**
  * 슬랙 어댑터.
@@ -264,6 +265,13 @@ export const slack: RelayChannel = {
 
   mention(externalId) {
     return `<@${externalId}>`;
+  },
+
+  linkHint() {
+    return [
+      `이 슬랙 계정이 아직 Antelope 에 연결되어 있지 않습니다.`,
+      `${appUrl("/app/settings")} 에서 「슬랙 연결」을 한 번 누르면 됩니다.`,
+    ].join("\n");
   },
 };
 
