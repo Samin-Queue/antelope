@@ -773,6 +773,48 @@ src/content/labs.ts                  레지스트리 (제목·가설·상태·�
 - `(labs)` 레이아웃에 점선 배너가 붙어 프로덕션 화면과 눈으로 구분된다 —
   데모 중에 실수로 실험을 보여주는 일을 막는다.
 
+## LLM 계층 — `src/lib/ai/`
+
+**모델을 직접 부르지 않는다.** `generateObject`·`generateText` 를 새로 쓰기
+전에 `src/lib/ai/gateway.ts` 를 본다. 거기 안 통과하는 호출은 계측·티어링·
+계약·검증·복구·취소를 전부 잃는다.
+
+```
+src/lib/ai/
+  gateway.ts   runObject / runText — 호출부가 보는 전부
+  contract.ts  zod 스키마 → 프롬프트 계약 문장. 「json」 낱말을 구조적으로 넣는다
+  verify.ts    의미 검증 규칙 (날짜·화이트리스트·단위·플레이스홀더·중복·위조)
+  lanes.ts     동시성 상한. studio 3 / interactive 4 / batch 2 / browser 2
+  meter.ts     계측 fetch + AsyncLocalStorage 귀속
+  ledger.ts    토큰·지연·실패 원장. /api/health 가 최근 10분을 낸다
+  window.ts    도구 루프의 컨텍스트 창 (prepareStep)
+```
+
+**계약을 손으로 쓰지 않는다.** `runObject` 에 `schema` 를 주면 프롬프트의
+필드 계약이 거기서 파생된다. 스키마를 고치고 문장을 안 고치는 사고가
+구조적으로 불가능해진다.
+
+**스키마는 느슨하게 둔다.** `.nullish()` 는 실수가 아니라 정책이다 — LLM 은
+값이 없으면 키를 생략하고, 엄격하게 굴면 필드 하나 때문에 배열 전체가 폐기된다.
+조이는 일은 `normalize` 와 `verify` 가 한다.
+
+**규칙으로 답할 수 있으면 모델에게 묻지 않는다.** 브라우저의 `checkValidity()`
+에 물어 케이스별 프롬프트를 없앤 것과 같다. 프롬프트에 규칙을 한 줄 더하기
+전에 `verify.ts` 에 넣을 수 있는지 먼저 본다 — 사이트마다 규칙을 더하면 규칙이
+사이트 수만큼 늘고 서로 부딪친다.
+
+**병렬화에는 반드시 레인을 건다.** 이 컨테이너에서 먼저 죽는 자원은 토큰이
+아니라 Chromium 이다. `probeCaptcha`·`runPlaywrightAgent`·`renderPdf` 가 같은
+레인(2)을 쓰고, Xvfb 수동 세션만 자기 상한(`MAX_SESSIONS = 2`)으로 즉시
+거절한다 — 15분 사는 세션을 레인에 넣으면 다음 신청이 무한 대기가 된다.
+
+**킬스위치가 있다.** `AI_PREPARE_STEP`·`AI_TIER_ROUTING`·`AI_REPAIR`·
+`AI_VERIFY`·`AI_SUBMIT_GATE`. `env` 는 import 시점에 한 번 parse 되므로 런타임
+토글은 안 되지만, 배포 변수 하나로 5분 안에 되돌린다.
+
+**임계값을 만지면 `pnpm eval`.** 순수 함수 34개가 300ms 에 돈다. CI 에는
+안 붙인다 — 게이트를 늘리는 것이 순손실이라는 아래 판단과 같은 이유다.
+
 ## 규칙
 
 - 랜딩 문구는 전부 `src/content/site.ts` 에. 컴포넌트에 문자열을 박지 않는다.
@@ -807,6 +849,10 @@ src/content/labs.ts                  레지스트리 (제목·가설·상태·�
 | `package.json`                 | `studio:provision` 의 `--env-file=.env.local`                   | `@/lib/env` 가 import 시점에 `process.env` 를 굳혀서, 스크립트 안에서 `dotenv` 를 부르면 이미 늦다 → `Missing required environment variable: UPSTAGE_API_KEY`           |
 | `drizzle.config.ts`            | `config({ path: ".env.local" })`                                | dotenv 기본값은 `.env` 인데 Next 는 `.env.local` 을 쓴다 → `db:push` 가 DATABASE_URL 을 못 찾음                                                                         |
 | `.devcontainer/post-create.sh` | `--config.confirmModulesPurge=false`                            | pnpm 이 "reinstall from scratch? (Y/n)" 를 띄우고 비대화형에서 응답이 안 돼 postCreate 무한 대기                                                                        |
+| `src/lib/llm.ts`               | `fetch: meteredFetch` · `includeUsage: true`                    | 원장이 통째로 빈다. 호출 21곳이 전부 이 한 자리를 지나므로 여기 말고는 붙일 데가 없다                                                                                   |
+| `playwright-agent.ts`          | `guard()` 의 `stop.abort()`                                     | AI SDK 가 도구 예외를 `tool-error` 로 삼켜 캡챠 수동 전환이 **한 번도 안 열린다**. throw 만으로는 루프가 안 멈춘다                                                      |
+| `apply/route.ts`               | `emit(browser done)` 이 `controller.close()` **앞**             | 그 이벤트가 삼켜져 성공한 신청이 「연결이 끊겨 중단됐다」로 끝난다                                                                                                      |
+| `memory.ts`                    | `ORDER BY <=> ASC` 형태 (`1 - distance DESC` 금지)              | pgvector HNSW 가 안 붙어 전체 스캔이 된다 — 실측 17.9ms → 0.100ms                                                                                                       |
 | `.devcontainer/compose.yaml`   | `NODE_ENV: ""`                                                  | Dockerfile dev 타깃의 `NODE_ENV=development` 상태로 `pnpm build` 하면 React 가 dev/prod 로 갈려 프리렌더 깨짐                                                           |
 | `src/lib/session.ts`           | `headers()` 를 `hasDb()` **밖에서** 먼저 부르는 순서            | 도커 빌드엔 `DATABASE_URL` 이 없어 호출이 통째로 안 돌고, 동적 API 가 사라진 `/` 를 Next 가 정적 프리렌더한다 → 랜딩이 「로그아웃 + 프로바이더 없음」 스냅샷으로 굳는다 |
 | `src/proxy.ts`                 | `/app`·`/sign-in` 세션 게이트                                   | 로그인 없이 `/app` 이 열린다. 레이아웃 `redirect()` 만으로는 셸이 이미 흘러 나간 뒤라 200 + `NEXT_REDIRECT` 가 되어 로그아웃 화면이 한 번 번쩍인다                      |
@@ -829,6 +875,7 @@ GraphQL `projectUpdate` 로 바꾼다.
 pnpm dev            # 개발 서버
 pnpm build          # 타입체크 + 프로덕션 빌드
 pnpm typecheck      # 타입만
+pnpm eval           # 순수 함수 골든셋. 임계값을 만지면 이걸 돌린다
 pnpm lint
 pnpm format         # Prettier 일괄 적용
 pnpm format:check   # CI 와 동일한 검사
