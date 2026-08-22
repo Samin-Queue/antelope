@@ -210,7 +210,6 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
             applyUrl: event.applyUrl,
             needs: event.needs,
           });
-<<<<<<< Updated upstream
           // 선채움 값을 초깃값으로 깐다. 이미 사용자가 친 것이 있으면 그쪽을
           // 남긴다 — 늦게 도착한 이벤트가 입력을 덮어쓰면 안 된다.
           setValues((prev) => ({
@@ -219,11 +218,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
             ),
             ...prev,
           }));
-          const filled = event.needs.filter((need) => need.value?.trim()).length;
-          patch("prefill", { output: `${filled}/${event.needs.length} 채움` });
-=======
           patch("data", { action: "입력 항목 보기" });
->>>>>>> Stashed changes
           break;
         }
         case "error":
