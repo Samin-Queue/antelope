@@ -54,6 +54,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/playwright-core ./no
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@rhwp ./node_modules/@rhwp
 # hwp 렌더러는 번들에 들어가지 않는 별도 스크립트다 — 원본 그대로 있어야 한다.
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/render-hwp.mjs ./scripts/render-hwp.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/fill-hwp.mjs ./scripts/fill-hwp.mjs
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]

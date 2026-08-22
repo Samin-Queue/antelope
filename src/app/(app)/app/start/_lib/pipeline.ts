@@ -1,6 +1,12 @@
 import { analyze } from "./analyze";
 import type { IntakeFile } from "./fetch";
-import { artifactDir, planDocuments, recallArtifacts, writeDocument } from "./file-agent";
+import {
+  artifactDir,
+  fillTemplates,
+  planDocuments,
+  recallArtifacts,
+  writeDocument,
+} from "./file-agent";
 import { intake, type Ctx, type IntakeInput } from "./intake";
 import { mergeNeeds } from "./needs";
 import { makePlan } from "./plan";
@@ -166,8 +172,10 @@ export async function runStart(
 
     // 발급 서류는 만들지 않는다 — 보관함에 있으면 꺼내 쓴다.
     const recalled = await recallArtifacts(obtain, opts.userId, dir, ctx);
-    if (jobs.length === 0) return recalled;
-    const made: Artifact[] = [...recalled];
+    // 공고가 준 지정 서식이 있으면 새로 쓰지 말고 그것을 채운다.
+    const filledIn = await fillTemplates(allFiles, filled, dir, ctx);
+    const made: Artifact[] = [...recalled, ...filledIn];
+    if (jobs.length === 0) return made;
     for (const job of jobs) {
       try {
         made.push(

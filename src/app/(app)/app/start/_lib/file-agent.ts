@@ -7,11 +7,12 @@ import { chromium } from "playwright";
 import { z } from "zod";
 
 import { documentBytes, recallDocuments } from "./documents";
+import type { IntakeFile } from "./fetch";
 import type { Ctx } from "./intake";
 import { bigModel, clip } from "./llm";
 import { parseBlocks } from "./render/blocks";
 import { renderDocx } from "./render/docx";
-import { renderHwp } from "./render/hwp";
+import { fillHwp, renderHwp, type HwpFormat } from "./render/hwp";
 import { renderPdf } from "./render/pdf";
 import { renderXlsx } from "./render/xlsx";
 import type { Artifact, DocFormat, Need } from "./types";
@@ -229,6 +230,70 @@ async function render(
     job.format = "pdf";
     return renderPdf(blocks, job.title);
   }
+}
+
+/**
+ * 공고가 준 **지정 서식**을 채운다.
+ *
+ * 새 문서를 쓰는 것과 다르다 — 기관은 제 서식으로 받기를 원하고, 우리가 새로
+ * 만든 문서는 접수처에서 반려된다. 첨부 중 hwp·hwpx 를 열어 표의 라벨 셀을
+ * 찾고, 마스터 테이블 값을 같은 행 빈칸에 넣는다.
+ *
+ * 채운 칸이 하나도 없으면 서식이 아니었던 것이다 — 결과를 버린다.
+ */
+export async function fillTemplates(
+  files: IntakeFile[],
+  needs: Need[],
+  dir: string,
+  ctx: Ctx,
+): Promise<Artifact[]> {
+  const templates = files.filter((file) => /\.(hwpx?)$/i.test(file.name));
+  if (templates.length === 0) return [];
+
+  const values: Record<string, string> = {};
+  for (const need of needs) {
+    if (need.kind !== "file" && need.value?.trim())
+      values[need.label] = need.value.trim();
+  }
+  if (Object.keys(values).length === 0) return [];
+
+  await mkdir(dir, { recursive: true });
+  const out: Artifact[] = [];
+
+  for (const template of templates) {
+    const format: HwpFormat = /\.hwpx$/i.test(template.name) ? "hwpx" : "hwp";
+    const source = join(dir, `template-${template.name}`);
+    try {
+      await writeFile(source, Buffer.from(await template.blob.arrayBuffer()));
+      const result = await fillHwp(source, format, values);
+      if (result.filled.length === 0) {
+        ctx.log(`${template.name}: 채울 칸을 못 찾음 — 서식이 아닌 듯하다`);
+        continue;
+      }
+      const filename = `작성_${template.name}`;
+      const path = join(dir, filename);
+      await writeFile(path, result.bytes);
+      ctx.log(
+        `${template.name} 서식에 ${result.filled.length}칸 채움` +
+          (result.skipped.length ? ` · 자리 없음 ${result.skipped.length}` : ""),
+      );
+      out.push({
+        needKey: `template-${template.name}`,
+        label: `${template.name} (지정 서식)`,
+        filename,
+        mime: MIME[format],
+        bytes: result.bytes.length,
+        path,
+        usedKeys: result.filled.map((item) => item.label),
+        from: "agent",
+      });
+    } catch (error) {
+      ctx.log(
+        `${template.name} 서식 채우기 실패: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+  return out;
 }
 
 /**

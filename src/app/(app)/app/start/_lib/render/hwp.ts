@@ -22,6 +22,46 @@ const run = promisify(execFile);
 
 export type HwpFormat = "hwp" | "hwpx";
 
+export type FillResult = {
+  bytes: Buffer;
+  filled: Array<{ label: string; value: string }>;
+  skipped: string[];
+};
+
+/**
+ * 공고가 준 양식을 열어 빈칸을 채운다.
+ *
+ * 새 문서를 쓰는 것과 다르다 — 기관은 제 서식으로 받기를 원하고, 우리가
+ * 새로 만든 문서는 접수처에서 반려된다. 표의 라벨 셀을 찾아 같은 행의 다음
+ * 빈 칸에 값을 넣는다. **이미 적힌 칸은 건드리지 않는다.**
+ */
+export async function fillHwp(
+  templatePath: string,
+  format: HwpFormat,
+  values: Record<string, string>,
+): Promise<FillResult> {
+  const dir = await mkdtemp(join(tmpdir(), "antelope-hwp-"));
+  const out = join(dir, `filled.${format}`);
+  const script = join(process.cwd(), "scripts", "fill-hwp.mjs");
+
+  try {
+    const child = run("node", [script, templatePath, format, out], {
+      timeout: 90_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    child.child.stdin?.end(JSON.stringify(values));
+    const { stdout } = await child;
+    const report = JSON.parse(stdout || "{}") as Omit<FillResult, "bytes">;
+    return {
+      bytes: await readFile(out),
+      filled: report.filled ?? [],
+      skipped: report.skipped ?? [],
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export async function renderHwp(blocks: Block[], format: HwpFormat): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "antelope-hwp-"));
   const out = join(dir, `doc.${format}`);

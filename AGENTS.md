@@ -135,9 +135,14 @@ Turbopack 이 자기 로더로 감싸려다 **빌드를 깬다**:
 | 이름을 런타임 조합해 `import(변수)`      | `Can't resolve <dynamic>`         |
 
 **답은 번들러가 그 파일을 아예 안 보게 하는 것이다.** `scripts/render-hwp.mjs`
-가 stdin 으로 줄 목록을 받아 파일로 쓰고, 서버는 `execFile("node", …)` 로
-부른다. Dockerfile 이 `node_modules/@rhwp` 와 그 스크립트를 따로 복사한다 —
-둘 중 하나라도 빠지면 hwp 생성이 조용히 PDF 로 떨어진다.
+(새 문서)와 `scripts/fill-hwp.mjs`(지정 서식 채우기)가 stdin 으로 입력을 받아
+파일로 쓰고, 서버는 `execFile("node", …)` 로 부른다. Dockerfile 이
+`node_modules/@rhwp` 와 두 스크립트를 따로 복사한다 — 하나라도 빠지면 hwp
+생성이 조용히 PDF 로 떨어진다.
+
+서식 채우기는 `getControls()` 로 표를 찾고 `getCellInfo`(행·열) ·
+`getTextInCell`(라벨) 로 훑어 `insertTextInCell` 한다. 한글 신청 서식은 거의
+예외 없이 「항목 | 값」 두 열 표라 이 규칙으로 붙는다.
 
 ### Playwright 는 번들링할 수 없다
 
