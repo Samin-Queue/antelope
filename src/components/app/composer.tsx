@@ -1,24 +1,20 @@
 "use client";
 
 import { useRef, useState } from "react";
-import {
-  ArrowUp,
-  Building2,
-  FileText,
-  GraduationCap,
-  Landmark,
-  Link2,
-  Paperclip,
-  PartyPopper,
-  Rocket,
-  Trophy,
-  X,
-} from "lucide-react";
+import { ArrowUp, CornerDownLeft, FileText, Link2, Paperclip, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { ProviderMark } from "@/components/app/provider-mark";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemTitle,
+} from "@/components/ui/item";
 import {
   Select,
   SelectContent,
@@ -26,50 +22,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EXAMPLE_GROUPS, type Example } from "@/content/examples";
 
 export type ComposerSubmit =
   | { kind: "text"; text: string }
   | { kind: "url"; url: string }
-  | { kind: "file"; file: File };
-
-/**
- * 무엇을 넣을 수 있는지 예시로 보여준다.
- *
- * "공고" 를 좁게 잡으면 사용자가 정부지원사업만 떠올린다. 실제로는 자격을
- * 따지고 서류를 내는 모든 일이 같은 구조다 — 청약도, 수시도, 이벤트 응모도.
- */
-const SUGGESTIONS = [
-  {
-    icon: Landmark,
-    label: "정부지원사업",
-    hint: "청년창업사관학교 13기 모집한다는데 나 되는지 봐줘",
-  },
-  {
-    icon: Building2,
-    label: "임대·분양 청약",
-    hint: "행복주택 공고 캡쳐한 건데 내가 신청 자격 되는지 확인해줘",
-  },
-  {
-    icon: Rocket,
-    label: "스타트업 크레딧",
-    hint: "https://www.cloudflare.com/forstartups/",
-  },
-  {
-    icon: GraduationCap,
-    label: "대학 수시",
-    hint: "이 학과 수시 모집요강인데 내 생기부로 지원 가능한지 봐줘",
-  },
-  {
-    icon: Trophy,
-    label: "공모전·대회",
-    hint: "이 해커톤 참가 요건이랑 제출물이 뭔지 정리해줘",
-  },
-  {
-    icon: PartyPopper,
-    label: "이벤트 응모",
-    hint: "기대평 쓰면 추첨한다는 이벤트인데 뭘 해야 하는지 알려줘",
-  },
-];
+  /** 첨부한 공고문. 같이 적은 부탁이 있으면 `text` 로 함께 간다 */
+  | { kind: "file"; file: File; text?: string };
 
 export type ModelOption = { id: string; label: string; provider: string };
 
@@ -96,6 +56,9 @@ export function ComposerBox({
   const [model, setModel] = useState(models[0]?.id ?? "");
   const selected = models.find((item) => item.id === model) ?? models[0];
   const inputRef = useRef<HTMLInputElement>(null);
+  // 예시를 누르면 글이 담기는 곳으로 커서를 옮긴다 — 담기기만 하고 커서가
+  // 그대로면 「눌렀는데 아무 일도 안 일어났다」로 읽힌다.
+  const textRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -116,9 +79,33 @@ export function ComposerBox({
   const blocked =
     !ready && trimmed.length > 0 ? `${MIN_TEXT - trimmed.length}자 더 필요합니다` : null;
 
+  /**
+   * 예시를 고른다.
+   *
+   * 파일이 딸린 예시는 `public/` 에서 받아 그대로 첨부한다 — 사용자가 방금
+   * 끌어다 놓은 것과 **같은 상태**여야 이후 흐름이 하나다.
+   */
+  async function pick(item: Example) {
+    setText(item.input);
+    setFile(null);
+    textRef.current?.focus();
+    if (!item.file) return;
+    try {
+      const response = await fetch(item.file.url);
+      if (!response.ok) throw new Error(String(response.status));
+      const blob = await response.blob();
+      setFile(new File([blob], item.file.name, { type: "application/pdf" }));
+    } catch {
+      // 못 받으면 문장만 남는다. 조사 단계가 제목으로 찾아가므로 죽지는 않는다.
+      setText(`${item.label} 입주자모집공고 — ${item.input}`);
+    }
+  }
+
   function submit() {
     if (!ready) return;
-    if (file) return onSubmit({ kind: "file", file });
+    // 파일이 있어도 적은 글을 버리지 않는다 — 「이 공고 내가 되는지 봐줘」가
+    // 파일만 남고 사라지면 무엇을 해 달라는지 서버가 알 수 없다.
+    if (file) return onSubmit({ kind: "file", file, text: trimmed || undefined });
     if (isUrl) return onSubmit({ kind: "url", url: trimmed });
     onSubmit({ kind: "text", text: trimmed });
   }
@@ -159,6 +146,7 @@ export function ComposerBox({
         )}
 
         <textarea
+          ref={textRef}
           value={text}
           onPaste={(event) => {
             // 캡쳐를 그대로 붙여넣는 것이 가장 흔한 입력이다.
@@ -242,22 +230,57 @@ export function ComposerBox({
       </div>
 
       <p className="mt-6 text-center text-xs text-muted-foreground">
-        자격을 따지고 서류를 내는 일이면 무엇이든 됩니다
+        자격을 따지고 서류를 내는 일이면 무엇이든 됩니다. 아래 예제로 바로 시작해 보세요.
       </p>
-      <ul className="mt-3 flex flex-wrap justify-center gap-2">
-        {SUGGESTIONS.map((item) => (
-          <li key={item.label}>
-            <button
-              type="button"
-              onClick={() => setText(item.hint)}
-              className="flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-brand/40 hover:text-foreground"
+
+      {/* 종류 이름만 있는 알약은 눌러도 무슨 일이 벌어지는지 알 수 없었다.
+          실재하는 공고를 그대로 넣는다 — 누르면 입력창에 담기고, 보내기만 하면 된다 */}
+      <Tabs defaultValue={EXAMPLE_GROUPS[0].id} className="mt-3 gap-3">
+        <TabsList variant="line" className="w-full flex-wrap justify-center gap-4">
+          {EXAMPLE_GROUPS.map((group) => (
+            <TabsTrigger
+              key={group.id}
+              value={group.id}
+              className="h-8 flex-none px-0.5 text-sm font-normal"
             >
-              <item.icon className="size-3.5" />
-              {item.label}
-            </button>
-          </li>
+              {group.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {EXAMPLE_GROUPS.map((group) => (
+          <TabsContent key={group.id} value={group.id}>
+            <ItemGroup className="gap-1.5">
+              {group.items.map((item) => (
+                <Item
+                  key={item.label}
+                  variant="outline"
+                  size="sm"
+                  className="cursor-pointer transition-colors hover:border-brand/40 hover:bg-muted/50"
+                  render={<button type="button" onClick={() => pick(item)} />}
+                >
+                  {/* 섞여 있는 탭에서는 무엇을 누르는지 유형이 먼저 보여야 한다 */}
+                  {group.id === "picks" && (
+                    <Badge variant="secondary" className="shrink-0 text-[10px]">
+                      {item.kind}
+                    </Badge>
+                  )}
+                  <ItemContent className="min-w-0 gap-0">
+                    <ItemTitle className="truncate font-normal">{item.label}</ItemTitle>
+                  </ItemContent>
+                  <ItemActions>
+                    {item.file ? (
+                      <Paperclip className="size-3.5 text-muted-foreground" />
+                    ) : (
+                      <CornerDownLeft className="size-3.5 text-muted-foreground" />
+                    )}
+                  </ItemActions>
+                </Item>
+              ))}
+            </ItemGroup>
+          </TabsContent>
         ))}
-      </ul>
+      </Tabs>
     </div>
   );
 }

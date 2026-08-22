@@ -358,6 +358,9 @@ export function StartFlow({ initial }: { initial: StartInput }) {
       const extraIsUrl = /^https?:\/\/\S+$/.test(extra);
       const texts = [
         initial.kind === "text" ? initial.text : "",
+        // 파일과 함께 적은 부탁. 이게 빠지면 「이 공고 내가 되는지 봐줘」가
+        // 첨부만 남고 사라져 서버는 무엇을 해 달라는지 모른다.
+        initial.kind === "file" ? (initial.text ?? "") : "",
         extraIsUrl ? "" : extra,
       ].filter(Boolean);
 
