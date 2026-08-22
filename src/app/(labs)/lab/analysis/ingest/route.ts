@@ -1,4 +1,4 @@
-import { stepOutputs, uploadFile, waitForJob } from "@/lib/upstage-studio";
+import { runAgent, stepOutputs } from "@/lib/upstage-studio";
 
 export const maxDuration = 240;
 
@@ -6,10 +6,7 @@ const MAX_BYTES = 25 * 1024 * 1024;
 
 export async function POST(req: Request) {
   const agentId = process.env.UPSTAGE_ANALYSIS_AGENT_ID;
-  // uploadFile 은 Studio 키로 올리는데(upstage-studio.ts) 여기서 v1 키로 job 을
-  // 만들면 계정이 갈려 403 이 난다. 같은 키를 쓴다.
-  const apiKey = process.env.UPSTAGE_STUDIO_API_KEY || process.env.UPSTAGE_API_KEY;
-  if (!agentId || !apiKey) {
+  if (!agentId) {
     return Response.json({ error: "정보 분석 Studio 설정이 없습니다." }, { status: 503 });
   }
 
@@ -28,34 +25,15 @@ export async function POST(req: Request) {
   }
 
   try {
-    const uploaded = await Promise.all(files.map((file) => uploadFile(file, file.name)));
-    const response = await fetch("https://api.upstage.ai/v2/responses", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: agentId,
-        input: [
-          {
-            role: "user",
-            content: uploaded.map((file) => ({ type: "input_file", file_id: file.id })),
-          },
-        ],
-      }),
+    // ⚠ 예전에는 여기서 `fetch` 로 job 을 직접 만들었다. 그 안에 키 해석 규칙
+    // (Studio 전용 키 → v1 키)이 복제돼 있었고, 어긋나면 파일과 에이전트가
+    // 다른 계정에 있게 돼 `403 No access to file` 이 난다 — 증상이 파일 쪽
+    // 오류로 나와 원인을 엉뚱한 데서 찾게 되는 그 값이다. 규칙은 한 곳에만 둔다.
+    const job = await runAgent({
+      agentId,
+      files: files.map((file) => ({ blob: file, name: file.name })),
+      include: "all",
     });
-    if (!response.ok)
-      throw new Error(`Studio ${response.status}: ${await response.text()}`);
-
-    const created: unknown = await response.json();
-    if (
-      !created ||
-      typeof created !== "object" ||
-      !("id" in created) ||
-      typeof created.id !== "string"
-    ) {
-      throw new Error("Studio가 Job ID를 반환하지 않았습니다.");
-    }
-
-    const job = await waitForJob(created.id, { include: "all" });
     const output = stepOutputs(job).find((item) => item.step.startsWith("extract-"));
     if (!output?.json)
       throw new Error("정보 분석 에이전트가 JSON 필드 목록을 만들지 못했습니다.");

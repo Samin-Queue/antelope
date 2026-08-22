@@ -1,8 +1,8 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 
-import { env, required } from "@/lib/env";
-import { findStep, stepOutputs, uploadFile, waitForJob } from "@/lib/upstage-studio";
+import { env } from "@/lib/env";
+import { findStep, runAgent, stepOutputs } from "@/lib/upstage-studio";
 import { BRIEF } from "@/app/(labs)/lab/analysis/_lib/workflow";
 
 import type { IntakeFile } from "./fetch";
@@ -48,6 +48,12 @@ const fieldSchema = z.object({
         required: z.boolean().nullish(),
         stage: z.string().nullish(),
         documentName: z.string().nullish(),
+        /**
+         * 공고가 지정한 서식 파일 이름. Studio 추출 스키마가 이미 내주는데
+         * 여기 없어서 zod strip 이 지우고 있었다 — `fillTemplates` 가 파일명
+         * 매칭으로 대신 찾던 바로 그 값이다.
+         */
+        formName: z.string().nullish(),
         instructions: z.string().nullish(),
         source: z.string().nullish(),
       }),
@@ -66,15 +72,30 @@ export async function analyze(
 
   if (files.length > 0 && agentId) {
     try {
-      ctx.log(`정보 분석 실행: 파일 ${files.length}개`);
-      const uploaded = await Promise.all(
-        files.map((file) => uploadFile(file.blob, file.name)),
+      /**
+       * 요약 단계가 이미 올린 파일은 **다시 올리지 않는다.**
+       *
+       * 예전에는 같은 파일이 두 번 올라가고 두 번 파싱됐다 — Document Parse 는
+       * 페이지 과금이라 20쪽 공고가 40쪽이 된다. 요약이 남긴 `fileId` 로
+       * 되짚고, 없는 것만 새로 올린다(research 가 새로 받아 온 첨부).
+       */
+      const known = new Map(
+        summary.parts
+          .filter((part) => part.fileId)
+          .map((part) => [part.name, part.fileId!] as const),
       );
-      const job = await createMultiFileJob(
+      const fresh = files.filter((file) => !known.has(file.name));
+      ctx.log(
+        `정보 분석 실행: 파일 ${files.length}개` +
+          (known.size ? ` (요약이 올린 ${known.size}개 재사용)` : ""),
+      );
+      const done = await runAgent({
         agentId,
-        uploaded.map((file) => file.id),
-      );
-      const done = await waitForJob(job.id, { include: "all", timeoutMs: 240_000 });
+        fileIds: [...known.values()],
+        files: fresh.map((file) => ({ blob: file.blob, name: file.name })),
+        include: "all",
+        timeoutMs: 240_000,
+      });
       const outputs = stepOutputs(done);
       const extract = findStep(outputs, "extract");
       const parsed = fieldSchema.safeParse(extract?.json);
@@ -144,6 +165,7 @@ function toAnalysis(data: Fields, via: Analysis["via"]): Analysis {
         required: field.required,
         source: "analysis",
         why: field.source?.trim() || field.instructions?.trim() || null,
+        formName: field.formName,
       }),
     )
     .filter((need): need is Need => need !== null)
@@ -155,43 +177,6 @@ function toAnalysis(data: Fields, via: Analysis["via"]): Analysis {
     brief: null,
     via,
   };
-}
-
-/**
- * 파일 여러 개를 한 job 에 넣는다.
- * `@/lib/upstage-studio` 의 createJob 은 파일 하나만 받는다 — 공용 부품을 고치지
- * 않는다는 규칙 때문에 여기서 따로 부른다.
- */
-async function createMultiFileJob(
-  agentId: string,
-  fileIds: string[],
-): Promise<{ id: string }> {
-  // 키 해석은 `upstage-studio.ts` 의 authHeader 와 **같아야 한다.** Studio 전용
-  // 키가 따로 있는데 v1 키로 job 을 만들면 파일과 에이전트가 다른 계정에 있게 돼
-  // 403 No access to file 로 죽는다 — 증상이 파일 쪽 오류로 나와 원인을 못 찾는다.
-  const key = env.UPSTAGE_STUDIO_API_KEY || required("UPSTAGE_API_KEY");
-  const response = await fetch("https://api.upstage.ai/v2/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: agentId,
-      input: [
-        {
-          role: "user",
-          content: fileIds.map((id) => ({ type: "input_file", file_id: id })),
-        },
-      ],
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`[studio] responses ${response.status}: ${await response.text()}`);
-  }
-  const created = (await response.json()) as { id?: string };
-  if (!created.id) throw new Error("Studio 가 job id 를 돌려주지 않았습니다.");
-  return { id: created.id };
 }
 
 function message(error: unknown): string {

@@ -23,6 +23,8 @@ export function makeNeed(input: {
   required?: boolean | null;
   source: Need["source"];
   why?: string | null;
+  /** 공고가 지정한 서식 파일 이름 */
+  formName?: string | null;
 }): Need | null {
   const label = input.label.trim().replace(/\s*\*$/, "");
   if (!label || label.length > 60) return null;
@@ -42,6 +44,7 @@ export function makeNeed(input: {
     required: input.required ?? false,
     source: input.source,
     why: input.why?.trim().slice(0, 160) || null,
+    ...(input.formName?.trim() ? { formName: input.formName.trim() } : {}),
     value: null,
     from: null,
   };

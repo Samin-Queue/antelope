@@ -4,7 +4,7 @@ import { z } from "zod";
 import { lanes } from "@/lib/ai/lanes";
 import { env } from "@/lib/env";
 import { parseDocument } from "@/lib/upstage";
-import { findStep, runAgent, stepOutputs } from "@/lib/upstage-studio";
+import { findStep, runAgent, stepOutputs, uploadFile } from "@/lib/upstage-studio";
 
 import type { IntakeFile } from "./fetch";
 import type { Ctx, Intake } from "./intake";
@@ -27,6 +27,20 @@ export type SummaryPart = {
   /** 요약의 바탕이 된 원문 길이. 0 이면 본문을 못 읽은 것이다 */
   chars: number;
   error?: string;
+  /**
+   * Studio 가 올려 준 파일 id.
+   *
+   * 이걸 안 남기면 다음 단계(`analyze`)가 **같은 파일을 다시 올리고 다시
+   * 파싱한다.** Document Parse 는 페이지 과금이라 20쪽짜리 공고가 40쪽이 된다.
+   */
+  fileId?: string;
+  /**
+   * parse 스텝이 낸 원문 Markdown.
+   *
+   * 예전에는 이걸 받아 **길이만 재고 버렸다**(`chars`). Solar 폴백이 같은
+   * 문서를 또 파싱하던 이유가 그것이다.
+   */
+  parsed?: string;
 };
 
 export type Summary = { markdown: string; via: string; parts: SummaryPart[] };
@@ -89,13 +103,19 @@ export async function summarize(intake: Intake, ctx: Ctx): Promise<Summary> {
 
 async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
   const agentId = env.UPSTAGE_VALIDATION_AGENT_ID;
+  /** Studio 가 올려 준 것. 다음 단계가 이 id 로 재사용한다 */
+  let fileId: string | undefined;
+  /** parse 스텝이 낸 원문. 폴백이 같은 문서를 또 파싱하지 않게 붙잡아 둔다 */
+  let parsedText = "";
+
   if (agentId) {
     try {
       ctx.log(`유효성 검사 실행: ${file.name}`);
+      const uploaded = await uploadFile(file.blob, file.name);
+      fileId = uploaded.id;
       const job = await runAgent({
         agentId,
-        file: file.blob,
-        filename: file.name,
+        fileIds: [uploaded.id],
         include: "all",
       });
       const outputs = stepOutputs(job);
@@ -104,11 +124,18 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
       const parsed = parse?.json as {
         content?: { markdown?: string; text?: string };
       } | null;
-      const chars = (parsed?.content?.markdown ?? parsed?.content?.text ?? "").length;
+      parsedText = parsed?.content?.markdown ?? parsed?.content?.text ?? "";
       const markdown = summary ? unquote(summary.text) : "";
       if (markdown.startsWith("#")) {
         ctx.log(`유효성 검사 완료: ${outputs.map((o) => o.step).join(" → ")}`);
-        return { name: file.name, markdown, via: "validation", chars };
+        return {
+          name: file.name,
+          markdown,
+          via: "validation",
+          chars: parsedText.length,
+          fileId,
+          parsed: parsedText || undefined,
+        };
       }
       ctx.log("유효성 검사 이 Markdown 을 만들지 못함 — Solar 로 대체");
     } catch (error) {
@@ -119,16 +146,30 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
   }
 
   try {
-    const parsed = await parseDocument(file.blob, { outputFormats: ["markdown"] });
-    const text = parsed.content?.markdown ?? parsed.content?.text ?? "";
+    // Studio 가 이미 파싱해 줬으면 다시 파싱하지 않는다. 페이지 과금이다.
+    let text = parsedText;
+    let via = "validation-parse + solar";
+    if (!text) {
+      const parsed = await parseDocument(file.blob, { outputFormats: ["markdown"] });
+      text = parsed.content?.markdown ?? parsed.content?.text ?? "";
+      via = "document-parse + solar";
+    }
     if (text.trim().length < 20) {
-      return { name: file.name, markdown: "", via: "document-parse", chars: text.length };
+      return {
+        name: file.name,
+        markdown: "",
+        via: "document-parse",
+        chars: text.length,
+        fileId,
+      };
     }
     return {
       name: file.name,
       markdown: await solarSummary(text, `파일 「${file.name}」`),
-      via: "document-parse + solar",
+      via,
       chars: text.length,
+      fileId,
+      parsed: text,
     };
   } catch (error) {
     ctx.log(`파일을 읽지 못함: ${message(error)}`);
@@ -138,6 +179,7 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
       via: "none",
       chars: 0,
       error: message(error),
+      fileId,
     };
   }
 }

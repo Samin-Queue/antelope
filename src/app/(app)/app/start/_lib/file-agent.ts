@@ -361,6 +361,29 @@ export async function fillTemplates(
   await mkdir(dir, { recursive: true });
   const out: Artifact[] = [];
 
+  /**
+   * 채운 서식을 **어느 업로드 칸에 넣을지** 찾는다.
+   *
+   * 예전에는 `needKey` 가 `template-<파일명>` 이라 마스터 테이블의 어느 항목과도
+   * 이어지지 않았다 — 브라우저는 그 파일을 들고 있으면서도 「이 칸에 넣을 것」을
+   * 알 수 없었다. 공고가 준 `formName` 이 그 답이고, 그 값은 Studio 가 이미
+   * 내주고 있었다(우리 스키마가 버렸을 뿐이다). 없으면 서류 이름으로 맞춘다.
+   */
+  const slots = needs.filter((need) => need.kind === "file");
+  const slotFor = (filename: string): Need | undefined => {
+    const named = slots.find(
+      (need) => need.formName && documentKey(need.formName) === documentKey(filename),
+    );
+    if (named) return named;
+    const key = documentKey(filename.replace(/\.(hwpx?)$/i, ""));
+    if (!key) return undefined;
+    return slots.find(
+      (need) =>
+        documentKey(need.label) &&
+        (documentKey(need.label).includes(key) || key.includes(documentKey(need.label))),
+    );
+  };
+
   for (const template of templates) {
     const format: HwpFormat = /\.hwpx$/i.test(template.name) ? "hwpx" : "hwp";
     const source = artifactPath(dir, `template-${template.name}`);
@@ -378,9 +401,11 @@ export async function fillTemplates(
         `${template.name} 서식에 ${result.filled.length}칸 채움` +
           (result.skipped.length ? ` · 자리 없음 ${result.skipped.length}` : ""),
       );
+      const slot = slotFor(template.name);
+      if (slot) ctx.log(`${template.name} → 「${slot.label}」 칸에 붙인다`);
       out.push({
-        needKey: `template-${template.name}`,
-        label: `${template.name} (지정 서식)`,
+        needKey: slot?.key ?? `template-${template.name}`,
+        label: slot ? `${slot.label} (지정 서식)` : `${template.name} (지정 서식)`,
         filename,
         mime: MIME[format],
         bytes: result.bytes.length,

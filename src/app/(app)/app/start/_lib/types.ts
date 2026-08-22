@@ -119,6 +119,14 @@ export type Need = {
   from: "memory" | "user" | "agent" | null;
   /** 기억이 다른 이름으로 저장돼 있었을 때 그 이름 */
   memoryLabel?: string;
+  /**
+   * 공고가 지정한 서식 파일 이름.
+   *
+   * Studio 의 추출 스키마가 이미 요구하는 값인데(`formName`) 우리 zod 스키마에
+   * 없어서 조용히 버려지고 있었다. 이것이 없으면 `fillTemplates` 가 첨부 확장자
+   * 로만 서식을 찾고, 채운 파일을 **어느 업로드 칸에 넣을지 모른다.**
+   */
+  formName?: string;
 };
 
 /**

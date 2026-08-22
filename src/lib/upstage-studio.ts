@@ -122,20 +122,33 @@ export type StudioJob = {
   error?: unknown;
 };
 
-/** 2단계 — 에이전트를 실행하고 job 을 만든다. */
+/**
+ * 2단계 — 에이전트를 실행하고 job 을 만든다.
+ *
+ * 파일을 **여러 개** 받는다. 이 함수가 하나만 받던 동안 `start/analyze` 와
+ * `lab/analysis/ingest` 가 같은 요청을 raw fetch 로 복제해 두 벌 들고 있었고,
+ * 그 안에 키 해석 규칙(Studio 전용 키 → v1 키)이 같이 복제돼 있었다 —
+ * AGENTS.md 가 「이걸로 프로덕션이 한 번 죽었다」고 적은 바로 그 값이다.
+ */
 export async function createJob(opts: {
   agentId: string;
-  fileId: string;
+  fileId?: string;
+  fileIds?: string[];
+  signal?: AbortSignal;
 }): Promise<StudioJob> {
+  const ids = opts.fileIds ?? (opts.fileId ? [opts.fileId] : []);
+  if (ids.length === 0) throw new Error("[studio] 넘길 파일이 없다");
+
   const response = await meteredFetch(`${BASE}/responses`, {
     method: "POST",
     headers: { ...authHeader(), "Content-Type": "application/json" },
+    signal: opts.signal,
     body: JSON.stringify({
       model: opts.agentId,
       input: [
         {
           role: "user",
-          content: [{ type: "input_file", file_id: opts.fileId }],
+          content: ids.map((id) => ({ type: "input_file", file_id: id })),
         },
       ],
     }),
@@ -143,7 +156,9 @@ export async function createJob(opts: {
   if (!response.ok) {
     throw new Error(`[studio] responses ${response.status}: ${await response.text()}`);
   }
-  return (await response.json()) as StudioJob;
+  const job = (await response.json()) as StudioJob;
+  if (!job.id) throw new Error("[studio] job id 를 돌려주지 않았다");
+  return job;
 }
 
 /** 3단계 — 완료까지 폴링한다. */
@@ -154,6 +169,7 @@ export async function waitForJob(
     intervalMs?: number;
     include?: "last" | "all";
     onTick?: (status: JobStatus) => void;
+    signal?: AbortSignal;
   } = {},
 ): Promise<StudioJob> {
   const timeoutMs = opts.timeoutMs ?? 180_000;
@@ -164,9 +180,22 @@ export async function waitForJob(
   // 마지막 스텝만 돌아온다.
   const include = opts.include ?? "all";
 
+  /**
+   * 폴링 중에는 **상태만** 받는다.
+   *
+   * `include=all` 은 parse 요소와 좌표까지 전부 실어 온다. 완료를 기다리는
+   * 동안 그걸 90번 왕복시킬 이유가 없다 — 마지막 한 번만 전체로 다시 받는다.
+   */
+  const poll = include === "all" ? "last" : include;
+
   while (Date.now() < deadline) {
-    const response = await meteredFetch(`${BASE}/responses/${jobId}?include=${include}`, {
+    opts.signal?.throwIfAborted();
+    const response = await meteredFetch(`${BASE}/responses/${jobId}?include=${poll}`, {
       headers: authHeader(),
+      // 폴 하나가 매달려 전체 상한을 잡아먹지 않게. 다음 틱에 다시 묻는다.
+      signal: AbortSignal.any(
+        [opts.signal, AbortSignal.timeout(15_000)].filter(Boolean) as AbortSignal[],
+      ),
     });
     if (!response.ok) {
       throw new Error(
@@ -176,28 +205,69 @@ export async function waitForJob(
     const job = (await response.json()) as StudioJob;
     opts.onTick?.(job.status);
 
-    if (job.status === "completed") return job;
+    if (job.status === "completed") {
+      if (poll === include) return job;
+      // 완료된 뒤 한 번만 전체 스텝을 받는다.
+      const full = await meteredFetch(`${BASE}/responses/${jobId}?include=${include}`, {
+        headers: authHeader(),
+        signal: opts.signal,
+      });
+      return full.ok ? ((await full.json()) as StudioJob) : job;
+    }
     if (job.status === "failed" || job.status === "cancelled") {
       throw new Error(
         `[studio] job ${job.status}: ${JSON.stringify(job.error ?? {}).slice(0, 300)}`,
       );
     }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    await sleep(intervalMs, opts.signal);
   }
   throw new Error(`[studio] job ${jobId} 시간 초과 (${timeoutMs}ms)`);
+}
+
+/** 취소 신호를 존중하는 대기. `setTimeout` 만 쓰면 중단해도 끝까지 잔다 */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /** 업로드 → 실행 → 완료까지 한 번에. */
 export async function runAgent(opts: {
   agentId: string;
-  file: File | Blob;
+  /** 하나만 올릴 때 */
+  file?: File | Blob;
   filename?: string;
+  /** 여럿을 한 job 에 넣을 때. 이미 올린 것은 `fileIds` 로 재사용한다 */
+  files?: Array<{ blob: File | Blob; name?: string }>;
+  fileIds?: string[];
   include?: "last" | "all";
+  timeoutMs?: number;
   onStatus?: (status: JobStatus) => void;
+  signal?: AbortSignal;
 }): Promise<StudioJob> {
-  const uploaded = await uploadFile(opts.file, opts.filename);
-  const job = await createJob({ agentId: opts.agentId, fileId: uploaded.id });
-  return waitForJob(job.id, { include: opts.include, onTick: opts.onStatus });
+  const uploaded = opts.files?.length
+    ? await Promise.all(opts.files.map((f) => uploadFile(f.blob, f.name)))
+    : opts.file
+      ? [await uploadFile(opts.file, opts.filename)]
+      : [];
+  const fileIds = [...(opts.fileIds ?? []), ...uploaded.map((f) => f.id)];
+
+  const job = await createJob({ agentId: opts.agentId, fileIds, signal: opts.signal });
+  return waitForJob(job.id, {
+    include: opts.include,
+    timeoutMs: opts.timeoutMs,
+    onTick: opts.onStatus,
+    signal: opts.signal,
+  });
 }
 
 /**
@@ -220,11 +290,18 @@ export function stepOutputs(job: StudioJob): StepOutput[] {
   const items = (job.output ?? []) as Array<Record<string, unknown>>;
   return items.map((item) => {
     const content = (item.content as Array<Record<string, unknown>> | undefined)?.[0];
+    const step = String(item.model ?? "");
     const raw = (content?.text as string) ?? "";
     let json: unknown = null;
     try {
       json = JSON.parse(raw);
     } catch {
+      // JSON 을 낸다고 선언한 스텝이 아닌 경우가 정상이라 던지지 않는다. 다만
+      // **JSON 처럼 생겼는데 깨진 것**은 말한다 — 조용히 null 로 떨어지면
+      // 「필드 목록을 만들지 못했습니다」만 남고 원인을 못 찾는다.
+      if (/^\s*[[{]/.test(raw)) {
+        console.warn(`[studio] ${step}: JSON 파싱 실패 — ${raw.slice(0, 200)}`);
+      }
       json = null;
     }
     let citations: unknown = null;
@@ -234,10 +311,13 @@ export function stepOutputs(job: StudioJob): StepOutput[] {
         typeof extra === "string"
           ? (JSON.parse(extra) as { citations?: unknown }).citations
           : null;
-    } catch {
+    } catch (error) {
+      console.warn(
+        `[studio] ${step}: citations 파싱 실패 — ${String(error).slice(0, 120)}`,
+      );
       citations = null;
     }
-    return { step: String(item.model ?? ""), text: raw, json, citations };
+    return { step, text: raw, json, citations };
   });
 }
 
