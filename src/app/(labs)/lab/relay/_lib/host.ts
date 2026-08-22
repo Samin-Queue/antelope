@@ -2,7 +2,11 @@ import { hasDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { IntakeInput } from "@/app/(app)/app/start/_lib/intake";
 import { runStart } from "@/app/(app)/app/start/_lib/pipeline";
+import { saveNeeds } from "@/app/(app)/app/start/_lib/session";
+import type { Need } from "@/app/(app)/app/start/_lib/types";
+import { remember } from "@/app/(labs)/lab/notice/_lib/memory";
 
+import { applyAnswers, missingOf, parseAnswers } from "./answers";
 import type { Incoming, RelayChannel } from "./channel";
 import { acquire } from "./queue";
 import { makeSink } from "./sink";
@@ -96,12 +100,7 @@ export async function handle(channel: RelayChannel, incoming: Incoming): Promise
     return;
   }
   if (thread.status === "asking") {
-    // Step 2 에서 여기가 답 배분으로 이어진다.
-    await channel.post(
-      incoming.ref,
-      "지금은 답을 받아 이어가는 기능이 아직 붙지 않았습니다. " +
-        `${appUrl()} 에서 마저 채워 주세요.`,
-    );
+    await absorb(channel, incoming, thread);
     return;
   }
 
@@ -162,22 +161,121 @@ async function prepare(
   }
 
   const out = sink.result();
+  const needs = (out.needs ?? []) as Need[];
+  const missing = missingOf(needs);
+  /**
+   * 빈 항목이 있으면 **스레드가 계속 열려 있다.** 답은 여기서 받는다 —
+   * `asking` 이 그 상태이고, `pendingNeeds` 가 「지금 무엇을 묻고 있는가」의
+   * 단일 진실이라 서버가 재시작해도 그 뒤에 온 답이 같은 질문에 붙는다.
+   */
   await updateThread(thread.id, {
-    status: out.error ? "error" : out.ended === "ready" ? "ready" : "done",
+    status: out.error ? "error" : missing.length ? "asking" : "ready",
     goalId: out.goalId,
     progressMessageId: sink.progressMessageId(),
-    pendingNeeds: out.needs ?? null,
+    pendingNeeds: needs.length ? needs : null,
   });
 
-  await channel.post(incoming.ref, closing(out, channel, incoming));
+  await channel.post(incoming.ref, closing(out, missing, channel, incoming));
+}
+
+/**
+ * 사람이 쓴 답을 항목에 나눠 담고 이어간다.
+ *
+ * 채운 값은 두 곳에 남긴다 — 이번 세션(`goals.snapshot`)과 지식베이스(`memories`).
+ * 후자가 이 제품이 파는 「다시 묻지 않는다」다.
+ */
+async function absorb(
+  channel: RelayChannel,
+  incoming: Incoming,
+  thread: ThreadRow,
+): Promise<void> {
+  const needs = (thread.pendingNeeds ?? []) as Need[];
+  if (!needs.length) {
+    await updateThread(thread.id, { status: "ready" });
+    await channel.post(
+      incoming.ref,
+      `무엇을 묻고 있었는지 잃었습니다. ${appUrl()} 에서 이어서 해주세요.`,
+    );
+    return;
+  }
+
+  const { filled, leftover } = await parseAnswers(
+    needs,
+    incoming.text,
+    thread.runId ?? undefined,
+  );
+  if (Object.keys(filled).length === 0) {
+    await channel.post(
+      incoming.ref,
+      leftover.length
+        ? `어느 항목의 답인지 알 수 없었습니다: ${leftover.slice(0, 3).join(" / ")}\n번호나 항목 이름을 같이 적어 주세요.`
+        : "답을 알아듣지 못했습니다. 「기업명은 …, 총사업비는 …」처럼 항목 이름과 함께 적어 주세요.",
+    );
+    return;
+  }
+
+  const next = applyAnswers(needs, filled);
+  const missing = missingOf(next);
+  await updateThread(thread.id, {
+    status: missing.length ? "asking" : "ready",
+    pendingNeeds: next,
+  });
+
+  // 이번 세션에 반영한다. 실패해도 대화는 이어간다.
+  if (thread.goalId) void saveNeeds(thread.userId, thread.goalId, next);
+  // 다음 공고에서 다시 묻지 않기 위한 것. 이게 이 제품의 해자다.
+  void remember(
+    thread.userId,
+    Object.entries(filled).map(([label, value]) => ({
+      kind: value.length > 60 ? ("narrative" as const) : ("fact" as const),
+      label,
+      value,
+    })),
+  ).catch((error) => console.error("[relay/absorb] 기억 저장 실패", error));
+
+  const took = Object.entries(filled)
+    .map(([label, value]) => `· ${label} — ${value.slice(0, 60)}`)
+    .join("\n");
+
+  if (missing.length === 0) {
+    await channel.post(
+      incoming.ref,
+      `받았습니다.\n${took}\n\n✅ 필요한 값이 모두 모였습니다. ${appUrl()} 에서 신청을 실행할 수 있습니다.`,
+    );
+    return;
+  }
+  await channel.post(
+    incoming.ref,
+    `받았습니다.\n${took}\n\n${askText(missing, channel, incoming)}` +
+      (leftover.length
+        ? `\n\n(이건 어느 항목인지 몰라 남겨 뒀습니다: ${leftover.slice(0, 2).join(" / ")})`
+        : ""),
+  );
+}
+
+/** 무엇이 비었는지 묻는 말. 준비 직후와 답을 받은 뒤 같은 글로 묻는다 */
+function askText(missing: Need[], channel: RelayChannel, incoming: Incoming): string {
+  const list = missing
+    .slice(0, 10)
+    .map(
+      (need, i) =>
+        `${i + 1}. ${need.label}${need.options?.length ? ` (${need.options.slice(0, 4).join(" / ")})` : ""}`,
+    )
+    .join("\n");
+  return (
+    `${channel.mention(incoming.from)} 아직 ${missing.length}가지가 비어 있습니다.\n${list}` +
+    (missing.length > 10 ? `\n… 외 ${missing.length - 10}건` : "") +
+    "\n\n이 스레드에 답장으로 적어 주세요. 「기업명은 …, 총사업비는 …」처럼 한 번에 적어도 됩니다."
+  );
 }
 
 function closing(
   out: ReturnType<Sink["result"]>,
+  missing: Need[],
   channel: RelayChannel,
   incoming: Incoming,
 ): string {
-  const link = out.goalId ? `\n${appUrl()} 에서 이어서 할 수 있습니다.` : "";
+  const link = out.goalId ? `\n${appUrl()} 에서도 이어서 할 수 있습니다.` : "";
   if (out.error) return `⚠️ 준비를 마치지 못했습니다 — ${out.error}${link}`;
 
   if (out.ended === "stopped") {
@@ -185,34 +283,20 @@ function closing(
   }
   if (out.ended !== "ready") {
     /**
-     * `end` 를 못 받았다.
-     *
-     * 파이프라인의 모든 종료 경로가 `end` 를 보내게 돼 있으므로(`types.ts:255-262`),
-     * 여기 오는 것은 그 약속이 깨졌다는 뜻이다. 조용히 넘기지 않는다.
+     * `end` 를 못 받았다. 파이프라인의 모든 종료 경로가 그것을 보내게 돼 있으므로
+     * (`types.ts` 의 `end` 주석), 여기 오는 것은 그 약속이 깨졌다는 뜻이다.
      */
     return `준비가 끝났는지 확실하지 않습니다. 서버 로그를 봐야 합니다.${link}`;
   }
 
-  const missing = (out.needs ?? []).filter(
-    (need) => need.kind !== "file" && !need.value?.trim(),
-  );
   const head = `✅ ${out.title ?? "공고"} 준비를 마쳤습니다.`;
-
   if (missing.length === 0 && out.applyUrl) {
-    return `${head}\n빈 항목이 없어 바로 신청할 수 있습니다 — 신청 실행은 아직 화면 몫입니다.${link}`;
+    return `${head}\n빈 항목이 없습니다. ${appUrl()} 에서 신청을 실행할 수 있습니다.`;
   }
   if (missing.length === 0) {
     return `${head}\n신청 페이지 주소를 찾지 못했습니다. 링크를 알려주시면 이어갑니다.${link}`;
   }
-  const list = missing
-    .slice(0, 10)
-    .map((need, i) => `${i + 1}. ${need.label}`)
-    .join("\n");
-  return (
-    `${head}\n${channel.mention(incoming.from)} 아직 ${missing.length}가지가 비어 있습니다.\n${list}` +
-    (missing.length > 10 ? `\n… 외 ${missing.length - 10}건` : "") +
-    `\n\n이 스레드에서 답을 받아 이어가는 것은 다음 단계입니다.${link}`
-  );
+  return `${head}\n${askText(missing, channel, incoming)}`;
 }
 
 type Sink = ReturnType<typeof makeSink>;
