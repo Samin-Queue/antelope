@@ -384,6 +384,10 @@ export async function runStart(
     artifacts,
     stages,
     evidence,
+    // 카드 문장과 폴더 id 를 함께 남긴다 — 지난 세션을 라이브와 같은 화면으로
+    // 다시 그리려면 둘 다 필요하다.
+    narration: [...history],
+    runId,
   });
 
   /** 지금까지의 진행을 DB 에 덮어쓴다. 실패해도 파이프라인은 계속 간다 */

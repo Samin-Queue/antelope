@@ -60,7 +60,9 @@ export function StartSession({
               ? input.url
               : input.kind === "resume"
                 ? `이어서 준비 — ${resume?.title ?? "지난 세션"}`
-                : input.text}
+                : input.kind === "text"
+                  ? input.text
+                  : "지난 세션"}
         </p>
         <Button
           variant="ghost"

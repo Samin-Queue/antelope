@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/drawer";
 import { LiveScreen } from "@/app/(labs)/lab/notice/_lib/run-view";
 
-import { AgentCard, emptyCards, type Cards } from "./agent-grid";
+import { AgentCard, emptyCards, type Cards, type CardState } from "./agent-grid";
 import { AskDialog, type AskItem } from "./ask-dialog";
 import { useCallMe } from "./call-me";
 import { NeedsForm, summarizeNeeds } from "./needs-form";
@@ -37,6 +37,7 @@ import {
   type FileInfo,
   type Need,
   type Plan,
+  type SessionSnapshot,
   type Stage,
   type StartEvent,
 } from "./types";
@@ -96,17 +97,89 @@ const TOOL_LABEL: Record<string, string> = {
  * 새 입력이거나, **죽은 실행을 이어받는 것**이거나 둘 중 하나다. 후자는
  * 서버가 스냅샷에서 끝난 단계를 건너뛰고 안 끝난 것부터 다시 돈다.
  */
-export type StartInput = ComposerSubmit | { kind: "resume"; goalId: string };
+export type StartInput =
+  | ComposerSubmit
+  | { kind: "resume"; goalId: string }
+  /**
+   * 저장된 세션을 **그대로 다시 그린다.**
+   *
+   * 지난 세션이 라이브와 다른 화면이면, 새로고침 한 번에 사용자는 자기가 보던
+   * 것을 잃는다 — 카드도 산출물 탭도 신청 버튼도 없는 문서 한 장이 남았다.
+   * 스트림만 안 열 뿐 화면은 같은 것을 쓴다.
+   */
+  | { kind: "replay"; goalId: string; snapshot: SessionSnapshot };
+
+/**
+ * 스냅샷을 카드 상태로 되돌린다.
+ *
+ * 단계와 카드는 1:1 이 아니다(`CARD_OF`) — 여러 단계가 한 칸에 모이므로
+ * **가장 나쁜 상태**를 남긴다. 실패한 단계가 하나라도 있으면 그 칸은 실패다.
+ */
+function cardsFrom(snapshot: SessionSnapshot): Cards {
+  const cards = emptyCards();
+  const rank: Record<CardState["status"], number> = {
+    idle: 0,
+    skip: 1,
+    done: 2,
+    running: 3,
+    error: 4,
+  };
+  for (const [stage, state] of Object.entries(snapshot.stages ?? {}) as Array<
+    [Stage, CardState["status"] | undefined]
+  >) {
+    const card = CARD_OF[stage];
+    if (!card || !state) continue;
+    if (rank[state] >= rank[cards[card].status]) cards[card] = { status: state };
+  }
+  for (const turn of snapshot.narration ?? []) {
+    cards[turn.card] = {
+      ...cards[turn.card],
+      headline: turn.headline,
+      body: turn.body,
+    };
+  }
+  if (snapshot.summary) cards.analyze.via = snapshot.summary.via;
+  if (snapshot.needs.length) cards.data.action = "입력 항목 보기";
+  if (snapshot.plan?.steps.length) cards.plan.action = "계획서 보기";
+  if (snapshot.artifacts.length) cards.file.action = "작성한 서류 보기";
+  return cards;
+}
 
 export function StartFlow({ initial }: { initial: StartInput }) {
-  const [cards, setCards] = useState<Cards>(emptyCards);
-  const [files, setFiles] = useState<FileInfo[]>([]);
-  const [summary, setSummary] = useState<{ markdown: string; via: string } | null>(null);
-  const [brief, setBrief] = useState<string | null>(null);
-  const [plan, setPlan] = useState<Plan | null>(null);
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [runId, setRunId] = useState<string | null>(null);
-  const [prepared, setPrepared] = useState<Prepared | null>(null);
+  /** 저장된 세션을 다시 그리는 중인가. 이때는 스트림을 열지 않는다 */
+  const saved = initial.kind === "replay" ? initial.snapshot : null;
+
+  const [cards, setCards] = useState<Cards>(() =>
+    saved ? cardsFrom(saved) : emptyCards(),
+  );
+  const [files, setFiles] = useState<FileInfo[]>(saved?.files ?? []);
+  const [summary, setSummary] = useState<{ markdown: string; via: string } | null>(
+    saved?.summary ?? null,
+  );
+  const [brief, setBrief] = useState<string | null>(saved?.brief ?? null);
+  const [plan, setPlan] = useState<Plan | null>(saved?.plan ?? null);
+  const [artifacts, setArtifacts] = useState<Artifact[]>(saved?.artifacts ?? []);
+  /**
+   * 이 실행이 파일을 담는 폴더 id.
+   *
+   * 재생일 때는 저장된 것을 쓰고, 없으면(이 필드가 생기기 전에 저장된 세션)
+   * 새로 만든다 — 없으면 서류 업로드도 신청도 못 한다. 폴더가 비어 있어도
+   * 새로 올리면 그만이다.
+   */
+  const [runId, setRunId] = useState<string | null>(() =>
+    saved ? (saved.runId ?? crypto.randomUUID()) : null,
+  );
+  const [prepared, setPrepared] = useState<Prepared | null>(
+    saved
+      ? {
+          title: saved.title,
+          organization: saved.organization,
+          deadline: saved.deadline,
+          applyUrl: saved.applyUrl,
+          needs: saved.needs,
+        }
+      : null,
+  );
   /**
    * 사용자가 입력한 값. 폼이 아니라 여기에 둔다.
    *
@@ -114,9 +187,15 @@ export function StartFlow({ initial }: { initial: StartInput }) {
    * 제출 실패·Esc·바깥 클릭 어느 쪽이든 입력이 통째로 사라지고, 다시 열면
    * 선채움된 값만 남았다. 여기 두면 드로어가 몇 번 닫혀도 살아 있다.
    */
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      (saved?.needs ?? [])
+        .filter((need: Need) => need.value)
+        .map((need: Need) => [need.key, need.value ?? ""]),
+    ),
+  );
   const [error, setError] = useState<string | null>(null);
-  const [preparing, setPreparing] = useState(true);
+  const [preparing, setPreparing] = useState(!saved);
   const [needsOpen, setNeedsOpen] = useState(false);
   const [ask, setAsk] = useState<AskItem | null>(null);
   const [apply, setApply] = useState<ApplyState>({
@@ -129,7 +208,9 @@ export function StartFlow({ initial }: { initial: StartInput }) {
     summary: null,
     error: null,
   });
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(
+    initial.kind === "replay" ? initial.goalId : null,
+  );
   /**
    * 오른쪽에 펼쳐 놓을 산출물.
    *
@@ -155,7 +236,9 @@ export function StartFlow({ initial }: { initial: StartInput }) {
    * 서술자가 지금까지 한 말. 준비와 신청이 요청 두 개로 갈려 있어서 클라이언트가
    * 들고 있다가 신청 요청에 실어 보낸다 — 그래야 맥락이 이어진다.
    */
-  const narration = useRef<{ card: CardKey; headline: string; body: string }[]>([]);
+  const narration = useRef<{ card: CardKey; headline: string; body: string }[]>(
+    saved?.narration ? [...saved.narration] : [],
+  );
   const pick = useCallback((card: CardKey) => {
     pinned.current = true;
     setPanel(card);
@@ -244,6 +327,8 @@ export function StartFlow({ initial }: { initial: StartInput }) {
 
   // 준비 — 컴포저 입력으로 한 번만 시작한다.
   useEffect(() => {
+    // 저장된 세션을 다시 그리는 중이면 아무것도 실행하지 않는다. 화면만 같다.
+    if (initial.kind === "replay") return;
     if (startedRef.current) return;
     startedRef.current = true;
 
@@ -368,6 +453,14 @@ export function StartFlow({ initial }: { initial: StartInput }) {
   // 빈 항목이 없으면 사람을 거치지 않는다. 있으면 다이얼로그를 띄운다.
   const autoRef = useRef(false);
   useEffect(() => {
+    /**
+     * ⚠ **지난 세션을 열었을 때는 아무것도 시작하지 않는다.**
+     *
+     * 이 자동 신청은 「방금 준비를 마쳤다」는 맥락에서만 옳다. 저장된 세션은
+     * `prepared` 가 처음부터 채워져 있으므로, 막지 않으면 목록에서 지난 세션을
+     * **눌러 보기만 해도 신청서가 다시 제출된다.** 되돌릴 수 없는 일이다.
+     */
+    if (initial.kind === "replay") return;
     if (!prepared || autoRef.current) return;
     autoRef.current = true;
     const missing = prepared.needs.filter(
@@ -388,7 +481,7 @@ export function StartFlow({ initial }: { initial: StartInput }) {
     }
     // startApply 는 매 렌더 새로 만들어진다. prepared 가 올 때 한 번만 돈다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prepared]);
+  }, [prepared, initial.kind]);
 
   async function startApply(target: Prepared, values: Record<string, string>) {
     const applyUrl = values[APPLY_URL_KEY]?.trim() || target.applyUrl;
@@ -627,12 +720,19 @@ export function StartFlow({ initial }: { initial: StartInput }) {
             )}
           </header>
 
-          <RunStatus
-            cards={cards}
-            orchestrating={orchestrating}
-            preparing={preparing}
-            applying={apply.status === "running"}
-          />
+          {/*
+            지금 무슨 일이 일어나는지 알리는 줄이다. 저장된 세션에는 일어나는
+            일이 없다 — 「준비를 마쳤습니다」가 방금 끝난 것처럼 떠 있으면
+            사용자가 지금 도는 실행으로 착각한다.
+          */}
+          {initial.kind !== "replay" && (
+            <RunStatus
+              cards={cards}
+              orchestrating={orchestrating}
+              preparing={preparing}
+              applying={apply.status === "running"}
+            />
+          )}
 
           {/* 준비 여섯 칸은 2열, 실행은 그 아래 전폭. 실행 카드는 라이브 화면을
             옆에 달아 「무엇을 조작하고 있는지」가 카드 안에서 읽힌다.

@@ -5,6 +5,7 @@ import { currentSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { AppHeader } from "@/components/app/app-header";
 import { Badge } from "@/components/ui/badge";
+import { StartFlow } from "@/app/(app)/app/start/_lib/start-flow";
 import {
   PLAN_OWNER_LABEL,
   STAGES,
@@ -115,6 +116,45 @@ export default async function SessionPage({
 
   const snapshot = goal.snapshot as SessionSnapshot | null;
   const notice = goal.notice as Notice | null;
+
+  /**
+   * 스냅샷이 있으면 **라이브와 같은 화면**을 그린다.
+   *
+   * 예전에는 여기가 문서 한 장이었다 — 카드도, 산출물 탭도, 신청 버튼도 없다.
+   * 준비 도중 새로고침 한 번이면 사용자는 자기가 보던 것을 통째로 잃었고,
+   * 「이어서 신청」할 방법도 없었다. 워크벤치를 그대로 재생한다.
+   *
+   * 스냅샷 이전에 만들어진 세션은 `notice` 만 있으므로 옛 화면으로 떨어진다.
+   */
+  if (snapshot?.needs) {
+    const stages = snapshot.stages ?? {};
+    const unfinished = STAGES.some((stage) => stages[stage] !== "done");
+    return (
+      <>
+        <AppHeader trail={["모든 세션", goal.title]} />
+        <div className="flex h-[calc(100svh-3.5rem)] flex-col">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-6 py-2">
+            <Badge variant="secondary">{STAGE_LABEL[goal.stage]}</Badge>
+            <p className="truncate text-sm text-muted-foreground">
+              {goal.updatedAt.toLocaleString("ko-KR")} 에 저장된 세션
+            </p>
+            {/* 안 끝난 단계가 있으면 이어서 돈다. 끝난 것은 다시 안 돈다 */}
+            {unfinished && (
+              <a
+                href={`/app?resume=${goal.id}`}
+                className="ml-auto rounded-md border border-border px-2 py-1 text-xs hover:border-brand hover:text-brand"
+              >
+                여기서 이어서 준비
+              </a>
+            )}
+          </div>
+          <div className="min-h-0 flex-1">
+            <StartFlow initial={{ kind: "replay", goalId: goal.id, snapshot }} />
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
