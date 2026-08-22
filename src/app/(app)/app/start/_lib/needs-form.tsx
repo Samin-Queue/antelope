@@ -18,6 +18,8 @@ import type { Artifact, Need } from "./types";
  */
 export function NeedsForm({
   needs,
+  values,
+  onChange,
   artifacts,
   runId,
   sourceNotice,
@@ -25,17 +27,21 @@ export function NeedsForm({
   onSubmit,
 }: {
   needs: Need[];
+  /**
+   * 입력값은 부모가 쥔다. 이 폼은 Dialog 안에 있어서 닫히면 언마운트되는데,
+   * 값을 여기 두면 그때 통째로 사라진다 — 실제로 제출이 한 번 실패하면
+   * 사용자가 친 것이 전부 날아갔다.
+   */
+  values: Record<string, string>;
+  onChange: (key: string, value: string) => void;
   /** 이미 준비된 파일 — 에이전트가 썼거나 보관함에서 꺼낸 것 */
   artifacts: Artifact[];
   /** 이번 실행 폴더. 올린 파일이 같은 곳으로 가야 브라우저가 첨부한다 */
   runId: string | null;
   sourceNotice: string;
   onUpload: (artifact: Artifact) => void;
-  onSubmit: (values: Record<string, string>) => void;
+  onSubmit: () => void;
 }) {
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(needs.filter((n) => n.value).map((n) => [n.key, n.value ?? ""])),
-  );
   const [showFilled, setShowFilled] = useState(false);
 
   const files = needs.filter((need) => need.kind === "file");
@@ -45,9 +51,6 @@ export function NeedsForm({
   const missingRequired = missing.filter(
     (need) => need.required && !values[need.key]?.trim(),
   ).length;
-
-  const set = (key: string, value: string) =>
-    setValues((prev) => ({ ...prev, [key]: value }));
 
   return (
     <section className="rounded-2xl border border-border bg-card p-6">
@@ -64,7 +67,7 @@ export function NeedsForm({
             key={need.key}
             need={need}
             value={values[need.key] ?? ""}
-            onChange={set}
+            onChange={onChange}
           />
         ))}
       </div>
@@ -86,7 +89,7 @@ export function NeedsForm({
                   key={need.key}
                   need={need}
                   value={values[need.key] ?? ""}
-                  onChange={set}
+                  onChange={onChange}
                 />
               ))}
             </div>
@@ -119,7 +122,7 @@ export function NeedsForm({
       )}
 
       <div className="mt-6 flex items-center gap-3">
-        <Button onClick={() => onSubmit(values)} disabled={missingRequired > 0}>
+        <Button onClick={() => onSubmit()} disabled={missingRequired > 0}>
           이 정보로 신청 진행
         </Button>
         <span className="text-xs text-muted-foreground">
@@ -153,6 +156,8 @@ function DocumentRow({
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 이번 신청에는 붙지만 보관함에는 안 남았다 — 로그인 전이라 남길 곳이 없다 */
+  const [unsaved, setUnsaved] = useState(false);
 
   async function send(file: File) {
     if (!runId) return;
@@ -166,8 +171,13 @@ function DocumentRow({
       body.append("runId", runId);
       body.append("sourceNotice", sourceNotice);
       const response = await fetch("/app/start/documents", { method: "POST", body });
-      const json = (await response.json()) as { artifact?: Artifact; error?: string };
+      const json = (await response.json()) as {
+        artifact?: Artifact;
+        stored?: boolean;
+        error?: string;
+      };
       if (!response.ok || !json.artifact) throw new Error(json.error ?? "업로드 실패");
+      setUnsaved(json.stored === false);
       onUpload(json.artifact);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -220,6 +230,12 @@ function DocumentRow({
         )}
       </div>
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+      {unsaved && (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          이번 신청에는 붙지만 보관함에는 안 남았다 — 로그인하면 다음 공고에서 다시 묻지
+          않는다.
+        </p>
+      )}
     </li>
   );
 }

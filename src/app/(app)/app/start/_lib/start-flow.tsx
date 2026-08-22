@@ -86,6 +86,14 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<Prepared | null>(null);
+  /**
+   * 사용자가 입력한 값. 폼이 아니라 여기에 둔다.
+   *
+   * 폼은 Dialog 안에 있어서 닫히면 언마운트된다. 값이 폼 안에 있었을 때는
+   * 제출 실패·Esc·바깥 클릭 어느 쪽이든 입력이 통째로 사라지고, 다시 열면
+   * 선채움된 값만 남았다. 여기 두면 다이얼로그가 몇 번 닫혀도 살아 있다.
+   */
+  const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(true);
   const [needsOpen, setNeedsOpen] = useState(false);
@@ -177,6 +185,14 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
             applyUrl: event.applyUrl,
             needs: event.needs,
           });
+          // 선채움 값을 초깃값으로 깐다. 이미 사용자가 친 것이 있으면 그쪽을
+          // 남긴다 — 늦게 도착한 이벤트가 입력을 덮어쓰면 안 된다.
+          setValues((prev) => ({
+            ...Object.fromEntries(
+              event.needs.filter((n) => n.value).map((n) => [n.key, n.value ?? ""]),
+            ),
+            ...prev,
+          }));
           const filled = event.needs.filter((need) => need.value?.trim()).length;
           patch("prefill", { output: `${filled}/${event.needs.length} 채움` });
           break;
@@ -450,9 +466,15 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
           </p>
         )}
 
-        {prepared && !needsOpen && apply.status === "idle" && (
-          <Button onClick={() => setNeedsOpen(true)}>입력 확인하고 신청</Button>
-        )}
+        {/* 실패한 뒤에도 폼으로 돌아갈 수 있어야 한다. `idle` 만 허용했을 때는
+            신청이 한 번 깨지면 에러 문구만 남고 되돌아갈 길이 없었다. */}
+        {prepared &&
+          !needsOpen &&
+          (apply.status === "idle" || apply.status === "error") && (
+            <Button onClick={() => setNeedsOpen(true)}>
+              {apply.status === "error" ? "입력 고치고 다시 신청" : "입력 확인하고 신청"}
+            </Button>
+          )}
 
         <Dialog open={needsOpen} onOpenChange={setNeedsOpen}>
           <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
@@ -462,6 +484,10 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
             {prepared && (
               <NeedsForm
                 needs={prepared.needs}
+                values={values}
+                onChange={(key, value) =>
+                  setValues((prev) => ({ ...prev, [key]: value }))
+                }
                 artifacts={artifacts}
                 runId={runId}
                 sourceNotice={prepared.title}
@@ -471,7 +497,7 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
                     artifact,
                   ])
                 }
-                onSubmit={(values) => void startApply(prepared, values)}
+                onSubmit={() => void startApply(prepared, values)}
               />
             )}
           </DialogContent>
