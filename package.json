@@ -11,6 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit",
+    "eval": "node --import tsx --test \"evals/*.test.ts\"",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down",
     "docker:db": "docker compose up -d db",

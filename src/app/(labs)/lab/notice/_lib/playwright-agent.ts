@@ -555,6 +555,11 @@ async function runPlaywrightAgentInLane(
               execute: async ({ ref }) => {
                 await guard();
                 const { el, locator } = locate(ref);
+                if (!el.isSubmit) {
+                  const message = `"${el.label}" 는 제출 버튼이 아니다. 일반 조작은 click 을 쓴다.`;
+                  await record("submit", { ref, notSubmit: true }, message);
+                  return message;
+                }
 
                 // 화면을 되읽어 지금 값이 무엇인지 본다. 모델의 기억이 아니라.
                 snapshot = (await page.evaluate(SNAPSHOT)) as Snapshot;
