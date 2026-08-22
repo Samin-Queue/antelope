@@ -11,7 +11,9 @@ import { engine } from "@/content/engine";
 import { Dag, StepTally } from "./_lib/dag";
 import {
   DualVector,
+  Duo,
   GatewayLoop,
+  Handoff,
   LaneBars,
   PipelineRail,
   StudioSequence,
@@ -88,6 +90,63 @@ export default function EnginePage() {
             <T>{engine.note}</T>
           </p>
         </section>
+
+        {/* ── 0. 두 엔진의 분업 ─────────────────────────────────── */}
+        <Section
+          id="duo"
+          eyebrow={engine.duo.eyebrow}
+          headline={engine.duo.headline}
+          sub={engine.duo.sub}
+        >
+          <Duo />
+
+          <div className="mt-10">
+            <Sub>
+              <T>{engine.duo.sizes.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.duo.sizes.body}</T>
+            </p>
+            <div className="mt-5">
+              <Table
+                head={["모델", "어디에 쓰나", "왜 그 크기인가"]}
+                rows={engine.duo.sizes.rows.map((row) => [
+                  row.tier,
+                  <span key="w" className="font-mono text-[11px]">
+                    {row.where}
+                  </span>,
+                  row.why,
+                ])}
+              />
+            </div>
+          </div>
+        </Section>
+
+        {/* ── 0.5 왕복 ─────────────────────────────────────────── */}
+        <Section
+          id="handoff"
+          eyebrow={engine.journey.eyebrow}
+          headline={engine.journey.headline}
+          sub={engine.journey.sub}
+        >
+          <Handoff />
+
+          <p className="mt-8 rounded-xl border border-brand/25 bg-brand/5 px-4 py-3 text-sm leading-relaxed">
+            <T>{engine.journey.close}</T>
+          </p>
+
+          <div className="mt-6">
+            <Card>
+              <Sub>
+                <T>{engine.journey.synth.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.journey.synth.body}</T>
+              </p>
+              <Source path={engine.journey.synth.file} />
+            </Card>
+          </div>
+        </Section>
 
         {/* ── 1. 준비 파이프라인 ───────────────────────────────── */}
         <Section
@@ -345,6 +404,52 @@ export default function EnginePage() {
             </p>
           </div>
 
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.gateway.retries.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.gateway.retries.sub}</T>
+            </p>
+            <div className="mt-5">
+              <Table
+                head={["누가", "무엇을", "몇 번", "왜"]}
+                rows={engine.gateway.retries.layers.map((layer) => [
+                  layer.who,
+                  layer.what,
+                  <span key="h" className="font-mono text-[11px] text-brand">
+                    {layer.how}
+                  </span>,
+                  layer.why,
+                ])}
+              />
+            </div>
+            <p className="mt-3 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+              <T>{engine.gateway.retries.note}</T>
+            </p>
+          </div>
+
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.gateway.narrator.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.gateway.narrator.body}</T>
+            </p>
+            <ul className="mt-4 space-y-2">
+              {engine.gateway.narrator.points.map((point) => (
+                <li
+                  key={point}
+                  className="flex gap-2.5 text-xs leading-relaxed text-muted-foreground"
+                >
+                  <span className="mt-1.5 size-1 shrink-0 rounded-full bg-brand" />
+                  <T>{point}</T>
+                </li>
+              ))}
+            </ul>
+            <Source path={engine.gateway.narrator.file} />
+          </div>
+
           <div className="mt-10">
             <Sub>
               <T>{engine.gateway.tasks.headline}</T>
@@ -530,6 +635,117 @@ export default function EnginePage() {
           <p className="mt-10 rounded-xl border border-brand/25 bg-brand/5 px-4 py-3 text-sm leading-relaxed">
             <T>{engine.browser.stop}</T>
           </p>
+        </Section>
+
+        {/* ── 6. 슬랙 릴레이 ───────────────────────────────────── */}
+        <Section
+          id="relay"
+          eyebrow={engine.relay.eyebrow}
+          headline={engine.relay.headline}
+          sub={engine.relay.sub}
+        >
+          <Sub>
+            <T>{engine.relay.gate.headline}</T>
+          </Sub>
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+            <T>{engine.relay.gate.sub}</T>
+          </p>
+          <ol className="mt-5 grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
+            {engine.relay.gate.steps.map((step, index) => (
+              <li key={step.name} className="bg-background p-4">
+                <p className="font-mono text-[10px] text-muted-foreground">{index + 1}</p>
+                <p className="mt-1 font-mono text-xs text-brand">{step.name}</p>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  <T>{step.body}</T>
+                </p>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+            <T>{engine.relay.gate.note}</T>
+          </p>
+
+          <div className="mt-10 grid gap-3 lg:grid-cols-2">
+            <Card>
+              <Sub>
+                <T>{engine.relay.identity.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.relay.identity.body}</T>
+              </p>
+              <ul className="mt-4 space-y-2">
+                {engine.relay.identity.points.map((point) => (
+                  <li
+                    key={point}
+                    className="flex gap-2.5 text-xs leading-relaxed text-muted-foreground"
+                  >
+                    <span className="mt-1.5 size-1 shrink-0 rounded-full bg-brand" />
+                    <T>{point}</T>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+            <Card>
+              <Sub>
+                <T>{engine.relay.stream.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.relay.stream.body}</T>
+              </p>
+              <dl className="mt-4 space-y-2 border-t border-border/60 pt-4 text-xs">
+                <div className="flex gap-3">
+                  <dt className="w-16 shrink-0 font-mono text-[11px] text-brand">
+                    남긴다
+                  </dt>
+                  <dd className="text-muted-foreground">{engine.relay.stream.keep}</dd>
+                </div>
+                <div className="flex gap-3">
+                  <dt className="w-16 shrink-0 font-mono text-[11px] text-muted-foreground">
+                    버린다
+                  </dt>
+                  <dd className="text-muted-foreground">{engine.relay.stream.drop}</dd>
+                </div>
+              </dl>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.relay.stream.throttle}</T>
+              </p>
+            </Card>
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <Card>
+              <Sub>
+                <T>{engine.relay.dialogue.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.relay.dialogue.body}</T>
+              </p>
+              <ul className="mt-4 space-y-2">
+                {engine.relay.dialogue.points.map((point) => (
+                  <li
+                    key={point}
+                    className="flex gap-2.5 text-xs leading-relaxed text-muted-foreground"
+                  >
+                    <span className="mt-1.5 size-1 shrink-0 rounded-full bg-brand" />
+                    <T>{point}</T>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+            <Card>
+              <Sub>
+                <T>{engine.relay.queue.headline}</T>
+              </Sub>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                <T>{engine.relay.queue.body}</T>
+              </p>
+              <p className="mt-4 rounded-lg border border-border bg-background px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                {engine.relay.queue.numbers}
+              </p>
+            </Card>
+          </div>
+
+          <Source path={engine.relay.file} />
         </Section>
 
         {/* ── 6. 지식베이스 · 근거 ──────────────────────────────── */}

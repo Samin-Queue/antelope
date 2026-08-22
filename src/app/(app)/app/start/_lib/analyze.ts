@@ -11,6 +11,8 @@ import type { IntakeFile } from "./fetch";
 import type { Ctx } from "./intake";
 import { clip } from "./llm";
 import { makeNeed } from "./needs";
+import { parseBlocks } from "./render/blocks";
+import { renderPdf } from "./render/pdf";
 import type { Summary } from "./summarize";
 import type { Need } from "./types";
 
@@ -105,7 +107,20 @@ export async function analyze(
 ): Promise<Analysis> {
   const agentId = env.UPSTAGE_ANALYSIS_AGENT_ID;
 
-  if (files.length > 0 && agentId) {
+  /**
+   * 읽을 파일이 없으면 **만들어서라도 태운다.**
+   *
+   * 링크 하나나 문장만 준 입력은 Studio 를 한 번도 안 탔다. Solar 가 요약에서
+   * 필드를 뽑긴 하지만 분류 분기도, 준비 문서도, 원문 좌표도 없다 — 같은 제품이
+   * 입력 종류에 따라 다른 성능을 낸다.
+   *
+   * 그런데 그때도 **읽을 내용은 이미 있다.** Solar 가 페이지 본문과 사용자
+   * 문장을 정돈해 둔 요약이다. Document Parse 가 평문을 안 받을 뿐이다.
+   */
+  const studioFiles =
+    files.length > 0 || !agentId ? files : await synthesize(summary, ctx);
+
+  if (studioFiles.length > 0 && agentId) {
     try {
       /**
        * 요약 단계가 이미 올린 파일은 **다시 올리지 않는다.**
@@ -119,9 +134,9 @@ export async function analyze(
           .filter((part) => part.fileId)
           .map((part) => [part.name, part.fileId!] as const),
       );
-      const fresh = files.filter((file) => !known.has(file.name));
+      const fresh = studioFiles.filter((file) => !known.has(file.name));
       ctx.log(
-        `정보 분석 실행: 파일 ${files.length}개` +
+        `정보 분석 실행: 파일 ${studioFiles.length}개` +
           (known.size ? ` (요약이 올린 ${known.size}개 재사용)` : ""),
       );
       const done = await runAgent({
@@ -156,8 +171,8 @@ export async function analyze(
       if (isAbort(error)) throw error;
       ctx.log(`정보 분석 실패 — Solar 로 대체: ${message(error)}`);
     }
-  } else if (files.length === 0) {
-    ctx.log("파일이 없어 정보 분석 을 건너뜀 — 요약에서 Solar 가 도출");
+  } else if (studioFiles.length === 0) {
+    ctx.log("Studio 에 넘길 것을 만들지 못함 — 요약에서 Solar 가 도출");
   } else {
     ctx.log("UPSTAGE_ANALYSIS_AGENT_ID 없음 — 요약에서 Solar 가 도출");
   }
@@ -242,4 +257,38 @@ function toAnalysis(data: Fields, via: Analysis["via"]): Analysis {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Studio 에 넘길 것이 없을 때 만들어 준다.
+ *
+ * Document Parse 가 받는 것은 PDF·이미지·오피스 문서다. 평문을 안 받으므로
+ * Solar 가 정돈해 둔 요약을 **PDF 로 찍어** 올린다. 왕복이 한 번 늘지만, 그
+ * 대가로 링크 하나짜리 입력도 분류 → 분기 추출 → 준비 문서 → 원문 좌표까지
+ * 파일을 올렸을 때와 같은 길을 탄다.
+ *
+ * 실패하면 조용히 비운다. 이건 **덧붙이는 경로**라, 여기서 던지면 예전에는
+ * 그냥 Solar 로 가던 입력이 통째로 죽는다.
+ */
+const MIN_SYNTH_CHARS = 300;
+
+async function synthesize(summary: Summary, ctx: Ctx): Promise<IntakeFile[]> {
+  const text = summary.markdown.trim();
+  if (text.length < MIN_SYNTH_CHARS) {
+    ctx.log(`Studio 에 넘길 내용이 ${text.length}자뿐 — 요약에서 Solar 가 도출`);
+    return [];
+  }
+  try {
+    // 브라우저 레인을 쓴다(`renderPdf`). 신청용 Chromium 과 같은 상한 아래다.
+    const pdf = await renderPdf(parseBlocks(text), "수집 자료");
+    const blob = new Blob([new Uint8Array(pdf)], { type: "application/pdf" });
+    ctx.log(
+      `읽을 파일이 없어 수집한 내용을 PDF 로 만들어 Studio 에 넘긴다 ` +
+        `(${text.length.toLocaleString()}자 → ${Math.round(blob.size / 1024)}KB)`,
+    );
+    return [{ name: "수집-자료.pdf", blob, origin: "synth" }];
+  } catch (error) {
+    ctx.log(`PDF 로 만들지 못함 — 요약에서 Solar 가 도출: ${message(error)}`);
+    return [];
+  }
 }

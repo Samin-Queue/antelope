@@ -190,7 +190,8 @@ export type Artifact = {
 
 export type FileInfo = {
   name: string;
-  origin: "upload" | "url" | "crawl";
+  /** `synth` 는 우리가 만들어 Studio 에 넘긴 것. 사용자가 준 원본과 구분한다 */
+  origin: "upload" | "url" | "crawl" | "synth";
   bytes: number;
 };
 

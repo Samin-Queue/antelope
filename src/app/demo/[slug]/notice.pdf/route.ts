@@ -48,7 +48,13 @@ export async function GET(
   if (!site) return new Response("Not found", { status: 404 });
 
   const fileName = `${site.slug}-notice.pdf`;
-  return new Response(createPdf([site.org, site.title, `Deadline: ${site.deadline}`]), {
+  // `TextEncoder.encode` 는 `Uint8Array<ArrayBufferLike>` 를 낸다. `BodyInit` 은
+  // `ArrayBuffer` 를 요구하고, 타입만으로는 SharedArrayBuffer 가 아님을 못 보인다.
+  // 바이트를 새 `ArrayBuffer` 로 옮겨 담아 그 모호함을 없앤다.
+  const bytes = createPdf([site.org, site.title, `Deadline: ${site.deadline}`]);
+  const pdf = new Uint8Array(bytes.length);
+  pdf.set(bytes);
+  return new Response(pdf, {
     headers: {
       "Content-Disposition": `attachment; filename="${fileName}"`,
       "Content-Type": "application/pdf",

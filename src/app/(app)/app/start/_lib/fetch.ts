@@ -8,7 +8,15 @@
 export type IntakeFile = {
   name: string;
   blob: Blob;
-  origin: "upload" | "url" | "crawl";
+  /**
+   * 이 파일이 어디서 왔는가.
+   *
+   * `synth` 는 **우리가 만든 것**이다 — 링크나 문장만 받아 읽을 파일이 하나도
+   * 없을 때, Solar 가 정돈한 내용을 PDF 로 찍어 Studio 에 넘긴다(`analyze.ts`).
+   * 사용자가 준 원본과 구분해 두지 않으면 「올린 파일」 목록에 없는 파일이
+   * 화면에 나타난다.
+   */
+  origin: "upload" | "url" | "crawl" | "synth";
   url?: string;
 };
 

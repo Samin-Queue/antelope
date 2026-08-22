@@ -74,29 +74,45 @@ export function Source({ path }: { path: string }) {
   );
 }
 
+/** 백틱 코드 또는 굵게. 캡처 그룹 둘이라 `split` 결과가 세 칸씩 돈다 */
+const TOKEN = /`([^`]+)`|\*\*([^*]+)\*\*/;
+
 /**
- * 백틱을 코드로 바꾼다.
+ * 백틱을 코드로, `**` 를 굵게 바꾼다.
  *
  * 이 페이지의 문장은 식별자를 계속 부른다 — `data.input` 과 `data.prompt` 는
  * 그 차이가 요점이라 본문 글자와 같은 모양으로 서면 읽는 사람이 그냥 지나친다.
  * 문구 파일에 마크업을 넣지 않으면서 그 구분을 살리는 자리가 여기다.
  */
 export function T({ children }: { children: string }) {
-  if (!children.includes("`")) return <>{children}</>;
+  if (!TOKEN.test(children)) return <>{children}</>;
+  // `split` 은 캡처 그룹을 결과에 남긴다. 그룹이 둘이라 매치 하나가 세 칸을
+  // 차지하고, 그중 정확히 하나만 값이 있다 — 어느 쪽인지가 곧 어느 표기인지다.
+  const pieces = children.split(TOKEN);
   return (
     <>
-      {children.split(/`([^`]+)`/).map((piece, index) =>
-        index % 2 === 1 ? (
-          <code
-            key={index}
-            className="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em] break-words"
-          >
-            {piece}
-          </code>
-        ) : (
-          <span key={index}>{piece}</span>
-        ),
-      )}
+      {pieces.map((piece, index) => {
+        if (piece === undefined) return null;
+        const slot = index % 3;
+        if (slot === 1) {
+          return (
+            <code
+              key={index}
+              className="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em] break-words"
+            >
+              {piece}
+            </code>
+          );
+        }
+        if (slot === 2) {
+          return (
+            <strong key={index} className="font-medium text-foreground">
+              {piece}
+            </strong>
+          );
+        }
+        return <span key={index}>{piece}</span>;
+      })}
     </>
   );
 }

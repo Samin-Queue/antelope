@@ -332,3 +332,163 @@ export function StudioSequence() {
     </ol>
   );
 }
+
+// ── Studio ↔ Solar 왕복 (스윔레인) ─────────────────────────────────────
+const LANE_ORDER = ["solar", "studio", "run"] as const;
+type LaneId = (typeof LANE_ORDER)[number];
+
+/**
+ * 왕복을 세로로 그린다.
+ *
+ * 가로로 늘어놓으면 열 몇 개가 화면을 넘어 스크롤 없이는 지그재그가 안 보인다 —
+ * 그런데 **지그재그가 요점이다.** 담당이 바뀌는 지점이 곧 두 엔진이 서로에게
+ * 출력을 넘기는 지점이라, 줄이 레인을 건너는 횟수가 그대로 왕복 횟수다.
+ */
+export function Handoff() {
+  const { steps, lanes } = engine.journey;
+  const laneOf = (id: string) => LANE_ORDER.indexOf(id as LaneId);
+  const crossings = steps.filter(
+    (step, index) => index > 0 && step.lane !== steps[index - 1].lane,
+  ).length;
+
+  return (
+    <div>
+      <div className="grid grid-cols-[auto_1fr] gap-x-3 sm:grid-cols-[7.5rem_1fr] sm:gap-x-5">
+        {/* 레인 머리. 세 칸이 무엇인지 한 번만 적는다 */}
+        <div className="col-span-2 mb-3 hidden grid-cols-3 gap-2 sm:grid">
+          {LANE_ORDER.map((id) => (
+            <p
+              key={id}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-center font-mono text-[11px]",
+                id === "studio"
+                  ? "border-brand/40 bg-brand/8 text-brand"
+                  : "border-border bg-muted/40 text-muted-foreground",
+              )}
+            >
+              {lanes[id]}
+            </p>
+          ))}
+        </div>
+
+        {steps.map((step, index) => {
+          const lane = laneOf(step.lane);
+          const crossed = index > 0 && steps[index - 1].lane !== step.lane;
+          return (
+            <div key={step.title} className="contents">
+              <div className="flex flex-col items-center">
+                <span
+                  className={cn(
+                    "flex size-7 shrink-0 items-center justify-center rounded-full border font-mono text-[10px]",
+                    step.lane === "studio"
+                      ? "border-brand/50 bg-brand/10 text-brand"
+                      : "border-border bg-background text-muted-foreground",
+                  )}
+                >
+                  {index + 1}
+                </span>
+                {index < steps.length - 1 && (
+                  <span
+                    className={cn("w-px flex-1", crossed ? "bg-brand/40" : "bg-border")}
+                  />
+                )}
+              </div>
+
+              <div className="pb-3">
+                {/* 레인 위치를 들여쓰기로 보여준다. 칸이 옮겨 가면 담당이 바뀐 것이다 */}
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {/* 레인 앞의 빈 칸 수 = 레인 번호. 하나만 두면 세 번째 레인이
+                      두 번째 자리에 그려져 담당이 바뀐 것처럼 안 보인다 */}
+                  {Array.from({ length: lane }).map((_, gap) => (
+                    <div key={gap} className="hidden sm:block" aria-hidden />
+                  ))}
+                  <div
+                    className={cn(
+                      "rounded-xl border p-3.5",
+                      step.lane === "studio"
+                        ? "border-brand/35 bg-brand/5"
+                        : "border-border bg-card/40",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <span
+                        className={cn(
+                          "font-mono text-[10px]",
+                          step.lane === "studio" ? "text-brand" : "text-muted-foreground",
+                        )}
+                      >
+                        {step.actor}
+                      </span>
+                      {"badge" in step && step.badge && (
+                        <span className="rounded border border-brand/40 bg-brand/10 px-1.5 py-0.5 font-mono text-[9px] text-brand">
+                          {step.badge}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-sm font-medium">{step.title}</p>
+                    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                      <T>{step.body}</T>
+                    </p>
+                  </div>
+                  {Array.from({ length: LANE_ORDER.length - 1 - lane }).map((_, gap) => (
+                    <div key={gap} className="hidden sm:block" aria-hidden />
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+        담당이 바뀌는 지점 {crossings}곳 · 그중 Studio 를 오가는 인계 4번
+      </p>
+    </div>
+  );
+}
+
+// ── 두 엔진의 분업 ─────────────────────────────────────────────────────
+export function Duo() {
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      {engine.duo.columns.map((column, index) => (
+        <div
+          key={column.name}
+          className={cn(
+            "rounded-2xl border p-5",
+            index === 0 ? "border-brand/35 bg-brand/5" : "border-border bg-card/40",
+          )}
+        >
+          <p
+            className={cn(
+              "font-mono text-xs",
+              index === 0 ? "text-brand" : "text-muted-foreground",
+            )}
+          >
+            {column.role}
+          </p>
+          <h3 className="mt-1.5 text-lg font-semibold tracking-tight">{column.name}</h3>
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+            <T>{column.body}</T>
+          </p>
+          <ul className="mt-4 space-y-2 border-t border-border/60 pt-4">
+            {column.does.map((line) => (
+              <li
+                key={line}
+                className="flex gap-2.5 text-xs leading-relaxed text-muted-foreground"
+              >
+                <span
+                  className={cn(
+                    "mt-1.5 size-1 shrink-0 rounded-full",
+                    index === 0 ? "bg-brand" : "bg-border",
+                  )}
+                />
+                <T>{line}</T>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
