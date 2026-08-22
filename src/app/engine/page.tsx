@@ -909,9 +909,6 @@ export default function EnginePage() {
               <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
                 <T>{engine.artifacts.hwp.body}</T>
               </p>
-              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                <T>{engine.artifacts.hwp.fill}</T>
-              </p>
             </Card>
             <Card>
               <Sub>보관함</Sub>
