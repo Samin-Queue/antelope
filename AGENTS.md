@@ -210,11 +210,25 @@ GET  /v2/responses/{job_id}    폴링 → completed
 리뷰도 못 한다. Config 는 **불변**이라 고칠 때마다 새 Config 가 생긴다 —
 버전 관리와 감사 추적이 공짜로 따라온다.
 
-현재: Agent `agt_RmWVz8DE7ALhim5WaVhmqK` · Config `cfg_35tKZLwa6yNbmkdbSbEFBe`
+현재:
+
+| 에이전트                | Agent ID                     | Config                       |
+| ----------------------- | ---------------------------- | ---------------------------- |
+| 공고 처리               | `agt_VUBEVuk2mXQrrTxYnLL93w` | `cfg_EnXdSDnc6VRVdCtEUayNHo` |
+| SAMSON (유효성·요약)    | `agt_atmMQXMKxDZkjqSkdiVpDq` | `cfg_iCdJf9NLuuNh4sGtTQrVjw` |
+| MICHAEL (필드·준비문서) | `agt_kKEZDyyAzn84oo3AsgpWj9` | `cfg_L9bTyjc9Trws2jq7NMqGot` |
 
 Agent·Config 는 **API 키 소유 계정에 묶인다.** 키를 바꾸면 이전 에이전트가 안 보이므로
 `pnpm studio:provision` 을 다시 돌려 새 계정에 Config 를 만들고 `UPSTAGE_AGENT_ID` 를
 갱신한다. 로컬과 Railway 양쪽 다 바꿔야 한다.
+
+⚠ **에이전트가 프로젝트(`project_id`)에 묶이면 파일 접근이 끊긴다.**
+`GET /v2/agents` 는 200 이고 config 조회도 되는데, job 을 만들면
+`403 No access to file` 이 돌아온다. `/v2/files` 로 올린 파일은 프로젝트에
+속하지 않기 때문이다. `PATCH {project_id: null}` 은 200 을 주지만 **무시된다** —
+`createAgent` 로 새 에이전트를 만들어 Config 를 다시 반영하는 수밖에 없다.
+우리가 코드로 만든 에이전트는 `project_id: null` 로 생긴다. UI 에서 프로젝트를
+만들면 기존 에이전트가 거기로 끌려 들어가므로, 어느 날 갑자기 깨질 수 있다.
 
 ⚠ **Studio UI 로 만든 에이전트를 코드에서 쓰면 안 된다.** `GET /v2/agents` 에는
 `visibility: "readonly"` 로 멀쩡히 보이고 config 조회도 200 이지만, 우리 키로 올린

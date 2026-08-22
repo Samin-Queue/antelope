@@ -64,6 +64,44 @@ function fieldSchema(emphasis: string) {
   };
 }
 
+/**
+ * 마지막 스텝 이름. 호출부(`analyze.ts`)가 `findStep(outputs, BRIEF)` 로 찾는다 —
+ * 이름이 어긋나면 산출물이 조용히 사라진다.
+ */
+export const BRIEF = "brief";
+
+/**
+ * ⚠ instruct 는 `data.prompt` 가 아니라 **`data.input` 배열**이다.
+ * prompt 로 주면 job 이 `queries are required` 로 실패한다.
+ */
+const BRIEF_INPUT = [
+  {
+    role: "user",
+    content: [
+      {
+        type: "input_text",
+        text: [
+          "당신은 신청 준비 문서를 정돈하는 에이전트 Michael 이다.",
+          "parse 로 읽은 원문과 extract 로 뽑은 필드 목록만 근거로,",
+          "이 신청을 준비하는 사람이 그대로 따라갈 수 있는 하나의 Markdown 문서를 만든다.",
+          "",
+          "다음 섹션을 이 순서로 쓴다:",
+          "'# 신청 개요' — 무엇을, 누가 주관하고, 누가 낼 수 있는지",
+          "'## 자격 요건' — 항목마다 한 줄. 숫자·기간·금액은 원문 표현 그대로",
+          "'## 제출 서류' — 서류명, 지정 양식이 있으면 양식 이름, 발급처를 아는 경우만",
+          "'## 일정' — 접수 시작·마감, 발표, 그 밖의 기한. 날짜는 YYYY-MM-DD",
+          "'## 신청 방법' — 어디서 어떻게. URL 이 원문에 있으면 그대로 옮긴다",
+          "'## 입력해야 하는 항목' — extract 가 뽑은 필드를 목록으로. 필수는 (필수) 로 표기",
+          "'## 확인 필요' — 원문에서 확정할 수 없었던 것",
+          "",
+          "Markdown 밖의 인사말·설명·코드 펜스는 절대 쓰지 않는다.",
+          "원문에 없는 내용을 지어내지 않는다. 모르면 '원문 확인 필요' 라고 쓴다.",
+        ].join("\n"),
+      },
+    ],
+  },
+];
+
 export function michaelWorkflow(): Step[] {
   const branches = [
     {
@@ -150,7 +188,7 @@ export function michaelWorkflow(): Step[] {
           },
         },
       },
-      next_steps: [],
+      next_steps: [{ step_name: BRIEF }],
     })),
     {
       name: "extract-general",
@@ -169,6 +207,12 @@ export function michaelWorkflow(): Step[] {
           },
         },
       },
+      next_steps: [{ step_name: BRIEF }],
+    },
+    {
+      name: BRIEF,
+      type: "instruct",
+      data: { input: BRIEF_INPUT },
       next_steps: [],
     },
   ];

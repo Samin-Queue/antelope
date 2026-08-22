@@ -200,6 +200,14 @@ export const goals = pgTable(
     /** 정규화된 공고 객체와 파이프라인 결과 원본 */
     notice: jsonb("notice"),
     result: jsonb("result"),
+    /**
+     * 세션 스냅샷 — 요약·수집 파일·마스터 테이블.
+     *
+     * 이게 없으면 새로고침 한 번에 준비한 것이 전부 사라진다. 브라우저·파일
+     * 에이전트가 읽는 **단일 진실**이라 값이 바뀔 때마다 여기를 갱신한다.
+     * 모양은 `app/start/_lib/types.ts` 의 `SessionSnapshot`.
+     */
+    snapshot: jsonb("snapshot"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

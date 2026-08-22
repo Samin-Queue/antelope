@@ -97,7 +97,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     summary: null,
     error: null,
   });
-  const [goalId, setGoalId] = useState<string | null>(null);
+  // 서버가 만든 세션 id. 저장 책임은 서버에 있고 여기서는 갱신만 한다.
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const startedRef = useRef(false);
 
   // 1~5 단계 — 컴포저 입력으로 한 번만 시작한다.
@@ -127,6 +128,8 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         setSummary({ markdown: event.markdown, via: event.via });
       } else if (event.type === "verdict") {
         setVerdict({ verdict: event.verdict, reason: event.reason });
+      } else if (event.type === "session") {
+        setSessionId(event.id);
       } else if (event.type === "needs") {
         setPrepared({
           title: event.title,
@@ -169,32 +172,28 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     }
     // 입력한 값은 지식베이스에 남긴다 — 다음 공고에서 다시 묻지 않기 위해서다.
     const facts: Record<string, string> = {};
-    for (const need of target.needs) {
+    const filled = target.needs.map((need) => {
       const value = values[need.key] ?? values[need.label] ?? need.value ?? "";
       if (value.trim() && need.kind !== "file" && need.key !== APPLY_URL_KEY) {
         facts[need.label] = value.trim();
       }
-    }
+      return value.trim() && !need.value
+        ? { ...need, value: value.trim(), from: "user" as const }
+        : need;
+    });
     void fetch("/lab/notice/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ profile: facts, sourceNotice: target.title }),
     }).catch(() => {});
-    void fetch("/app/goals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        notice: {
-          title: target.title,
-          organization: target.organization,
-          deadline: target.deadline,
-          howToApply: applyUrl,
-        },
-      }),
-    })
-      .then((response) => response.json())
-      .then((json: { id?: string | null }) => setGoalId(json.id ?? null))
-      .catch(() => {});
+    // 마스터 테이블을 최신으로. 브라우저가 읽는 단일 진실이다.
+    if (sessionId) {
+      void fetch("/app/start/needs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: sessionId, needs: filled }),
+      }).catch(() => {});
+    }
 
     setApply({
       status: "running",
@@ -245,19 +244,19 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
     }
   }
 
-  // 신청이 끝나면 목표 단계를 올린다.
+  // 신청이 끝나면 세션 단계를 올린다.
   useEffect(() => {
-    if (!goalId || apply.status !== "done") return;
+    if (!sessionId || apply.status !== "done") return;
     void fetch("/app/goals", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        id: goalId,
+        id: sessionId,
         stage: "waiting",
         result: { summary: apply.summary },
       }),
     }).catch(() => {});
-  }, [goalId, apply.status, apply.summary]);
+  }, [sessionId, apply.status, apply.summary]);
 
   const missingCount =
     prepared?.needs.filter((need) => need.kind !== "file" && !need.value?.trim())

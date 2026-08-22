@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { env, required } from "@/lib/env";
 import { findStep, stepOutputs, uploadFile, waitForJob } from "@/lib/upstage-studio";
+import { BRIEF } from "@/app/(labs)/lab/michael/_lib/workflow";
 
 import type { IntakeFile } from "./fetch";
 import type { Ctx } from "./intake";
@@ -25,6 +26,13 @@ export type Analysis = {
   needs: Need[];
   applicationType: string | null;
   title: string | null;
+  /**
+   * Michael 이 정돈한 신청 준비 문서.
+   *
+   * 필드 목록은 폼을 채우려고 만든 것이고 이건 **사람과 계획 에이전트가 읽으려고**
+   * 만든 것이다. Solar 로 떨어진 경로에서는 없다.
+   */
+  brief: string | null;
   via: "michael" | "solar" | "none";
 };
 
@@ -73,10 +81,14 @@ export async function analyze(
       if (!parsed.success || !parsed.data.fields?.length) {
         throw new Error("Michael 이 필드 목록을 만들지 못했습니다.");
       }
+      const brief = unquote(findStep(outputs, BRIEF)?.text ?? "");
       ctx.log(
-        `Michael 완료: ${outputs.map((o) => o.step).join(" → ")} · 필드 ${parsed.data.fields.length}개`,
+        `Michael 완료: ${outputs.map((o) => o.step).join(" → ")} · 필드 ${parsed.data.fields.length}개` +
+          (brief
+            ? ` · 준비 문서 ${brief.length.toLocaleString()}자`
+            : " · 준비 문서 없음"),
       );
-      return toAnalysis(parsed.data, "michael");
+      return { ...toAnalysis(parsed.data, "michael"), brief: brief || null };
     } catch (error) {
       ctx.log(`Michael 실패 — Solar 로 대체: ${message(error)}`);
     }
@@ -87,7 +99,7 @@ export async function analyze(
   }
 
   if (!summary.markdown.trim())
-    return { needs: [], applicationType: null, title: null, via: "none" };
+    return { needs: [], applicationType: null, title: null, brief: null, via: "none" };
 
   try {
     const { object } = await generateObject({
@@ -108,8 +120,19 @@ export async function analyze(
     return toAnalysis(object, "solar");
   } catch (error) {
     ctx.log(`Solar 도출 실패: ${message(error)}`);
-    return { needs: [], applicationType: null, title: null, via: "none" };
+    return { needs: [], applicationType: null, title: null, brief: null, via: "none" };
   }
+}
+
+/** instruct 스텝은 JSON 문자열로 감싸 오기도 한다 */
+function unquote(text: string): string {
+  try {
+    const decoded: unknown = JSON.parse(text);
+    if (typeof decoded === "string") return decoded.trim();
+  } catch {
+    /* 평문 */
+  }
+  return text.trim();
 }
 
 function toAnalysis(data: Fields, via: Analysis["via"]): Analysis {
@@ -129,6 +152,7 @@ function toAnalysis(data: Fields, via: Analysis["via"]): Analysis {
     needs,
     applicationType: data.applicationType?.trim() || null,
     title: data.applicationTitle?.trim() || null,
+    brief: null,
     via,
   };
 }

@@ -5,8 +5,15 @@ import { mergeNeeds } from "./needs";
 import { prefill } from "./prefill";
 import { reconcileNeeds } from "./reconcile";
 import { research } from "./research";
+import { createSession } from "./session";
 import { judge, summarize } from "./summarize";
-import { APPLY_URL_KEY, type FileInfo, type Stage, type StartEvent } from "./types";
+import {
+  APPLY_URL_KEY,
+  type FileInfo,
+  type SessionSnapshot,
+  type Stage,
+  type StartEvent,
+} from "./types";
 
 /**
  * 1~5 단계를 순서대로 돌린다.
@@ -27,19 +34,21 @@ export async function runStart(
 ): Promise<void> {
   const ctx: Ctx = { log: (text) => emit({ type: "log", text }) };
 
+  // 세션에 그대로 실린다 — 다시 열었을 때 진행 레일을 같은 모양으로 그린다.
+  const stages: SessionSnapshot["stages"] = {};
+  const mark = (id: Stage, status: "done" | "error" | "skip", detail?: string) => {
+    stages[id] = status;
+    emit({ type: "stage", stage: id, status, detail });
+  };
+
   const stage = async <T>(id: Stage, task: () => Promise<T>): Promise<T | null> => {
     emit({ type: "stage", stage: id, status: "start" });
     try {
       const value = await task();
-      emit({ type: "stage", stage: id, status: "done" });
+      mark(id, "done");
       return value;
     } catch (error) {
-      emit({
-        type: "stage",
-        stage: id,
-        status: "error",
-        detail: error instanceof Error ? error.message : String(error),
-      });
+      mark(id, "error", error instanceof Error ? error.message : String(error));
       return null;
     }
   };
@@ -60,12 +69,11 @@ export async function runStart(
     const why = gathered.failures
       .map((item) => `${item.url} — ${friendly(item.reason)}`)
       .join("\n");
-    emit({
-      type: "stage",
-      stage: "intake",
-      status: "error",
-      detail: gathered.failures.length ? "링크를 가져오지 못함" : "읽을 내용 없음",
-    });
+    mark(
+      "intake",
+      "error",
+      gathered.failures.length ? "링크를 가져오지 못함" : "읽을 내용 없음",
+    );
     emit({
       type: "error",
       error: why
@@ -90,7 +98,7 @@ export async function runStart(
   emit({ type: "verdict", verdict: verdict.verdict, reason: verdict.reason });
   if (verdict.verdict === "bad") {
     for (const id of ["research", "analyze", "prefill"] as const) {
-      emit({ type: "stage", stage: id, status: "skip", detail: "요약이 bad 로 판정됨" });
+      mark(id, "skip", "요약이 bad 로 판정됨");
     }
     return;
   }
@@ -102,6 +110,7 @@ export async function runStart(
 
   // 5 — 정밀 분석 (1·3단계가 모은 파일 전부)
   const analysis = await stage("analyze", () => analyze(allFiles, summary, ctx));
+  if (analysis?.brief) emit({ type: "brief", markdown: analysis.brief });
 
   // 병합 — 신청 링크를 묻는 항목은 맨 앞, 그다음 Michael, 그다음 research.
   const researchNeeds = found?.needs ?? [];
@@ -124,12 +133,34 @@ export async function runStart(
     gathered.pages[0]?.title ??
     "제목 미상";
 
-  emit({
-    type: "needs",
+  const snapshot: SessionSnapshot = {
     title,
     organization: found?.organization ?? null,
     deadline: found?.deadline ?? null,
     applyUrl: found?.applyUrl ?? null,
+    summary: { markdown: summary.markdown, via: summary.via },
+    brief: analysis?.brief ?? null,
+    files: fileInfos(allFiles),
+    needs: filled,
+    stages,
+  };
+
+  // 여기가 「세션이 시작됐다」의 자연스러운 지점이다 — 마스터 테이블이 처음
+  // 완성되는 순간. 신청 버튼을 눌러야 남기면 준비만 하고 떠난 세션이 사라진다.
+  if (opts.userId) {
+    const id = await createSession(opts.userId, snapshot);
+    if (id) {
+      emit({ type: "session", id });
+      ctx.log(`세션 저장: ${id}`);
+    }
+  }
+
+  emit({
+    type: "needs",
+    title: snapshot.title,
+    organization: snapshot.organization,
+    deadline: snapshot.deadline,
+    applyUrl: snapshot.applyUrl,
     needs: filled,
   });
 }

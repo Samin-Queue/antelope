@@ -52,7 +52,7 @@ export async function listGoals(userId: string): Promise<Goal[]> {
 export async function getGoal(
   userId: string,
   id: string,
-): Promise<(Goal & { notice: unknown; result: unknown }) | null> {
+): Promise<(Goal & { notice: unknown; result: unknown; snapshot: unknown }) | null> {
   const db = getDb();
   const [row] = await db
     .select()

@@ -29,18 +29,26 @@ export const STAGE_LABEL: Record<Stage, { title: string; agent: string }> = {
 export type NeedKind =
   "text" | "long" | "date" | "number" | "select" | "checkbox" | "file";
 
-/** 신청자가 채워야 하는 항목 하나. 선채움되면 value 가 들어온다 */
+/**
+ * 신청자가 채워야 하는 항목 하나.
+ *
+ * 이 배열이 곧 **세션의 마스터 테이블**이다. 브라우저·파일 에이전트는 여기만
+ * 읽는다 — 각자 들고 있는 값으로 폼을 채우면 어느 값이 맞는지 알 수 없다.
+ */
 export type Need = {
   /** 정규화된 라벨. 중복 제거 키 */
   key: string;
   label: string;
   kind: NeedKind;
+  /** kind 가 select 일 때 고를 수 있는 값. 없으면 자유 입력으로 그린다 */
+  options?: string[];
   required: boolean;
   source: "michael" | "research" | "summary";
   /** 왜 필요한지. 원문 근거 */
   why: string | null;
   value: string | null;
-  from: "memory" | null;
+  /** 값이 어디서 왔는가. null 이면 아직 비었다 */
+  from: "memory" | "user" | "agent" | null;
   /** 기억이 다른 이름으로 저장돼 있었을 때 그 이름 */
   memoryLabel?: string;
 };
@@ -49,6 +57,27 @@ export type FileInfo = {
   name: string;
   origin: "upload" | "url" | "crawl";
   bytes: number;
+};
+
+/**
+ * 세션 스냅샷 — 다시 열었을 때 이어서 하려면 이만큼이 있어야 한다.
+ *
+ * 파일은 **바이트를 담지 않는다.** 목록과 출처만 남긴다 — jsonb 하나에 PDF 를
+ * 넣으면 행이 수 MB 가 되고, 다시 필요하면 origin 으로 받으면 된다.
+ */
+export type SessionSnapshot = {
+  title: string;
+  organization: string | null;
+  deadline: string | null;
+  applyUrl: string | null;
+  summary: { markdown: string; via: string } | null;
+  /** Michael 이 정돈한 신청 준비 문서. 계획 에이전트의 입력이 된다 */
+  brief: string | null;
+  files: FileInfo[];
+  /** 마스터 테이블 */
+  needs: Need[];
+  /** 어디까지 갔는지. 다시 열었을 때 레일을 그대로 그린다 */
+  stages: Partial<Record<Stage, "done" | "error" | "skip">>;
 };
 
 export type StartEvent =
@@ -61,7 +90,11 @@ export type StartEvent =
   | { type: "log"; text: string }
   | { type: "files"; files: FileInfo[] }
   | { type: "summary"; markdown: string; via: string }
+  /** Michael 의 신청 준비 문서 */
+  | { type: "brief"; markdown: string }
   | { type: "verdict"; verdict: "good" | "bad"; reason: string }
+  /** 세션이 DB 에 만들어졌다. 이후 갱신은 이 id 로 한다 */
+  | { type: "session"; id: string }
   | {
       type: "needs";
       title: string;
