@@ -11,10 +11,28 @@ import { Textarea } from "@/components/ui/textarea";
 import type { Artifact, Need } from "./types";
 
 /**
+ * 항목을 갈라 센다. 화면 세 곳이 같은 숫자를 써야 해서 — 드로어 머리말,
+ * 폼 본문, 고정 푸터 — 세는 자리를 하나로 둔다. 세 곳이 각자 세면 어긋난다.
+ */
+export function summarizeNeeds(needs: Need[], values: Record<string, string>) {
+  const files = needs.filter((need) => need.kind === "file");
+  const askable = needs.filter((need) => need.kind !== "file");
+  const filled = askable.filter((need) => need.from === "memory");
+  const missing = askable.filter((need) => need.from !== "memory");
+  const missingRequired = missing.filter(
+    (need) => need.required && !values[need.key]?.trim(),
+  ).length;
+  return { files, filled, missing, missingRequired };
+}
+
+/**
  * 6~8 단계 화면 — 지식베이스로 못 채운 것만 묻는다.
  *
  * 채워진 항목도 보여주되 접어 둔다. 무엇이 자동으로 채워졌는지 보여야 사용자가
  * 틀린 값을 잡을 수 있다 — 숨기면 에이전트가 틀린 값을 제출한다.
+ *
+ * 제출 버튼은 여기 없다. 드로어 푸터에 고정되어 스크롤과 무관하게 늘 보인다 —
+ * 항목이 스무 개 넘어가면 버튼이 화면 밖으로 밀려 「다음은 뭘 눌러야 하나」가 된다.
  */
 export function NeedsForm({
   needs,
@@ -24,11 +42,10 @@ export function NeedsForm({
   runId,
   sourceNotice,
   onUpload,
-  onSubmit,
 }: {
   needs: Need[];
   /**
-   * 입력값은 부모가 쥔다. 이 폼은 Dialog 안에 있어서 닫히면 언마운트되는데,
+   * 입력값은 부모가 쥔다. 이 폼은 Drawer 안에 있어서 닫히면 언마운트되는데,
    * 값을 여기 두면 그때 통째로 사라진다 — 실제로 제출이 한 번 실패하면
    * 사용자가 친 것이 전부 날아갔다.
    */
@@ -40,20 +57,12 @@ export function NeedsForm({
   runId: string | null;
   sourceNotice: string;
   onUpload: (artifact: Artifact) => void;
-  onSubmit: () => void;
 }) {
   const [showFilled, setShowFilled] = useState(false);
-
-  const files = needs.filter((need) => need.kind === "file");
-  const askable = needs.filter((need) => need.kind !== "file");
-  const filled = askable.filter((need) => need.from === "memory");
-  const missing = askable.filter((need) => need.from !== "memory");
-  const missingRequired = missing.filter(
-    (need) => need.required && !values[need.key]?.trim(),
-  ).length;
+  const { files, filled, missing } = summarizeNeeds(needs, values);
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-6">
+    <section>
       <h2 className="text-sm font-medium">직접 입력이 필요한 항목 {missing.length}개</h2>
       <p className="mt-1 text-xs text-muted-foreground">
         {filled.length > 0
@@ -120,15 +129,6 @@ export function NeedsForm({
           </ul>
         </div>
       )}
-
-      <div className="mt-6 flex items-center gap-3">
-        <Button onClick={() => onSubmit()} disabled={missingRequired > 0}>
-          이 정보로 신청 진행
-        </Button>
-        <span className="text-xs text-muted-foreground">
-          {missingRequired > 0 ? `필수 ${missingRequired}개 미입력` : "필수 항목 완료"}
-        </span>
-      </div>
     </section>
   );
 }

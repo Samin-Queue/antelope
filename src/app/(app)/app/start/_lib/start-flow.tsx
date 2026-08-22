@@ -9,12 +9,19 @@ import { cn } from "@/lib/utils";
 import type { ComposerSubmit } from "@/components/app/composer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { LiveScreen } from "@/app/(labs)/lab/notice/_lib/run-view";
 
 import { AgentCard, emptyCards, type Cards } from "./agent-grid";
 import { AskDialog, type AskItem } from "./ask-dialog";
-import { NeedsForm } from "./needs-form";
+import { NeedsForm, summarizeNeeds } from "./needs-form";
 import { RunStatus } from "./run-status";
 import { SteerBox } from "./steer-box";
 import {
@@ -92,9 +99,9 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
   /**
    * 사용자가 입력한 값. 폼이 아니라 여기에 둔다.
    *
-   * 폼은 Dialog 안에 있어서 닫히면 언마운트된다. 값이 폼 안에 있었을 때는
+   * 폼은 Drawer 안에 있어서 닫히면 언마운트된다. 값이 폼 안에 있었을 때는
    * 제출 실패·Esc·바깥 클릭 어느 쪽이든 입력이 통째로 사라지고, 다시 열면
-   * 선채움된 값만 남았다. 여기 두면 다이얼로그가 몇 번 닫혀도 살아 있다.
+   * 선채움된 값만 남았다. 여기 두면 드로어가 몇 번 닫혀도 살아 있다.
    */
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -538,32 +545,45 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
             </Button>
           )}
 
-        <Dialog open={needsOpen} onOpenChange={setNeedsOpen}>
-          <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>신청에 필요한 정보</DialogTitle>
-            </DialogHeader>
+        {/* 다이얼로그가 아니라 드로어다. 물어볼 항목이 스무 개를 넘길 때가 있어
+            가운데 뜨는 상자로는 스크롤 안에 제출 버튼이 파묻힌다. 아래에서
+            올라오는 판에 머리말·본문·푸터를 갈라 두면 「이 정보로 신청 진행」이
+            스크롤과 무관하게 늘 같은 자리에 있다. */}
+        <Drawer open={needsOpen} onOpenChange={setNeedsOpen} showSwipeHandle>
+          <DrawerContent className="mx-auto sm:max-w-3xl">
+            <DrawerHeader>
+              <DrawerTitle>신청에 필요한 정보</DrawerTitle>
+              <DrawerDescription>{prepared?.title}</DrawerDescription>
+            </DrawerHeader>
             {prepared && (
-              <NeedsForm
-                needs={prepared.needs}
-                values={values}
-                onChange={(key, value) =>
-                  setValues((prev) => ({ ...prev, [key]: value }))
-                }
-                artifacts={artifacts}
-                runId={runId}
-                sourceNotice={prepared.title}
-                onUpload={(artifact) =>
-                  setArtifacts((prev) => [
-                    ...prev.filter((item) => item.needKey !== artifact.needKey),
-                    artifact,
-                  ])
-                }
-                onSubmit={() => void startApply(prepared, values)}
-              />
+              <>
+                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+                  <NeedsForm
+                    needs={prepared.needs}
+                    values={values}
+                    onChange={(key, value) =>
+                      setValues((prev) => ({ ...prev, [key]: value }))
+                    }
+                    artifacts={artifacts}
+                    runId={runId}
+                    sourceNotice={prepared.title}
+                    onUpload={(artifact) =>
+                      setArtifacts((prev) => [
+                        ...prev.filter((item) => item.needKey !== artifact.needKey),
+                        artifact,
+                      ])
+                    }
+                  />
+                </div>
+                <NeedsFooter
+                  needs={prepared.needs}
+                  values={values}
+                  onSubmit={() => void startApply(prepared, values)}
+                />
+              </>
             )}
-          </DialogContent>
-        </Dialog>
+          </DrawerContent>
+        </Drawer>
 
         <AskDialog item={ask} onAnswer={answer} />
       </div>
@@ -582,6 +602,35 @@ export function StartFlow({ initial }: { initial: ComposerSubmit }) {
         result={apply.summary}
       />
     </div>
+  );
+}
+
+/**
+ * 드로어 푸터 — 스크롤 밖에 고정된다.
+ *
+ * 항목이 많으면 제출 버튼이 본문 맨 아래로 밀려 스크롤해야 보인다. 무엇이
+ * 모자라서 못 누르는지도 버튼 옆에 같이 붙여 둔다 — 비활성 버튼만 있으면
+ * 사용자는 이유를 찾아 다시 위로 올라가야 한다.
+ */
+function NeedsFooter({
+  needs,
+  values,
+  onSubmit,
+}: {
+  needs: Need[];
+  values: Record<string, string>;
+  onSubmit: () => void;
+}) {
+  const { missingRequired } = summarizeNeeds(needs, values);
+  return (
+    <DrawerFooter className="flex-row items-center gap-3 border-t border-border pt-4">
+      <Button onClick={onSubmit} disabled={missingRequired > 0}>
+        이 정보로 신청 진행
+      </Button>
+      <span className="text-xs text-muted-foreground">
+        {missingRequired > 0 ? `필수 ${missingRequired}개 미입력` : "필수 항목 완료"}
+      </span>
+    </DrawerFooter>
   );
 }
 
