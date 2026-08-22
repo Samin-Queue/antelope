@@ -22,7 +22,7 @@ footer: "Antelope"
 
 <!-- _class: lead -->
 
-# Opportunity still arrives<br>as a **PDF**
+# Opportunity still arrives<br>as a **document**
 
 Scholarships. Competitions. Housing. Government programs.
 Permits. Job postings. Forms nobody reads twice.
