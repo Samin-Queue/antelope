@@ -6,7 +6,7 @@ import { generateObject, generateText } from "ai";
 import { chromium } from "playwright";
 import { z } from "zod";
 
-import { documentBytes, recallDocuments } from "./documents";
+import { documentBytes, documentKey, recallDocuments } from "./documents";
 import type { IntakeFile } from "./fetch";
 import type { Ctx } from "./intake";
 import { bigModel, clip } from "./llm";
@@ -108,10 +108,24 @@ export async function planDocuments(
     ].join("\n"),
   });
 
-  const byLabel = new Map(files.map((need) => [need.label, need]));
+  // 정확 일치로 잡으면 모델이 라벨을 조금만 다듬어도 통째로 빠진다 — 실측에서
+  // 「작성 0 · 발급 3」 이 나왔고, 사업계획서가 목록에서 사라졌다.
+  // 서류 이름 정규화(「사본·1부·서류」 제거)로 맞춘다.
+  const keyed = files.map((need) => ({ need, key: documentKey(need.label) }));
+  const pick = (label: string): Need | undefined => {
+    const key = documentKey(label);
+    if (!key) return undefined;
+    // 「사업계획서(지정양식 별지 제1호)」 를 모델이 「사업계획서」 로 부르는 일이
+    // 흔하다. 정확 일치 → 한쪽이 다른 쪽을 품는 관계 순으로 찾는다.
+    return (
+      keyed.find((item) => item.key === key)?.need ??
+      keyed.find((item) => item.key.includes(key) || key.includes(item.key))?.need
+    );
+  };
+
   const jobs: DocumentJob[] = [];
   for (const item of object.author ?? []) {
-    const need = byLabel.get(item.label.trim());
+    const need = pick(item.label);
     if (!need) continue;
     const format = (item.format?.trim().toLowerCase() ?? "") as DocFormat;
     jobs.push({
@@ -125,9 +139,22 @@ export async function planDocuments(
       format: FORMATS.includes(format) ? format : "pdf",
     });
   }
+  const authored = new Set(jobs.map((job) => job.needKey));
   const obtain = (object.obtain ?? [])
-    .map((label) => label.trim())
-    .filter((label) => byLabel.has(label));
+    .map((label) => pick(label))
+    .filter((need): need is Need => Boolean(need) && !authored.has(need!.key))
+    .map((need) => need.label);
+
+  // 모델이 어느 쪽에도 넣지 않은 서류가 생긴다. 버리지 않고 발급으로 돌린다 —
+  // 사람에게 묻는 편이 조용히 사라지는 것보다 낫다.
+  const seen = new Set([...authored, ...obtain.map((label) => documentKey(label))]);
+  const missed = files.filter(
+    (need) => !authored.has(need.key) && !seen.has(documentKey(need.label)),
+  );
+  if (missed.length > 0) {
+    ctx.log(`분류에서 빠진 서류 ${missed.length}개는 발급으로 돌린다`);
+    obtain.push(...missed.map((need) => need.label));
+  }
 
   ctx.log(
     `서류 ${files.length}개 — 작성 ${jobs.length}` +

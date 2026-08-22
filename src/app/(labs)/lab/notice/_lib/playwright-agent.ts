@@ -278,6 +278,19 @@ export async function runPlaywrightAgent(opts: {
           const before = page.url();
           await locator.click({ timeout: 10_000 });
           await settle(page);
+
+          // 신청 폼을 벗어나면 되돌린다. 실측: 「← 공고문으로」 를 눌러 폼을 잃고
+          // 되돌아와 처음부터 다시 채우다 60스텝을 태웠다. 규칙으로 적어도
+          // 모델이 어기므로 코드가 막는다.
+          if (left(startUrl, page.url())) {
+            await page.goBack({ timeout: 15_000 }).catch(() => {});
+            await settle(page);
+            await frame();
+            const message = `"${el.label}" 는 신청 폼을 벗어나는 링크였다. 되돌아왔다 — 폼 안에서만 조작하라.`;
+            await record("click", { ref, label: el.label, reverted: true }, message);
+            return message;
+          }
+
           await frame();
           const moved = page.url() !== before;
           const message = `"${el.label}" 를 눌렀다.${moved ? ` 페이지가 ${page.url()} 로 바뀌었다.` : " read 로 결과를 확인하라."}`;
@@ -395,6 +408,27 @@ async function settle(page: Page, extraMs = 700) {
   await page.waitForTimeout(extraMs);
 }
 
+/**
+ * 신청 폼을 벗어났는가.
+ *
+ * 호스트가 다르면 확실히 벗어난 것이고, 같은 호스트라면 경로의 첫 두 마디가
+ * 유지되는지 본다 — `/demo/startup-fund/apply` 에서 `/demo/startup-fund` 로
+ * 나가는 것이 실제로 문제였던 이동이다. 다단계 폼이 쿼리·해시를 바꾸는 것은
+ * 이탈이 아니다.
+ */
+function left(startUrl: string, current: string): boolean {
+  try {
+    const from = new URL(startUrl);
+    const to = new URL(current);
+    if (from.host !== to.host) return true;
+    const head = (url: URL) =>
+      url.pathname.split("/").filter(Boolean).slice(0, 2).join("/");
+    return head(from) !== head(to) || to.pathname.length < from.pathname.length;
+  } catch {
+    return false;
+  }
+}
+
 function systemPrompt(allowSubmit: boolean, hasArtifacts: boolean): string {
   return [
     "너는 웹 신청서를 대신 채우는 에이전트다. 페이지의 요소 목록을 보고 조작한다.",
@@ -414,6 +448,8 @@ function systemPrompt(allowSubmit: boolean, hasArtifacts: boolean): string {
       : "- 파일 업로드 칸은 채울 수 없다. 건너뛰고 마지막에 무엇이 남았는지 보고한다.",
     "- 여러 단계로 나뉜 폼은 한 단계를 다 채우고 「다음」을 눌러 넘어간다. 남은 단계가 있으면 끝난 게 아니다.",
     "- 값이 없는 항목은 비워 둔다. 지어내지 않는다.",
+    "- **입력칸은 click 하지 않는다. 바로 fill 한다.** 클릭은 버튼·체크박스·라디오에만 쓴다 — 칸을 누르고 채우면 스텝이 두 배가 된다.",
+    "- **신청 폼을 벗어나지 않는다.** 「← 공고문으로」·「목록」·「이전」 처럼 폼 밖으로 나가는 링크는 누르지 않는다. 지금 폼을 끝내는 것이 전부다.",
     "- **계획서가 주어지면 그 순서를 따른다.** 계획에 없는 곳으로 가지 않는다.",
     "- **「사람이 직접 해야 하는 것」에 적힌 일은 시도하지 않는다.** 증명서 발급·본인인증·서류 작성은 네 몫이 아니다. 그 자리에 오면 건너뛰고 마지막에 보고한다.",
     allowSubmit
