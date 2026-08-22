@@ -3,6 +3,7 @@ import type { IntakeFile } from "./fetch";
 import {
   artifactDir,
   fillTemplates,
+  pdfCopy,
   planDocuments,
   recallArtifacts,
   writeDocument,
@@ -178,19 +179,16 @@ export async function runStart(
     if (jobs.length === 0) return made;
     for (const job of jobs) {
       try {
-        made.push(
-          await writeDocument(
-            job,
-            {
-              title,
-              organization: found?.organization ?? null,
-              brief,
-              needs: filled,
-            },
-            dir,
-            ctx,
-          ),
+        const { artifact, markdown } = await writeDocument(
+          job,
+          { title, organization: found?.organization ?? null, brief, needs: filled },
+          dir,
+          ctx,
         );
+        made.push(artifact);
+        // 신청 페이지가 어떤 형식을 받는지는 여기서 알 수 없다. PDF 를 한 벌 더 둔다.
+        const copy = await pdfCopy(artifact, markdown, job.title, dir, ctx);
+        if (copy) made.push(copy);
       } catch (error) {
         // 한 문서가 실패해도 나머지는 만든다.
         ctx.log(

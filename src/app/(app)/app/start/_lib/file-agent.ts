@@ -170,7 +170,7 @@ export async function writeDocument(
   context: { title: string; organization: string | null; brief: string; needs: Need[] },
   dir: string,
   ctx: Ctx,
-): Promise<Artifact> {
+): Promise<{ artifact: Artifact; markdown: string }> {
   const known = context.needs.filter(
     (need) => need.value?.trim() && need.kind !== "file",
   );
@@ -215,15 +215,56 @@ export async function writeDocument(
 
   ctx.log(`${job.label} 작성 — ${filename} (${(bytes.length / 1024).toFixed(0)}KB)`);
   return {
-    needKey: job.needKey,
-    label: job.label,
-    filename,
-    mime: MIME[job.format],
-    bytes: bytes.length,
-    path,
-    usedKeys: known.map((need) => need.key),
-    from: "agent",
+    artifact: {
+      needKey: job.needKey,
+      label: job.label,
+      filename,
+      mime: MIME[job.format],
+      bytes: bytes.length,
+      path,
+      usedKeys: known.map((need) => need.key),
+      from: "agent",
+    },
+    markdown,
   };
+}
+
+/**
+ * 같은 문서의 PDF 사본.
+ *
+ * 신청 페이지가 어떤 형식을 받는지는 **준비 단계에서 알 수 없다.** 실측:
+ * 공고문에 「지정양식」이 있어 hwp 로 만들었는데 정작 업로드 칸은 `.pdf` 만
+ * 받았고, 브라우저가 조용히 무시해 제출에서 막혔다.
+ *
+ * PDF 는 가장 널리 받는 형식이라 한 벌 더 두면 그 실패가 사라진다. 본문이
+ * 같으므로 내용이 갈릴 일도 없다.
+ */
+export async function pdfCopy(
+  original: Artifact,
+  markdown: string,
+  title: string,
+  dir: string,
+  ctx: Ctx,
+): Promise<Artifact | null> {
+  if (original.mime === MIME.pdf) return null;
+  try {
+    const filename = `${safeName(title)}.pdf`;
+    const path = join(dir, filename);
+    const bytes = await renderPdf(parseBlocks(markdown), title);
+    await writeFile(path, bytes);
+    ctx.log(`${original.label} PDF 사본 — ${filename}`);
+    return {
+      ...original,
+      needKey: `${original.needKey}-pdf`,
+      filename,
+      mime: MIME.pdf,
+      bytes: bytes.length,
+      path,
+    };
+  } catch (error) {
+    ctx.log(`PDF 사본 실패: ${error instanceof Error ? error.message : error}`);
+    return null;
+  }
 }
 
 /**

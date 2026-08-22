@@ -78,6 +78,9 @@ const SNAPSHOT = `(() => {
       // 「왜 제출이 안 되는가」를 사이트마다 다른 문구가 아니라 표준으로 말해 준다.
       invalid: typeof el.checkValidity === 'function' ? !el.checkValidity() : false,
       validationMessage: String(el.validationMessage || '').slice(0, 120),
+      // 파일 칸이 받는 형식. 안 맞는 파일을 올리면 브라우저가 조용히 무시한다.
+      accept: String(el.getAttribute('accept') || '').slice(0, 120),
+      multiple: el.multiple === true,
     });
   }
   return { elements: out, text: (document.body?.innerText || '').replace(/\\n{2,}/g, '\\n').slice(0, 1800) };
@@ -96,6 +99,8 @@ type Snapshot = {
     options: string[] | null;
     invalid: boolean;
     validationMessage: string;
+    accept: string;
+    multiple: boolean;
   }>;
   text: string;
 };
@@ -216,6 +221,7 @@ export async function runPlaywrightAgent(opts: {
         if (el.invalid)
           bits.push(`[미충족${el.validationMessage ? ` ${el.validationMessage}` : ""}]`);
         if (el.options?.length) bits.push(`선택지: ${el.options.join(" / ")}`);
+        if (el.accept) bits.push(`받는 형식: ${el.accept}`);
         return "  " + bits.join(" ");
       });
       return [
@@ -397,7 +403,25 @@ export async function runPlaywrightAgent(opts: {
             await record("upload", { ref, file }, message);
             return message;
           }
+          // 안 맞는 형식을 넣으면 브라우저가 **조용히 무시한다.** 실측: `.pdf` 만
+          // 받는 칸에 `.hwp` 를 올리고 성공한 줄 알았다가 제출에서 막혔다.
+          if (!accepts(el.accept, picked.filename)) {
+            const fit = artifacts.find((item) => accepts(el.accept, item.filename));
+            const message = fit
+              ? `"${el.label}" 는 ${el.accept} 만 받는다. ${picked.filename} 대신 ${fit.filename} 을 올려라.`
+              : `"${el.label}" 는 ${el.accept} 만 받는데 준비된 파일에 맞는 것이 없다(${artifacts.map((i) => i.filename).join(", ") || "없음"}). 이 칸은 사람이 올려야 한다 — 건너뛰고 보고한다.`;
+            await record("upload", { ref, file, rejected: true }, message);
+            return message;
+          }
+
           await locator.setInputFiles(picked.path, { timeout: 15_000 });
+          const after = (await page.evaluate(SNAPSHOT)) as Snapshot;
+          const slot = after.elements.find((item) => item.ref === ref);
+          if (slot && !slot.value) {
+            const message = `"${el.label}" 에 ${picked.filename} 을 넣었지만 칸이 비어 있다. 이 사이트가 그 형식을 받지 않는 것이다 — 건너뛰고 보고한다.`;
+            await record("upload", { ref, file: picked.filename, empty: true }, message);
+            return message;
+          }
           const message = `"${el.label}" 에 ${picked.filename} 을 올렸다.`;
           await record("upload", { ref, file: picked.filename }, message);
           await frame();
@@ -500,6 +524,26 @@ function left(startUrl: string, current: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * 이 파일 칸이 그 파일을 받는가.
+ *
+ * `accept` 는 `.pdf,.hwp` 처럼 확장자로도, `image/*` 처럼 MIME 로도 온다.
+ * 비어 있으면 아무거나 받는다는 뜻이다 — 그때는 막지 않는다.
+ */
+function accepts(accept: string, filename: string): boolean {
+  const rules = accept
+    .split(",")
+    .map((rule) => rule.trim().toLowerCase())
+    .filter(Boolean);
+  if (rules.length === 0) return true;
+  const ext = filename.toLowerCase().replace(/^.*(?=\.)/, "");
+  return rules.some((rule) => {
+    if (rule.startsWith(".")) return rule === ext;
+    if (rule.endsWith("/*")) return true; // MIME 대분류는 여기서 못 가린다
+    return false;
+  });
 }
 
 function systemPrompt(allowSubmit: boolean, hasArtifacts: boolean): string {
