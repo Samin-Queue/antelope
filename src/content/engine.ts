@@ -13,7 +13,7 @@
 
 export const engine = {
   eyebrow: "Engine · 내부 구조",
-  headline: "Studio 와 Solar 를 서로에게 먹입니다",
+  headline: "문서는 Studio 가 읽고, 나머지는 Solar 가 합니다",
   sub: "있던 파이프라인 사이에 Upstage Studio 를 한 번 끼워 넣은 것이 아닙니다. 문서를 구조로 바꾸는 일은 Studio 가, 무엇을 찾고 무엇을 할지 정하는 일은 Solar 가 맡고, 둘이 서로의 출력을 받아 네 번 주고받습니다. 사용자가 파일을 하나도 넣지 않아도 — Solar 가 웹에서 자료를 찾고, 읽을 파일이 없으면 만들어서, 다시 Studio 에 넘깁니다.",
   note: "이 페이지의 스텝 이름·임계값·동시성 상한은 저장소의 값과 같습니다. 파일 경로를 함께 적어 대조할 수 있게 했습니다.",
 
@@ -37,6 +37,24 @@ export const engine = {
     { value: "8", label: "준비 파이프라인 단계", sub: "intake → documents, SSE 로 중계" },
     { value: "11", label: "브라우저 도구", sub: "직렬화된 도구 루프" },
     { value: "47", label: "골든셋 케이스", sub: "순수 함수 · 1초 이내" },
+  ],
+
+  /**
+   * 상단 탭. `id` 는 각 `<Section>` 의 것과 **글자 그대로** 같아야 한다 —
+   * 다르면 눌러도 아무 일이 안 일어나고, 그 사실이 조용히 지나간다.
+   */
+  tabs: [
+    { id: "duo", label: "분업" },
+    { id: "handoff", label: "왕복" },
+    { id: "flow", label: "파이프라인" },
+    { id: "studio", label: "Studio" },
+    { id: "gateway", label: "Solar" },
+    { id: "runtime", label: "자원" },
+    { id: "browser", label: "브라우저" },
+    { id: "relay", label: "슬랙" },
+    { id: "memory", label: "지식베이스" },
+    { id: "artifacts", label: "산출물" },
+    { id: "fallback", label: "폴백" },
   ],
 
   // ── 0. 두 엔진 ──────────────────────────────────────────────────────
@@ -590,7 +608,7 @@ export const engine = {
   // ── 4. 자원 관리 ────────────────────────────────────────────────────
   runtime: {
     eyebrow: "4 · 자원 · 계측",
-    headline: "먼저 죽는 자원은 토큰이 아니라 Chromium 입니다",
+    headline: "먼저 한계에 닿는 것은 토큰이 아니라 Chromium 입니다",
     sub: "병렬화는 상한 없이 넣으면 개선이 아니라 새 장애입니다. 신청 한 건이 캡챠 사전 탐지 + 본 실행으로 브라우저 둘을 띄우고, PDF 렌더는 문서마다 하나 더 엽니다 — 문서 3편을 병렬로 바꾸는 순간 Chromium 6개입니다.",
     lanesFile: "src/lib/ai/lanes.ts",
     lanes: [
@@ -860,7 +878,7 @@ export const engine = {
   // ── 8. 폴백 지도 ────────────────────────────────────────────────────
   fallback: {
     eyebrow: "9 · 폴백",
-    headline: "무엇이 죽으면 무엇으로 갑니까",
+    headline: "한 곳이 실패해도 신청은 계속됩니다",
     sub: "폴백을 뺏지 않는 것이 게이트웨이의 설계 원칙 중 하나입니다. 체인을 다 소진하면 던지고, 호출부의 기존 `try/catch` 가 문장 하나 안 바뀌고 그대로 동작합니다.",
     rows: [
       {

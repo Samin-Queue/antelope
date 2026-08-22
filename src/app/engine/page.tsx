@@ -30,6 +30,7 @@ import {
   T,
   Table,
 } from "./_lib/parts";
+import { SectionTabs } from "./_lib/tabs";
 
 export const metadata = {
   title: "엔진",
@@ -59,6 +60,7 @@ export default function EnginePage() {
   return (
     <>
       <SiteHeader />
+      <SectionTabs />
       <main className="flex-1">
         {/* ── 표지 ─────────────────────────────────────────────── */}
         <section className="mx-auto w-full max-w-6xl px-5 pt-16 pb-4">
@@ -879,7 +881,7 @@ export default function EnginePage() {
           sub={engine.fallback.sub}
         >
           <Table
-            head={["무엇이 죽으면", "무엇으로", "무엇을 잃는가"]}
+            head={["실패하는 것", "대신 하는 것", "그때 잃는 것"]}
             rows={engine.fallback.rows.map((row) => [row.when, row.then, row.cost])}
           />
         </Section>

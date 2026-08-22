@@ -30,7 +30,10 @@ export function Section({
   return (
     <section
       id={id}
-      className={cn("mx-auto w-full max-w-6xl scroll-mt-20 px-5 py-16", className)}
+      className={
+        // 헤더(3.5rem) + 탭 줄. 이 값이 작으면 탭을 눌렀을 때 제목이 탭 아래에 깔린다.
+        cn("mx-auto w-full max-w-6xl scroll-mt-28 px-5 py-16", className)
+      }
     >
       <p className="font-mono text-xs tracking-wide text-brand">{eyebrow}</p>
       <h2 className="mt-3 text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
@@ -59,7 +62,9 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-2xl border border-border bg-card/40 p-5", className)}>
+    <div
+      className={cn("min-w-0 rounded-2xl border border-border bg-card/40 p-5", className)}
+    >
       {children}
     </div>
   );
@@ -98,7 +103,11 @@ export function T({ children }: { children: string }) {
           return (
             <code
               key={index}
-              className="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em] break-words"
+              // ⚠ `break-words`(overflow-wrap: break-word)는 **min-content 폭을 안 줄인다.**
+              // 그래서 좁은 화면에서 긴 식별자 하나가 카드를 밀어내 본문이 통째로
+              // 가로 스크롤됐다(390px 에서 62px 넘침). `anywhere` 는 렌더링은
+              // 같으면서 내재 폭까지 줄인다 — 데스크톱에서 낱말이 안 끊기는 것도 그대로다.
+              className="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em] wrap-anywhere"
             >
               {piece}
             </code>

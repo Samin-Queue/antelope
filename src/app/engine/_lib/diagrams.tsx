@@ -353,9 +353,14 @@ export function Handoff() {
 
   return (
     <div>
-      <div className="grid grid-cols-[auto_1fr] gap-x-3 sm:grid-cols-[7.5rem_1fr] sm:gap-x-5">
-        {/* 레인 머리. 세 칸이 무엇인지 한 번만 적는다 */}
-        <div className="col-span-2 mb-3 hidden grid-cols-3 gap-2 sm:grid">
+      <div className="grid grid-cols-[auto_1fr] gap-x-3 sm:gap-x-5">
+        {/*
+          레인 머리는 **카드와 같은 격자 안에** 있어야 한다. 번호 홈통까지
+          함께 3등분하면 머리와 카드가 서로 어긋나 어느 칸이 어느 레인인지
+          읽을 수 없다 — 담당이 어디로 옮겨 갔는지가 이 그림의 전부다.
+        */}
+        <div aria-hidden />
+        <div className="mb-3 hidden grid-cols-3 gap-2 sm:grid">
           {LANE_ORDER.map((id) => (
             <p
               key={id}
