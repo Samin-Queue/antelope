@@ -6,7 +6,9 @@ const MAX_BYTES = 25 * 1024 * 1024;
 
 export async function POST(req: Request) {
   const agentId = process.env.UPSTAGE_MICHAEL_AGENT_ID;
-  const apiKey = process.env.UPSTAGE_API_KEY;
+  // uploadFile 은 Studio 키로 올리는데(upstage-studio.ts) 여기서 v1 키로 job 을
+  // 만들면 계정이 갈려 403 이 난다. 같은 키를 쓴다.
+  const apiKey = process.env.UPSTAGE_STUDIO_API_KEY || process.env.UPSTAGE_API_KEY;
   if (!agentId || !apiKey) {
     return Response.json({ error: "Michael Studio 설정이 없습니다." }, { status: 503 });
   }
