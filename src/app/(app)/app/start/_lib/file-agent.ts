@@ -1,15 +1,16 @@
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { generateObject, generateText } from "ai";
 import { z } from "zod";
 
+import { runObject, runText } from "@/lib/ai/gateway";
+import { obtainOnly } from "@/lib/ai/verify";
 import { recallNarratives } from "@/app/(labs)/lab/notice/_lib/memory";
 
 import { documentBytes, documentKey, recallDocuments } from "./documents";
 import type { IntakeFile } from "./fetch";
 import type { Ctx } from "./intake";
-import { bigModel, clip } from "./llm";
+import { clip } from "./llm";
 import { parseBlocks } from "./render/blocks";
 import { renderDocx } from "./render/docx";
 import { fillHwp, renderHwp, type HwpFormat } from "./render/hwp";
@@ -81,32 +82,38 @@ export async function planDocuments(
   const files = needs.filter((need) => need.kind === "file");
   if (files.length === 0) return { jobs: [], obtain: [] };
 
-  const { object } = await generateObject({
-    model: bigModel(),
-    schema: planSchema,
-    system: [
-      "너는 제출 서류를 두 갈래로 가르는 분류자다. 결과를 아래 JSON 구조 그대로 낸다.",
-      `{ "author": [{ "label": string, "title": string, "sections": [string], "format": "pdf"|"hwp"|"hwpx"|"docx"|"xlsx" }], "obtain": [string] }`,
-      "",
-      "author — 신청자가 **직접 작성하는** 문서. 우리가 초안을 쓸 수 있다.",
-      "  사업계획서, 자기소개서, 제안서, 연구계획서, 활동계획서, 에세이, 요약서, 포트폴리오 설명",
-      "obtain — 기관에서 **발급받는** 서류. 우리가 만들면 위조다.",
-      "  사업자등록증, 4대보험 가입자명부, 재무제표, 등본, 증명서, 통장 사본, 인증서, 납세증명",
-      "",
-      "- label 은 주어진 서류 이름을 **그대로** 옮긴다. 바꾸지 않는다.",
-      "- author 의 sections 는 그 문서에 들어갈 목차다. 공고가 요구한 항목이 있으면 그것을 쓴다. 4~7개.",
-      "- format 은 **공고가 요구한 파일 형식**이다. 「HWP 양식」·「아래아한글」이면 hwp,",
-      "  「한글 문서(.hwpx)」면 hwpx, 「워드」면 docx, 「엑셀 서식」·「내역서(xls)」면 xlsx.",
-      "  형식을 안 밝혔으면 pdf 로 둔다. 예산 내역·인력 현황처럼 표가 본체인 문서는 xlsx 가 낫다.",
-      "- 애매하면 obtain 으로 둔다. 발급 서류를 지어내는 것보다 사람에게 맡기는 편이 낫다.",
-    ].join("\n"),
-    prompt: [
-      `제출 서류: ${files.map((need) => need.label).join(", ")}`,
-      "",
-      "--- 공고 준비 문서 ---",
-      clip(brief, 8_000),
-    ].join("\n"),
-  });
+  const { value: object } = await runObject(
+    { task: "documents", log: ctx.log, signal: ctx.signal },
+    {
+      role: "너는 제출 서류를 두 갈래로 가르는 분류자다.",
+      schema: planSchema,
+      rules: [
+        "author — 신청자가 **직접 작성하는** 문서. 우리가 초안을 쓸 수 있다.",
+        "  사업계획서, 자기소개서, 제안서, 연구계획서, 활동계획서, 에세이, 요약서, 포트폴리오 설명",
+        "obtain — 기관에서 **발급받는** 서류. 우리가 만들면 위조다.",
+        "  사업자등록증, 4대보험 가입자명부, 재무제표, 등본, 증명서, 통장 사본, 인증서, 납세증명",
+        "",
+        "- label 은 주어진 서류 이름을 **그대로** 옮긴다. 바꾸지 않는다.",
+        "- author 의 sections 는 그 문서에 들어갈 목차다. 공고가 요구한 항목이 있으면 그것을 쓴다. 4~7개.",
+        "- format 은 **공고가 요구한 파일 형식**이다. 「HWP 양식」·「아래아한글」이면 hwp,",
+        "  「한글 문서(.hwpx)」면 hwpx, 「워드」면 docx, 「엑셀 서식」·「내역서(xls)」면 xlsx.",
+        "  형식을 안 밝혔으면 pdf 로 둔다. 예산 내역·인력 현황처럼 표가 본체인 문서는 xlsx 가 낫다.",
+        "- 애매하면 obtain 으로 둔다. 발급 서류를 지어내는 것보다 사람에게 맡기는 편이 낫다.",
+      ],
+      /**
+       * **위조를 막는 자리다.** 발급 서류를 author 로 잘못 넣으면 우리가
+       * 사업자등록증을 「써 준다」. 그건 값 하나 틀린 것과 급이 다르므로
+       * `reject` 로 두고 한 번 되묻는다.
+       */
+      verify: [obtainOnly("author[].label")],
+      prompt: [
+        `제출 서류: ${files.map((need) => need.label).join(", ")}`,
+        "",
+        "--- 공고 준비 문서 ---",
+        clip(brief, 8_000),
+      ].join("\n"),
+    },
+  );
 
   // 정확 일치로 잡으면 모델이 라벨을 조금만 다듬어도 통째로 빠진다 — 실측에서
   // 「작성 0 · 발급 3」 이 나왔고, 사업계획서가 목록에서 사라졌다.
@@ -203,40 +210,43 @@ export async function writeDocument(
     : [];
   if (recalled.length) ctx.log(`서술형 기억 ${recalled.length}개를 근거로 쓴다`);
 
-  const { text } = await generateText({
-    model: bigModel(),
-    system: [
-      `너는 「${job.title}」 를 쓰는 작성자다. 응답은 하나의 완결된 Markdown 문서다.`,
-      "인사말·설명·코드 펜스는 쓰지 않는다.",
-      "",
-      "규칙:",
-      "- **주어진 사실과 공고 원문만 근거로 쓴다.** 매출액·인원·기간·수상 이력 같은 수치를 지어내지 않는다.",
-      "- 근거가 없는 항목은 `> 확인 필요: (무엇이 필요한지)` 한 줄로 남긴다. 그럴듯하게 메우지 않는다.",
-      "- 문서 맨 위에 `# 제목` 을 쓰고, 아래 목차를 `##` 로 순서대로 쓴다.",
-      job.sections.length
-        ? `- 목차: ${job.sections.join(" / ")}`
-        : "- 목차는 공고 요구에 맞게 정한다.",
-      "- 한국어로 쓴다. 표가 필요하면 Markdown 표를 쓴다.",
-    ].join("\n"),
-    prompt: [
-      `문서: ${job.label}`,
-      `신청 대상: ${context.title}`,
-      context.organization ? `주관: ${context.organization}` : "",
-      "",
-      "신청자 정보 (이 값만 사실이다):",
-      ...known.map((need) => `  ${need.label}: ${need.value}`),
-      recalled.length ? "" : null,
-      recalled.length
-        ? "지난 신청에서 사용자가 쓴 서술 (그대로 인용하지 말고 근거로 쓴다):"
-        : "",
-      ...recalled.map((item) => `  ${item.label}: ${item.value}`),
-      "",
-      "--- 공고 준비 문서 ---",
-      clip(context.brief, 10_000),
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  });
+  const text = await runText(
+    // 사람이 당장 안 보는 일이다. 사람이 기다리는 호출과 레인을 나눈다.
+    { task: "documents", lane: "batch", signal: ctx.signal },
+    {
+      system: [
+        `너는 「${job.title}」 를 쓰는 작성자다. 응답은 하나의 완결된 Markdown 문서다.`,
+        "인사말·설명·코드 펜스는 쓰지 않는다.",
+        "",
+        "규칙:",
+        "- **주어진 사실과 공고 원문만 근거로 쓴다.** 매출액·인원·기간·수상 이력 같은 수치를 지어내지 않는다.",
+        "- 근거가 없는 항목은 `> 확인 필요: (무엇이 필요한지)` 한 줄로 남긴다. 그럴듯하게 메우지 않는다.",
+        "- 문서 맨 위에 `# 제목` 을 쓰고, 아래 목차를 `##` 로 순서대로 쓴다.",
+        job.sections.length
+          ? `- 목차: ${job.sections.join(" / ")}`
+          : "- 목차는 공고 요구에 맞게 정한다.",
+        "- 한국어로 쓴다. 표가 필요하면 Markdown 표를 쓴다.",
+      ].join("\n"),
+      prompt: [
+        `문서: ${job.label}`,
+        `신청 대상: ${context.title}`,
+        context.organization ? `주관: ${context.organization}` : "",
+        "",
+        "신청자 정보 (이 값만 사실이다):",
+        ...known.map((need) => `  ${need.label}: ${need.value}`),
+        recalled.length ? "" : null,
+        recalled.length
+          ? "지난 신청에서 사용자가 쓴 서술 (그대로 인용하지 말고 근거로 쓴다):"
+          : "",
+        ...recalled.map((item) => `  ${item.label}: ${item.value}`),
+        "",
+        "--- 공고 준비 문서 ---",
+        clip(context.brief, 10_000),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    },
+  );
 
   const markdown = text.trim().replace(/^```(?:markdown)?\n?|\n?```$/g, "");
   const blocks = parseBlocks(markdown);

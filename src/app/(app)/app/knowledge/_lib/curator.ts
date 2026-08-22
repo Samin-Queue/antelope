@@ -1,7 +1,7 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 
-import { chatModel } from "@/lib/llm";
+import { runObject } from "@/lib/ai/gateway";
+import { clip } from "@/app/(app)/app/start/_lib/llm";
 import {
   forgetMemory,
   listMemories,
@@ -47,30 +47,36 @@ export async function curate(
 ): Promise<{ reply: string; applied: CuratorAction[] }> {
   const current = await listMemories(userId);
 
-  const { object } = await generateObject({
-    model: chatModel(),
-    schema: planSchema,
-    system: [
-      "너는 기업 지식베이스를 관리하는 담당자다. 사용자의 지시를 읽고 무엇을",
-      "바꿀지 정해 JSON 으로 낸다. 키 이름을 바꾸거나 새로 만들지 않는다.",
-      `{ "actions": [{ "op": "add"|"update"|"delete", "target": string|null, "label": string, "value": string, "kind": "fact"|"item"|"strength"|"narrative", "why": string }], "reply": string }`,
-      "",
-      "규칙:",
-      "- 기존 항목을 고치거나 지울 때는 target 에 **현재 항목명을 정확히** 적는다.",
-      "- 지시가 모호하면 추측해서 바꾸지 않는다. actions 를 비우고 reply 로 되묻는다.",
-      "- 사실(생년월일·직원수)은 fact, 제품·기능은 item, 실적·강점은 strength,",
-      "  사업계획에 쓸 긴 서술은 narrative 로 분류한다.",
-      "- reply 는 무엇을 했는지 또는 무엇을 더 알아야 하는지 한국어 두세 문장.",
-    ].join("\n"),
-    prompt: [
-      "현재 지식:",
-      ...(current.length
-        ? current.map((item) => `  [${item.kind}] ${item.label}: ${item.value}`)
-        : ["  (비어 있음)"]),
-      "",
-      `지시: ${instruction}`,
-    ].join("\n"),
-  });
+  const { value: object } = await runObject(
+    { task: "knowledge.curate" },
+    {
+      role: "너는 기업 지식베이스를 관리하는 담당자다. 사용자의 지시를 읽고 무엇을 바꿀지 정한다.",
+      schema: planSchema,
+      rules: [
+        "- 기존 항목을 고치거나 지울 때는 target 에 **현재 항목명을 정확히** 적는다.",
+        "- 지시가 모호하면 추측해서 바꾸지 않는다. actions 를 비우고 reply 로 되묻는다.",
+        "- 사실(생년월일·직원수)은 fact, 제품·기능은 item, 실적·강점은 strength,",
+        "  사업계획에 쓸 긴 서술은 narrative 로 분류한다.",
+        "- reply 는 무엇을 했는지 또는 무엇을 더 알아야 하는지 한국어 두세 문장.",
+      ],
+      prompt: [
+        "현재 지식:",
+        ...(current.length
+          ? // ⚠ 지식 전량을 무제한으로 싣고 있었다. 쌓일수록 이 한 번의 호출이
+            // 비싸지고, 결국 컨텍스트를 넘겨 「모호한 지시」와 구분 안 되는
+            // 실패로 나타난다. 최근 것부터 상한을 둔다.
+            clip(
+              current
+                .map((item) => `  [${item.kind}] ${item.label}: ${item.value}`)
+                .join("\n"),
+              12_000,
+            ).split("\n")
+          : ["  (비어 있음)"]),
+        "",
+        `지시: ${instruction}`,
+      ].join("\n"),
+    },
+  );
 
   const actions = (object.actions ?? []).filter((action) => action.op);
   const applied: CuratorAction[] = [];

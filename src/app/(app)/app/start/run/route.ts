@@ -56,6 +56,16 @@ export async function POST(req: Request) {
   const userId = session?.user.id ?? null;
 
   const encoder = new TextEncoder();
+  /**
+   * 사용자가 떠나면 서버도 멈춘다.
+   *
+   * 이게 없던 동안 탭을 닫아도 Studio job 두 건과 모델 십수 회가 끝까지 돌아
+   * 그대로 청구됐다. `enqueue` 만 실패할 뿐 실행은 계속됐기 때문이다.
+   *
+   * ⚠ **`/apply` 에는 붙이지 않는다.** 제출은 되돌릴 수 없다 — 반쯤 채운 폼을
+   * 남기고 끊는 것이 끝까지 가는 것보다 나쁘다.
+   */
+  const ctrl = new AbortController();
   const stream = new ReadableStream({
     async start(controller) {
       const emit = (event: StartEvent) => {
@@ -82,8 +92,13 @@ export async function POST(req: Request) {
       }, 15_000);
 
       try {
-        await runStart(input, emit, { userId });
+        await runStart(input, emit, { userId, signal: ctrl.signal });
       } catch (error) {
+        // 사용자가 떠난 것은 예외가 아니다. 스택을 남기면 로그가 그걸로 찬다.
+        if (ctrl.signal.aborted) {
+          console.log("[start/run] 클라이언트가 떠나 중단");
+          return;
+        }
         // 서버 로그에도 남긴다. 화면 문구만으로는 스택을 볼 수 없다.
         console.error("[start/run] 파이프라인 예외", error);
         emit({
@@ -98,6 +113,9 @@ export async function POST(req: Request) {
           /* 이미 닫힘 */
         }
       }
+    },
+    cancel() {
+      ctrl.abort(new DOMException("클라이언트가 떠났다", "AbortError"));
     },
   });
 

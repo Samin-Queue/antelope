@@ -1,8 +1,9 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 
+import { isAbort, runObject } from "@/lib/ai/gateway";
+
 import { drill, urlsIn, type IntakeFile, type Link, type Page } from "./fetch";
-import { clip, smallModel } from "./llm";
+import { clip } from "./llm";
 
 /**
  * 1단계 — 입력 정리.
@@ -33,7 +34,15 @@ export type Intake = {
   failures: Array<{ url: string; reason: string }>;
 };
 
-export type Ctx = { log: (text: string) => void };
+/**
+ * 단계가 들고 다니는 것.
+ *
+ * `signal` 이 없던 동안 이 파이프라인에는 **취소가 없었다.** 사용자가 탭을
+ * 닫아도 Studio 폴링과 Solar 호출이 끝까지 돌아 그대로 청구됐고,
+ * `withTimeout` 은 `Promise.race` 라 240초 뒤에도 진 쪽이 계속 돌았다 —
+ * 상한이 있었을 뿐 회수가 없었다.
+ */
+export type Ctx = { log: (text: string) => void; signal?: AbortSignal };
 
 export const MAX_FILES = 6;
 const MAX_URLS = 3;
@@ -126,25 +135,28 @@ const readSchema = z.object({
 /** 문장을 읽는다 — 무엇을 원하고, 어떤 링크가 있고, 파일을 언급하는지 */
 async function readText(text: string) {
   try {
-    const { object } = await generateObject({
-      model: smallModel(),
-      schema: readSchema,
-      system: [
-        "너는 사용자의 입력을 분류하는 보조자다. 결과를 아래 JSON 구조 그대로 낸다.",
-        `{ "intent": string, "urls": [string], "mentionsFile": boolean }`,
-        "",
-        "- intent: 사용자가 무엇을 신청·확인하려는지 한 문장. 입력에 없는 내용을 지어내지 않는다.",
-        "- urls: 입력 안의 http(s) 링크 전부. 없으면 빈 배열.",
-        "- mentionsFile: 첨부·파일·캡쳐 같은 것을 언급하면 true.",
-      ].join("\n"),
-      prompt: clip(text, 8_000),
-    });
-    return {
-      intent: object.intent?.trim() ?? "",
-      urls: (object.urls ?? []).filter((url) => /^https?:\/\//i.test(url)),
-      mentionsFile: object.mentionsFile ?? false,
-    };
-  } catch {
+    const { value } = await runObject(
+      { task: "intake", tier: "small" },
+      {
+        role: "너는 사용자의 입력을 분류하는 보조자다.",
+        schema: readSchema,
+        repair: 0,
+        rules: [
+          "- intent: 사용자가 무엇을 신청·확인하려는지 한 문장. 입력에 없는 내용을 지어내지 않는다.",
+          "- urls: 입력 안의 http(s) 링크 전부. 없으면 빈 배열.",
+          "- mentionsFile: 첨부·파일·캡쳐 같은 것을 언급하면 true.",
+        ],
+        prompt: clip(text, 8_000),
+        normalize: (raw) => ({
+          intent: raw.intent?.trim() ?? "",
+          urls: (raw.urls ?? []).filter((url) => /^https?:\/\//i.test(url)),
+          mentionsFile: raw.mentionsFile ?? false,
+        }),
+      },
+    );
+    return value;
+  } catch (error) {
+    if (isAbort(error)) throw error;
     // 해석이 실패해도 정규식 링크로는 계속 간다.
     return { intent: "", urls: [], mentionsFile: false };
   }
@@ -155,31 +167,33 @@ const pickSchema = z.object({ urls: z.array(z.string()).nullish() });
 /** 어느 링크가 공고 첨부인지. 게시판의 「이전 글」「개인정보처리방침」 까지 받으면 안 된다 */
 async function pickAttachments(intent: string, candidates: Link[]): Promise<string[]> {
   try {
-    const { object } = await generateObject({
-      model: smallModel(),
-      schema: pickSchema,
-      system: [
-        "너는 공고 페이지의 링크 목록에서 공고문·신청 양식 첨부 파일만 고르는 보조자다.",
-        `결과를 아래 JSON 구조 그대로 낸다. { "urls": [string] }`,
-        "",
-        `- 목표와 관련된 공고문·모집요강·신청서 양식·제출 서식만 고른다. 최대 ${MAX_ATTACHMENTS}개.`,
-        "- 개인정보처리방침, 사이트맵, 다른 공고, 이미지 배너는 고르지 않는다.",
-        "- 확신이 없으면 비운다.",
-      ].join("\n"),
-      prompt: [
-        `목표: ${intent}`,
-        "",
-        "링크 목록:",
-        ...candidates.map(
-          (link, i) => `${i + 1}. ${link.text || "(글자 없음)"} — ${link.url}`,
-        ),
-      ].join("\n"),
-    });
+    const { value: object } = await runObject(
+      { task: "intake", tier: "small" },
+      {
+        role: "너는 공고 페이지의 링크 목록에서 공고문·신청 양식 첨부 파일만 고르는 보조자다.",
+        schema: pickSchema,
+        repair: 0,
+        rules: [
+          `- 목표와 관련된 공고문·모집요강·신청서 양식·제출 서식만 고른다. 최대 ${MAX_ATTACHMENTS}개.`,
+          "- 개인정보처리방침, 사이트맵, 다른 공고, 이미지 배너는 고르지 않는다.",
+          "- 확신이 없으면 비운다.",
+        ],
+        prompt: [
+          `목표: ${intent}`,
+          "",
+          "링크 목록:",
+          ...candidates.map(
+            (link, i) => `${i + 1}. ${link.text || "(글자 없음)"} — ${link.url}`,
+          ),
+        ].join("\n"),
+      },
+    );
     const allowed = new Set(candidates.map((link) => link.url));
     return (object.urls ?? [])
       .filter((url) => allowed.has(url))
       .slice(0, MAX_ATTACHMENTS);
-  } catch {
+  } catch (error) {
+    if (isAbort(error)) throw error;
     // 모델이 실패하면 확장자가 문서인 링크만 앞에서부터 집는다.
     return candidates
       .filter((link) => /\.(pdf|hwpx?|docx?)(\?|#|$)/i.test(link.url))

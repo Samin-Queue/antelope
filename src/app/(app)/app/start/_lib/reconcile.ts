@@ -1,8 +1,9 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 
-import { bigModel } from "./llm";
-import { makeNeed, mergeNeeds, normalizeKey } from "./needs";
+import { isAbort, runObject } from "@/lib/ai/gateway";
+import { noPlaceholder, uniqueBy } from "@/lib/ai/verify";
+
+import { makeNeed, mergeNeeds, NEED_RULES, normalizeKey } from "./needs";
 import type { Need } from "./types";
 
 /**
@@ -17,7 +18,7 @@ const schema = z.object({
   needs: z
     .array(
       z.object({
-        label: z.string(),
+        label: z.string().nullish(),
         kind: z.string().nullish(),
         options: z.array(z.string()).nullish(),
         required: z.boolean().nullish(),
@@ -36,39 +37,42 @@ export async function reconcileNeeds(
     return mergeNeeds(analysis, research);
 
   try {
-    const { object } = await generateObject({
-      model: bigModel(),
-      schema,
-      system: [
-        "너는 두 출처에서 나온 신청 입력 항목을 하나의 목록으로 합치는 편집자다.",
-        "결과를 아래 JSON 구조 그대로 낸다. 키 이름을 바꾸거나 새로 만들지 않는다.",
-        `{ "needs": [{ "label": string, "kind": "text"|"long"|"date"|"number"|"select"|"checkbox"|"file", "options": [string], "required": boolean, "why": string, "source": "analysis"|"research" }] }`,
-        "- **`select` 이면 `options` 에 고를 값을 넣는다.** 원문에 선택지가 적혀 있으면 그대로, 없으면 그 항목에서 실제로 가능한 값(예: 투자 단계 → 시드/시리즈 A/시리즈 B/해당 없음). 선택지를 못 만들겠으면 `text` 로 둔다 — 고를 것이 없는데 고르라고 하지 않는다.",
-        "",
-        "규칙:",
-        "- 같은 것을 묻는 항목은 **하나로** 합친다 (성명=이름, 연락처=휴대전화, 경력 년수=백엔드 개발 경력 등).",
-        "- 합칠 때 label 은 **신청 폼(research) 쪽 글자**를 쓴다. 그게 실제로 채울 칸의 이름이다.",
-        "- required 는 둘 중 하나라도 필수면 true. why 는 더 구체적인 쪽을 남긴다.",
-        "- 입력 칸이 아닌 것은 버린다: 섹션 제목(기본 정보, 제출 서류), 예시 값(010-0000-0000, https://…), 안내 문장.",
-        "- 새 항목을 지어내지 않는다. 순서는 폼 순서를 따른다.",
-      ].join("\n"),
-      prompt: [
-        "공고 분석(analysis):",
-        ...analysis.map(
-          (n) => `  - ${n.label} [${n.kind}${n.required ? ", 필수" : ""}] ${n.why ?? ""}`,
-        ),
-        "",
-        "신청 폼(research):",
-        ...research.map(
-          (n) => `  - ${n.label} [${n.kind}${n.required ? ", 필수" : ""}] ${n.why ?? ""}`,
-        ),
-      ].join("\n"),
-    });
+    const { value: object } = await runObject(
+      { task: "reconcile" },
+      {
+        role: "너는 두 출처에서 나온 신청 입력 항목을 하나의 목록으로 합치는 편집자다.",
+        schema,
+        rules: [
+          ...NEED_RULES,
+          "- 같은 것을 묻는 항목은 **하나로** 합친다 (성명=이름, 연락처=휴대전화, 경력 년수=백엔드 개발 경력 등).",
+          "- 합칠 때 label 은 **신청 폼(research) 쪽 글자**를 쓴다. 그게 실제로 채울 칸의 이름이다.",
+          "- required 는 둘 중 하나라도 필수면 true. why 는 더 구체적인 쪽을 남긴다.",
+          "- 새 항목을 지어내지 않는다. 순서는 폼 순서를 따른다.",
+        ],
+        verify: [
+          noPlaceholder("needs[].label"),
+          uniqueBy("needs[].label", (item) => normalizeKey(String(item ?? ""))),
+        ],
+        prompt: [
+          "공고 분석(analysis):",
+          ...analysis.map(
+            (n) =>
+              `  - ${n.label} [${n.kind}${n.required ? ", 필수" : ""}] ${n.why ?? ""}`,
+          ),
+          "",
+          "신청 폼(research):",
+          ...research.map(
+            (n) =>
+              `  - ${n.label} [${n.kind}${n.required ? ", 필수" : ""}] ${n.why ?? ""}`,
+          ),
+        ].join("\n"),
+      },
+    );
 
     const merged = (object.needs ?? [])
       .map((item) =>
         makeNeed({
-          label: item.label,
+          label: item.label ?? "",
           kind: item.kind,
           options: item.options,
           required: item.required,
@@ -91,7 +95,8 @@ export async function reconcileNeeds(
       if (need.kind === "file" && !dup) merged.push(need);
     }
     return merged;
-  } catch {
+  } catch (error) {
+    if (isAbort(error)) throw error;
     return mergeNeeds(analysis, research);
   }
 }

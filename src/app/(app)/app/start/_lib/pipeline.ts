@@ -1,3 +1,4 @@
+import { isAbort } from "@/lib/ai/gateway";
 import { lanes } from "@/lib/ai/lanes";
 import { table } from "@/lib/ai/ledger";
 import { withTask } from "@/lib/ai/meter";
@@ -74,20 +75,34 @@ function withTimeout<T>(task: Promise<T>, limitMs: number, label: string): Promi
 export async function runStart(
   input: IntakeInput,
   emit: Emit,
-  opts: { userId: string | null },
+  opts: { userId: string | null; signal?: AbortSignal },
 ): Promise<void> {
   // 로그가 어느 카드의 것인지 말해야 카드마다 흘릴 수 있다. `stage()` 가
   // 실행 중인 단계를 여기에 남긴다.
   let current: Stage = "intake";
-  const ctx: Ctx = { log: (text) => emit({ type: "log", stage: current, text }) };
+  /**
+   * 지금 도는 단계의 신호.
+   *
+   * `withTimeout` 은 `Promise.race` 라 시간이 지나도 **진 쪽이 계속 돈다** —
+   * 상한은 있고 회수는 없었다. `stage()` 가 「사용자 취소 + 단계 상한」을
+   * 합성해 여기 꽂아 두면, 상한을 넘긴 호출도 실제로 끊긴다.
+   */
+  let scoped: AbortSignal | undefined = opts.signal;
+  const ctx: Ctx = {
+    log: (text) => emit({ type: "log", stage: current, text }),
+    get signal() {
+      return scoped;
+    },
+  };
   /**
    * 단계 이름을 고정한 ctx.
    *
    * 두 단계가 **동시에** 돌면 `current` 하나로는 로그가 섞인다 — 계획이 쓴
    * 줄이 서류 카드에 뜨는 식이다. 병렬 구간에서는 이걸 쓴다.
    */
-  const ctxOf = (id: Stage): Ctx => ({
+  const ctxOf = (id: Stage, signal?: AbortSignal): Ctx => ({
     log: (text) => emit({ type: "log", stage: id, text }),
+    signal: signal ?? opts.signal,
   });
 
   /**
@@ -163,19 +178,33 @@ export async function runStart(
     current = id;
     emit({ type: "stage", stage: id, status: "start" });
     const started = performance.now();
+    const before = scoped;
+    scoped = AbortSignal.any(
+      [opts.signal, AbortSignal.timeout(limitMs)].filter(Boolean) as AbortSignal[],
+    );
     try {
       // `withTask` 안에서 일어난 모든 모델 왕복이 이 단계 이름으로 원장에 잡힌다.
       const value = await withTimeout(withTask({ task: id, runId }, task), limitMs, id);
       mark(id, "done", undefined, Math.round(performance.now() - started));
       return value;
     } catch (error) {
+      // 취소는 실패가 아니다. `error` 로 칠하면 사용자가 떠난 실행이 화면
+      // 기록에서 「망가진 실행」으로 남는다.
+      const cancelled = isAbort(error) || Boolean(opts.signal?.aborted);
       mark(
         id,
-        "error",
-        error instanceof Error ? error.message : String(error),
+        cancelled ? "skip" : "error",
+        cancelled
+          ? "사용자가 떠나 중단했다"
+          : error instanceof Error
+            ? error.message
+            : String(error),
         Math.round(performance.now() - started),
       );
+      if (cancelled) throw error;
       return null;
+    } finally {
+      scoped = before;
     }
   };
 
@@ -232,7 +261,7 @@ export async function runStart(
   emit({ type: "summary", markdown: summary.markdown, via: summary.via });
 
   // 3 — 판정. bad 면 여기서 끝난다.
-  const verdict = await stage("judge", () => judge(summary));
+  const verdict = await stage("judge", () => judge(summary, ctx.signal));
   if (!verdict) {
     // 예전엔 여기서 아무 말 없이 스트림이 닫혔다. 화면에는 「연결이 끊겨
     // 중단됐다」만 뜨고, 서버가 스스로 끝낸 것인지 연결이 죽은 것인지
@@ -423,6 +452,7 @@ export async function runStart(
             const copy = await pdfCopy(artifact, markdown, job.title, dir, ctx);
             return copy ? [artifact, copy] : [artifact];
           } catch (error) {
+            if (isAbort(error)) throw error;
             // 한 문서가 실패해도 나머지는 만든다.
             ctx.log(
               `${job.label} 작성 실패: ${error instanceof Error ? error.message : error}`,

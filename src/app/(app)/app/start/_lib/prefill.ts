@@ -1,3 +1,4 @@
+import { isAbort } from "@/lib/ai/gateway";
 import { hasDb } from "@/lib/db";
 import { recallForFields } from "@/app/(labs)/lab/notice/_lib/memory";
 
@@ -50,6 +51,7 @@ export async function prefill(
     ctx.log(`지식베이스에서 ${filled}개 채움 (${askable.length}개 중)`);
     return next;
   } catch (error) {
+    if (isAbort(error)) throw error;
     ctx.log(
       `지식베이스 조회 실패: ${error instanceof Error ? error.message : String(error)}`,
     );

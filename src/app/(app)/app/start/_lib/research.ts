@@ -1,10 +1,12 @@
-import { generateObject } from "ai";
 import { z } from "zod";
+
+import { dropped, isAbort, runObject } from "@/lib/ai/gateway";
+import { isoDate, noPlaceholder, uniqueBy } from "@/lib/ai/verify";
 
 import { drill, urlsIn, type IntakeFile, type Link, type Page } from "./fetch";
 import { MAX_FILES, type Ctx, type Intake } from "./intake";
-import { bigModel, clip } from "./llm";
-import { makeNeed } from "./needs";
+import { clip } from "./llm";
+import { makeNeed, NEED_RULES, normalizeKey } from "./needs";
 import type { Summary } from "./summarize";
 import { APPLY_URL_KEY, type Need } from "./types";
 
@@ -37,7 +39,7 @@ export async function research(
   const candidates = collectCandidates(intake, summary);
   ctx.log(`링크 후보 ${candidates.length}개`);
 
-  const picked = await pickLinks(intake.intent, summary.markdown, candidates);
+  const picked = await pickLinks(intake.intent, summary.markdown, candidates, ctx);
   const title =
     picked.title || intake.files[0]?.name || intake.pages[0]?.title || "제목 미상";
 
@@ -92,7 +94,7 @@ export async function research(
     ctx.log("신청 URL 을 찾지 못함 — 사람에게 묻는다");
   }
 
-  const needs = await deriveNeeds(summary.markdown, applyPage);
+  const needs = await deriveNeeds(summary.markdown, applyPage, ctx);
   ctx.log(`입력 항목 ${needs.length}개 도출`);
 
   if (!applyUrl) {
@@ -150,7 +152,7 @@ const pickSchema = z.object({
   attachments: z.array(z.string()).nullish(),
 });
 
-async function pickLinks(intent: string, markdown: string, candidates: Link[]) {
+async function pickLinks(intent: string, markdown: string, candidates: Link[], ctx: Ctx) {
   const fallback = {
     title: "",
     organization: null as string | null,
@@ -158,46 +160,55 @@ async function pickLinks(intent: string, markdown: string, candidates: Link[]) {
     applyUrl: heuristicApplyUrl(candidates),
     attachments: [] as string[],
   };
+  const allowed = new Set(candidates.map((link) => link.url));
   try {
-    const { object } = await generateObject({
-      model: bigModel(),
-      schema: pickSchema,
-      system: [
-        "너는 공고 요약과 링크 목록을 보고 신청에 필요한 것을 고르는 조사원이다.",
-        "결과를 아래 JSON 구조 그대로 낸다. 키 이름을 바꾸거나 새로 만들지 않는다.",
-        `{ "title": string, "organization": string|null, "deadline": string|null, "applyUrl": string|null, "attachments": [string] }`,
-        "",
-        "- title: 공고 제목. organization: 주관 기관. deadline: 접수 마감 (YYYY-MM-DD 또는 YYYY-MM-DDTHH:mm).",
-        "- applyUrl: 실제로 신청서를 작성·제출하는 페이지. 목록에 있는 URL 만 쓴다. 없으면 null.",
-        "  공고 상세 페이지·목록 페이지는 신청 페이지가 아니다. '신청하기' '접수' '지원하기' 링크가 그것이다.",
-        "- attachments: 공고문·모집요강·신청서 양식·제출 서식 파일 링크. 목록에 있는 URL 만, 최대 3개.",
-        "- 요약에 없는 사실을 지어내지 않는다.",
-      ].join("\n"),
-      prompt: [
-        `목표: ${intent}`,
-        "",
-        "요약:",
-        clip(markdown, 10_000),
-        "",
-        candidates.length ? "링크 목록:" : "링크 목록: (없음)",
-        ...candidates.map(
-          (link, i) => `${i + 1}. ${link.text || "(글자 없음)"} — ${link.url}`,
-        ),
-      ].join("\n"),
-    });
-    const allowed = new Set(candidates.map((link) => link.url));
-    const applyUrl =
-      object.applyUrl && allowed.has(object.applyUrl) ? object.applyUrl : null;
-    return {
-      title: object.title?.trim() ?? "",
-      organization: object.organization?.trim() || null,
-      deadline: object.deadline?.trim() || null,
-      applyUrl: applyUrl ?? fallback.applyUrl,
-      attachments: (object.attachments ?? [])
-        .filter((url) => allowed.has(url))
-        .slice(0, 3),
-    };
-  } catch {
+    const { value } = await runObject(
+      { task: "research", log: ctx.log, signal: ctx.signal },
+      {
+        role: "너는 공고 요약과 링크 목록을 보고 신청에 필요한 것을 고르는 조사원이다.",
+        schema: pickSchema,
+        rules: [
+          "- title: 공고 제목. organization: 주관 기관.",
+          "- deadline: 접수 마감. **`YYYY-MM-DD` 또는 `YYYY-MM-DDTHH:mm` 만 쓴다.** 「9월 중」처럼 못 적으면 null.",
+          "- applyUrl: 실제로 신청서를 작성·제출하는 페이지. 목록에 있는 URL 만 쓴다. 없으면 null.",
+          "  공고 상세 페이지·목록 페이지는 신청 페이지가 아니다. '신청하기' '접수' '지원하기' 링크가 그것이다.",
+          "- attachments: 공고문·모집요강·신청서 양식·제출 서식 파일 링크. 목록에 있는 URL 만, 최대 3개.",
+          "- 요약에 없는 사실을 지어내지 않는다.",
+        ],
+        prompt: [
+          `목표: ${intent}`,
+          "",
+          "요약:",
+          clip(markdown, 10_000),
+          "",
+          candidates.length ? "링크 목록:" : "링크 목록: (없음)",
+          ...candidates.map(
+            (link, i) => `${i + 1}. ${link.text || "(글자 없음)"} — ${link.url}`,
+          ),
+        ].join("\n"),
+        /**
+         * 마감은 **형식이 맞는지 코드가 본다.** 「2026년 9월 중」은 문자열로는
+         * 완벽하고, 스키마가 통과시키면 그대로 스냅샷·계획·기한 역산까지
+         * 흘러간다. 못 읽는 값은 여기서 버린다 — 없는 편이 틀린 것보다 낫다.
+         */
+        verify: [isoDate("deadline")],
+        normalize: (raw, issues) => ({
+          title: raw.title?.trim() ?? "",
+          organization: raw.organization?.trim() || null,
+          // 못 읽는 마감은 없는 것으로 둔다. 틀린 날짜로 기한을 역산하는 것보다
+          // 「확인 안 됨」이 정직하고, 계획 에이전트도 그렇게 쓰게 돼 있다.
+          deadline: dropped(issues, "deadline") ? null : raw.deadline?.trim() || null,
+          applyUrl:
+            raw.applyUrl && allowed.has(raw.applyUrl) ? raw.applyUrl : fallback.applyUrl,
+          attachments: (raw.attachments ?? [])
+            .filter((url) => allowed.has(url))
+            .slice(0, 3),
+        }),
+      },
+    );
+    return value;
+  } catch (error) {
+    if (isAbort(error)) throw error;
     return fallback;
   }
 }
@@ -212,11 +223,16 @@ function heuristicApplyUrl(candidates: Link[]): string | null {
   return hit?.url ?? null;
 }
 
+/**
+ * ⚠ `label` 이 **필수였다.** 항목 스무 개 중 하나에 라벨이 빠지면 zod 가 배열
+ * 전체를 폐기하고 평문 폴백으로 떨어진다 — 하나 때문에 열아홉을 버리는 것이다.
+ * 느슨하게 받고 `makeNeed` 가 빈 라벨을 거른다(그 함수는 원래 그 일을 한다).
+ */
 const needsSchema = z.object({
   needs: z
     .array(
       z.object({
-        label: z.string(),
+        label: z.string().nullish(),
         kind: z.string().nullish(),
         options: z.array(z.string()).nullish(),
         required: z.boolean().nullish(),
@@ -230,58 +246,62 @@ const needsSchema = z.object({
  * 신청자가 입력해야 하는 항목.
  * 신청 페이지가 있으면 그 폼의 라벨이 1차 근거다. 없으면 요약에서 추론한다.
  */
-async function deriveNeeds(markdown: string, applyPage: Page | null): Promise<Need[]> {
+async function deriveNeeds(
+  markdown: string,
+  applyPage: Page | null,
+  ctx: Ctx,
+): Promise<Need[]> {
   const source: Need["source"] = applyPage ? "research" : "summary";
   try {
-    const { object } = await generateObject({
-      model: bigModel(),
-      schema: needsSchema,
-      system: [
-        "너는 공고를 읽고 신청자가 직접 입력해야 하는 항목을 정리하는 설계자다.",
-        "결과를 아래 JSON 구조 그대로 낸다. 키 이름을 바꾸거나 새로 만들지 않는다.",
-        `{ "needs": [{ "label": string, "kind": "text"|"long"|"date"|"number"|"select"|"checkbox"|"file", "options": [string], "required": boolean, "why": string }] }`,
-        "- **`select` 이면 `options` 에 고를 값을 넣는다.** 원문에 선택지가 적혀 있으면 그대로, 없으면 그 항목에서 실제로 가능한 값(예: 투자 단계 → 시드/시리즈 A/시리즈 B/해당 없음). 선택지를 못 만들겠으면 `text` 로 둔다 — 고를 것이 없는데 고르라고 하지 않는다.",
-        "",
-        "- 신청 페이지의 폼 항목이 주어지면 그것을 **그대로** 항목으로 만든다. 라벨 글자를 바꾸지 않는다.",
-        "- 제출 서류(파일 업로드)는 kind 를 file 로 둔다.",
-        "- 동의·확인 체크는 checkbox. 긴 서술(자기소개, 사업 내용)은 long.",
-        "- why 는 공고의 어느 대목 때문에 묻는지 한 문장.",
-        "- 섹션 제목(기본 정보, 제출 서류)과 예시 값(010-0000-0000, https://…)은 항목이 아니다. 넣지 않는다.",
-        "- 공고에 없는 항목을 지어내지 않는다. 최대 20개.",
-      ].join("\n"),
-      prompt: [
-        "요약:",
-        clip(markdown, 10_000),
-        "",
-        applyPage
-          ? [
-              `신청 페이지: ${applyPage.title || applyPage.url}`,
-              "폼 라벨 (이것이 항목이다):",
-              ...applyPage.formHints.map((hint) => `  - ${hint}`),
-              "",
-              "플레이스홀더 (예시 값일 뿐 항목이 아니다):",
-              ...applyPage.placeholders.map((hint) => `  - ${hint}`),
-              "",
-              "신청 페이지 본문:",
-              clip(applyPage.text, 6_000),
-            ].join("\n")
-          : "신청 페이지: (없음 — 요약에서 추론한다)",
-      ].join("\n"),
-    });
-    return (object.needs ?? [])
-      .map((item) =>
-        makeNeed({
-          label: item.label,
-          kind: item.kind,
-          options: item.options,
-          required: item.required,
-          why: item.why,
-          source,
-        }),
-      )
-      .filter((need): need is Need => need !== null)
-      .slice(0, 20);
-  } catch {
+    const { value } = await runObject(
+      { task: "research", log: ctx.log, signal: ctx.signal },
+      {
+        role: "너는 공고를 읽고 신청자가 직접 입력해야 하는 항목을 정리하는 설계자다.",
+        schema: needsSchema,
+        rules: [...NEED_RULES, "- 공고에 없는 항목을 지어내지 않는다. 최대 20개."],
+        prompt: [
+          "요약:",
+          clip(markdown, 10_000),
+          "",
+          applyPage
+            ? [
+                `신청 페이지: ${applyPage.title || applyPage.url}`,
+                "폼 라벨 (이것이 항목이다):",
+                ...applyPage.formHints.map((hint) => `  - ${hint}`),
+                "",
+                "플레이스홀더 (예시 값일 뿐 항목이 아니다):",
+                ...applyPage.placeholders.map((hint) => `  - ${hint}`),
+                "",
+                "신청 페이지 본문:",
+                clip(applyPage.text, 6_000),
+              ].join("\n")
+            : "신청 페이지: (없음 — 요약에서 추론한다)",
+        ].join("\n"),
+        // 예시 값이 항목으로 올라오는 것과 같은 걸 두 번 묻는 것.
+        // 둘 다 `makeNeed` 가 이미 거르지만, 여기서 세면 무엇이 걸렸는지 로그에 남는다.
+        verify: [
+          noPlaceholder("needs[].label"),
+          uniqueBy("needs[].label", (item) => normalizeKey(String(item ?? ""))),
+        ],
+        normalize: (raw) =>
+          (raw.needs ?? [])
+            .map((item) =>
+              makeNeed({
+                label: item.label ?? "",
+                kind: item.kind,
+                options: item.options,
+                required: item.required,
+                why: item.why,
+                source,
+              }),
+            )
+            .filter((need): need is Need => need !== null)
+            .slice(0, 20),
+      },
+    );
+    return value;
+  } catch (error) {
+    if (isAbort(error)) throw error;
     // 모델이 실패하면 폼 라벨이라도 그대로 항목으로 만든다.
     return (applyPage?.formHints ?? [])
       .map((hint) => makeNeed({ label: hint, source }))

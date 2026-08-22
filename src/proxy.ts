@@ -50,4 +50,13 @@ export async function proxy(request: NextRequest) {
   return NextResponse.redirect(signIn);
 }
 
-export const config = { matcher: ["/app", "/app/:path*", "/sign-in"] };
+/**
+ * `/playground` 와 `/lab/*` 도 닫는다.
+ *
+ * 둘 다 모델·문서 API 를 부르는데 matcher 밖에 있었다 — 배포 URL 만 알면
+ * 누구나 팀 키를 태울 수 있었다는 뜻이다. 페이지는 여기서 로그인으로 돌리고,
+ * `/api/chat` 자체도 401 을 돌려준다(방어는 두 겹으로).
+ */
+export const config = {
+  matcher: ["/app", "/app/:path*", "/sign-in", "/playground", "/lab", "/lab/:path*"],
+};

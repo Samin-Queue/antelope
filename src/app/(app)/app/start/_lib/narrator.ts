@@ -1,8 +1,9 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 
+import { runObject } from "@/lib/ai/gateway";
+
 import type { Ctx } from "./intake";
-import { clip, smallModel } from "./llm";
+import { clip } from "./llm";
 import type { CardKey } from "./types";
 
 /**
@@ -56,38 +57,39 @@ export async function narrate(
   ctx?: Ctx,
 ): Promise<Narration | null> {
   try {
-    const { object } = await generateObject({
-      model: smallModel(),
-      schema,
-      system: [
-        "너는 여러 에이전트가 신청을 준비하는 과정을 사용자에게 중계하는 서술자다.",
-        "결과를 아래 JSON 구조 그대로 낸다.",
-        `{ "headline": string, "body": string }`,
-        "",
-        "- headline: 상태 한 줄. 「정보 수집 완료 · 39개 출처 탐색됨」 처럼 결과와 수치를 담는다. 30자 이내.",
-        "- body: 두세 문장. **무엇을 알아냈고 그래서 다음이 무엇인지**를 쓴다.",
-        "- **주어진 사실만 쓴다.** 날짜·금액·개수는 사실에 있는 것만 옮기고, 없는 것은 쓰지 않는다.",
-        "- 앞에서 이미 말한 것을 되풀이하지 않는다. 이어지는 한 편의 글처럼 쓴다.",
-        "- 기계 용어를 쓰지 않는다 — `parse`·`classify`·`stage` 대신 사람 말로.",
-        "- 실패했으면 숨기지 않는다. 무엇이 막혔고 그래서 어떻게 할 것인지 쓴다.",
-        "- 한국어. 담백하게. 감탄사·수식어를 넣지 않는다.",
-      ].join("\n"),
-      prompt: [
-        `지금 자리: ${ROLE[input.card]}`,
-        input.reason ? `이 자리로 돌아온 이유: ${input.reason}` : null,
-        "",
-        input.history.length > 0 ? "지금까지 한 말:" : null,
-        // 앞말은 **표제만** 넘긴다. 본문까지 여덟 턴을 다시 보내면 서술 한 줄에
-        // 이미 화면에 있는 글을 통째로 재전송하는 셈이다 — 이어짐을 유지하는
-        // 데는 무엇을 말했는지가 아니라 무엇을 다뤘는지면 충분하다.
-        ...input.history.slice(-4).map((turn) => `  [${turn.card}] ${turn.headline}`),
-        "",
-        "이번에 실제로 일어난 일:",
-        clip(input.facts, 3_000),
-      ]
-        .filter((line) => line !== null)
-        .join("\n"),
-    });
+    const { value: object } = await runObject(
+      // 화면 문구다. 되묻지 않는다 — 실패하면 기계 로그가 대신 남는다.
+      { task: "narrate", tier: "small" },
+      {
+        role: "너는 여러 에이전트가 신청을 준비하는 과정을 사용자에게 중계하는 서술자다.",
+        schema,
+        repair: 0,
+        rules: [
+          "- headline: 상태 한 줄. 「정보 수집 완료 · 39개 출처 탐색됨」 처럼 결과와 수치를 담는다. 30자 이내.",
+          "- body: 두세 문장. **무엇을 알아냈고 그래서 다음이 무엇인지**를 쓴다.",
+          "- **주어진 사실만 쓴다.** 날짜·금액·개수는 사실에 있는 것만 옮기고, 없는 것은 쓰지 않는다.",
+          "- 앞에서 이미 말한 것을 되풀이하지 않는다. 이어지는 한 편의 글처럼 쓴다.",
+          "- 기계 용어를 쓰지 않는다 — `parse`·`classify`·`stage` 대신 사람 말로.",
+          "- 실패했으면 숨기지 않는다. 무엇이 막혔고 그래서 어떻게 할 것인지 쓴다.",
+          "- 한국어. 담백하게. 감탄사·수식어를 넣지 않는다.",
+        ],
+        prompt: [
+          `지금 자리: ${ROLE[input.card]}`,
+          input.reason ? `이 자리로 돌아온 이유: ${input.reason}` : null,
+          "",
+          input.history.length > 0 ? "지금까지 한 말:" : null,
+          // 앞말은 **표제만** 넘긴다. 본문까지 여덟 턴을 다시 보내면 서술 한 줄에
+          // 이미 화면에 있는 글을 통째로 재전송하는 셈이다 — 이어짐을 유지하는
+          // 데는 무엇을 말했는지가 아니라 무엇을 다뤘는지면 충분하다.
+          ...input.history.slice(-4).map((turn) => `  [${turn.card}] ${turn.headline}`),
+          "",
+          "이번에 실제로 일어난 일:",
+          clip(input.facts, 3_000),
+        ]
+          .filter((line) => line !== null)
+          .join("\n"),
+      },
+    );
 
     const headline = object.headline?.trim();
     const body = object.body?.trim();

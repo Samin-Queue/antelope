@@ -1,13 +1,14 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 
+import { isAbort, runObject } from "@/lib/ai/gateway";
+import { noPlaceholder } from "@/lib/ai/verify";
 import { env } from "@/lib/env";
 import { findStep, runAgent, stepOutputs } from "@/lib/upstage-studio";
 import { BRIEF } from "@/app/(labs)/lab/analysis/_lib/workflow";
 
 import type { IntakeFile } from "./fetch";
 import type { Ctx } from "./intake";
-import { bigModel, clip } from "./llm";
+import { clip } from "./llm";
 import { makeNeed } from "./needs";
 import type { Summary } from "./summarize";
 import type { Need } from "./types";
@@ -36,15 +37,40 @@ export type Analysis = {
   via: "analysis" | "solar" | "none";
 };
 
+const APPLICATION_TYPES = [
+  "JOB_APPLICATION",
+  "SCHOLARSHIP_APPLICATION",
+  "HOUSING_APPLICATION",
+  "COMPETITION_ENTRY",
+  "GRANT_SUPPORT_APPLICATION",
+  "PERMIT_APPLICATION",
+  "GENERAL_APPLICATION",
+] as const;
+
+const INPUT_TYPES = [
+  "TEXT",
+  "TEXTAREA",
+  "DATE",
+  "NUMBER",
+  "SELECT",
+  "CHECKBOX",
+  "FILE",
+] as const;
+
+/**
+ * ⚠ enum 을 **스키마에 적는다.** 계약 문장이 여기서 파생되므로, 문자열로 두면
+ * 모델이 고를 값 목록이 프롬프트에서 사라진다. 대신 `.nullish()` 는 유지한다 —
+ * 값이 없으면 키를 생략하는 것이 LLM 의 기본 습성이다.
+ */
 const fieldSchema = z.object({
-  applicationType: z.string().nullish(),
+  applicationType: z.enum(APPLICATION_TYPES).nullish(),
   applicationTitle: z.string().nullish(),
   fields: z
     .array(
       z.object({
         key: z.string().nullish(),
         label: z.string().nullish(),
-        inputType: z.string().nullish(),
+        inputType: z.enum(INPUT_TYPES).nullish(),
         required: z.boolean().nullish(),
         stage: z.string().nullish(),
         documentName: z.string().nullish(),
@@ -95,6 +121,7 @@ export async function analyze(
         files: fresh.map((file) => ({ blob: file.blob, name: file.name })),
         include: "all",
         timeoutMs: 240_000,
+        signal: ctx.signal,
       });
       const outputs = stepOutputs(done);
       const extract = findStep(outputs, "extract");
@@ -111,6 +138,7 @@ export async function analyze(
       );
       return { ...toAnalysis(parsed.data, "analysis"), brief: brief || null };
     } catch (error) {
+      if (isAbort(error)) throw error;
       ctx.log(`정보 분석 실패 — Solar 로 대체: ${message(error)}`);
     }
   } else if (files.length === 0) {
@@ -123,23 +151,26 @@ export async function analyze(
     return { needs: [], applicationType: null, title: null, brief: null, via: "none" };
 
   try {
-    const { object } = await generateObject({
-      model: bigModel(),
-      schema: fieldSchema,
-      system: [
-        "너는 공고 요약을 읽고 신청 양식에 필요한 필드를 설계하는 분석가다.",
-        "결과를 아래 JSON 구조 그대로 낸다. 키 이름을 바꾸거나 새로 만들지 않는다.",
-        `{ "applicationType": "JOB_APPLICATION"|"SCHOLARSHIP_APPLICATION"|"HOUSING_APPLICATION"|"COMPETITION_ENTRY"|"GRANT_SUPPORT_APPLICATION"|"PERMIT_APPLICATION"|"GENERAL_APPLICATION", "applicationTitle": string, "fields": [{ "key": string, "label": string, "inputType": "TEXT"|"TEXTAREA"|"DATE"|"NUMBER"|"SELECT"|"CHECKBOX"|"FILE", "required": boolean, "stage": "BASIC"|"ELIGIBILITY"|"DOCUMENTS"|"ESSAY"|"REVIEW"|"SUBMISSION", "documentName": string, "instructions": string, "source": string }] }`,
-        "",
-        "- 신청 양식에 실제로 필요한 필드만 순서대로. label 은 한글, key 는 영문 camelCase.",
-        "- 제출 서류는 FILE 로 두고 documentName 에 서류 이름을 적는다.",
-        "- source 에는 그 필드를 요구한 요약 문장을 그대로 옮긴다.",
-        "- 요약에 없는 것을 지어내지 않는다. 최대 20개.",
-      ].join("\n"),
-      prompt: clip(summary.markdown, 12_000),
-    });
-    return toAnalysis(object, "solar");
+    const { value } = await runObject(
+      { task: "analyze", log: ctx.log, signal: ctx.signal },
+      {
+        role: "너는 공고 요약을 읽고 신청 양식에 필요한 필드를 설계하는 분석가다.",
+        schema: fieldSchema,
+        rules: [
+          "- 신청 양식에 실제로 필요한 필드만 순서대로. label 은 한글, key 는 영문 camelCase.",
+          "- 제출 서류는 FILE 로 두고 documentName 에 서류 이름을 적는다.",
+          "- formName 은 공고가 지정한 서식 **파일 이름**이다. 없으면 빈 문자열.",
+          "- source 에는 그 필드를 요구한 요약 문장을 그대로 옮긴다.",
+          "- 요약에 없는 것을 지어내지 않는다. 최대 20개.",
+        ],
+        verify: [noPlaceholder("fields[].label")],
+        prompt: clip(summary.markdown, 12_000),
+        normalize: (raw) => toAnalysis(raw, "solar"),
+      },
+    );
+    return value;
   } catch (error) {
+    if (isAbort(error)) throw error;
     ctx.log(`Solar 도출 실패: ${message(error)}`);
     return { needs: [], applicationType: null, title: null, brief: null, via: "none" };
   }

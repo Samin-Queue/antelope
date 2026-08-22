@@ -1,6 +1,6 @@
-import { generateObject, generateText } from "ai";
 import { z } from "zod";
 
+import { isAbort, runObject, runText } from "@/lib/ai/gateway";
 import { lanes } from "@/lib/ai/lanes";
 import { env } from "@/lib/env";
 import { parseDocument } from "@/lib/upstage";
@@ -8,7 +8,7 @@ import { findStep, runAgent, stepOutputs, uploadFile } from "@/lib/upstage-studi
 
 import type { IntakeFile } from "./fetch";
 import type { Ctx, Intake } from "./intake";
-import { bigModel, clip, smallModel } from "./llm";
+import { clip } from "./llm";
 
 /**
  * 2단계 — 요약과 판정.
@@ -70,7 +70,7 @@ export async function summarize(intake: Intake, ctx: Ctx): Promise<Summary> {
       ctx.log(`페이지 요약 (Solar): ${name}`);
       return lanes.interactive(async () => ({
         name,
-        markdown: await solarSummary(page.text, `웹페이지 「${name}」`),
+        markdown: await solarSummary(page.text, `웹페이지 「${name}」`, ctx.signal),
         via: "solar",
         chars: page.text.length,
       }));
@@ -81,7 +81,11 @@ export async function summarize(intake: Intake, ctx: Ctx): Promise<Summary> {
             ctx.log("입력한 문장 요약 (Solar)");
             return {
               name: "입력한 내용",
-              markdown: await solarSummary(intake.sourceText!, "사용자가 직접 쓴 설명"),
+              markdown: await solarSummary(
+                intake.sourceText!,
+                "사용자가 직접 쓴 설명",
+                ctx.signal,
+              ),
               via: "solar",
               chars: intake.sourceText!.length,
             };
@@ -117,6 +121,7 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
         agentId,
         fileIds: [uploaded.id],
         include: "all",
+        signal: ctx.signal,
       });
       const outputs = stepOutputs(job);
       const summary = findStep(outputs, "summarize");
@@ -139,6 +144,7 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
       }
       ctx.log("유효성 검사 이 Markdown 을 만들지 못함 — Solar 로 대체");
     } catch (error) {
+      if (isAbort(error)) throw error;
       ctx.log(`유효성 검사 실패 — Solar 로 대체: ${message(error)}`);
     }
   } else {
@@ -165,13 +171,14 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
     }
     return {
       name: file.name,
-      markdown: await solarSummary(text, `파일 「${file.name}」`),
+      markdown: await solarSummary(text, `파일 「${file.name}」`, ctx.signal),
       via,
       chars: text.length,
       fileId,
       parsed: text,
     };
   } catch (error) {
+    if (isAbort(error)) throw error;
     ctx.log(`파일을 읽지 못함: ${message(error)}`);
     return {
       name: file.name,
@@ -185,18 +192,24 @@ async function summarizeFile(file: IntakeFile, ctx: Ctx): Promise<SummaryPart> {
 }
 
 /** 유효성 검사 과 같은 섹션 구조. 어느 경로로 왔든 다음 단계가 같은 모양을 받는다 */
-async function solarSummary(text: string, what: string): Promise<string> {
-  const { text: markdown } = await generateText({
-    model: bigModel(),
-    system: [
-      "당신은 문서 요약 에이전트다. 주어진 원문만 근거로 문서의 목적, 핵심 사실, 요구·결정 사항,",
-      "기한·금액·연락처 같은 실행 정보를 판단해 요약한다. 응답은 반드시 하나의 완결된",
-      `Markdown 문서여야 한다. 인사말·설명·코드 펜스는 쓰지 않는다. ${SECTIONS} 섹션을`,
-      "이 순서로 사용한다. 원문에 없는 정보는 추측하지 말고 '정보 없음' 또는 '원문 확인 필요'",
-      "로 표기한다. 신청 방법·접수처·링크가 원문에 있으면 '## 실행 정보' 에 그대로 옮긴다.",
-    ].join(" "),
-    prompt: `${what}\n\n--- 원문 ---\n${clip(text)}`,
-  });
+async function solarSummary(
+  text: string,
+  what: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const markdown = await runText(
+    { task: "summarize", signal },
+    {
+      system: [
+        "당신은 문서 요약 에이전트다. 주어진 원문만 근거로 문서의 목적, 핵심 사실, 요구·결정 사항,",
+        "기한·금액·연락처 같은 실행 정보를 판단해 요약한다. 응답은 반드시 하나의 완결된",
+        `Markdown 문서여야 한다. 인사말·설명·코드 펜스는 쓰지 않는다. ${SECTIONS} 섹션을`,
+        "이 순서로 사용한다. 원문에 없는 정보는 추측하지 말고 '정보 없음' 또는 '원문 확인 필요'",
+        "로 표기한다. 신청 방법·접수처·링크가 원문에 있으면 '## 실행 정보' 에 그대로 옮긴다.",
+      ].join(" "),
+      prompt: `${what}\n\n--- 원문 ---\n${clip(text)}`,
+    },
+  );
   const trimmed = markdown.trim().replace(/^```(?:markdown)?\n?|\n?```$/g, "");
   return trimmed.startsWith("#") ? trimmed : `# 문서 요약\n\n${trimmed}`;
 }
@@ -219,7 +232,7 @@ const verdictSchema = z.object({
 
 export type Verdict = { verdict: "good" | "bad"; reason: string };
 
-export async function judge(summary: Summary): Promise<Verdict> {
+export async function judge(summary: Summary, signal?: AbortSignal): Promise<Verdict> {
   const readable = summary.parts.filter(
     (part) => part.markdown.trim() && part.chars >= 20,
   );
@@ -234,27 +247,32 @@ export async function judge(summary: Summary): Promise<Verdict> {
   }
 
   try {
-    const { object } = await generateObject({
-      model: smallModel(),
-      schema: verdictSchema,
-      system: [
-        "너는 문서 요약이 쓸 만한지 판정하는 보조자다. 결과를 아래 JSON 구조 그대로 낸다.",
-        `{ "verdict": "good" | "bad", "reason": string }`,
-        "",
-        "bad 는 다음 경우뿐이다:",
-        "- 요약이 비어 있거나 '정보 없음' 뿐이다",
-        "- 내용을 이해할 수 없다 (깨진 글자, 무의미한 나열)",
-        "- 원문을 읽지 못했다고 적혀 있다",
-        "그 외에는 전부 good 이다. 공고가 아닌 것 같다는 이유로 bad 를 주지 않는다.",
-        "reason 은 한 문장.",
-      ].join("\n"),
-      prompt: clip(summary.markdown, 12_000),
-    });
-    return {
-      verdict: object.verdict ?? "good",
-      reason: object.reason?.trim() || "읽을 수 있는 요약이다.",
-    };
+    const { value } = await runObject(
+      // 2진 판정이라 작은 모델로 충분하다. 되묻지 않는다 — 아래 폴백이
+      // 「읽을 수 있는 요약이 있으면 good」 이고, 그게 왕복보다 싸다.
+      { task: "judge", tier: "small", signal },
+      {
+        role: "너는 문서 요약이 쓸 만한지 판정하는 보조자다.",
+        schema: verdictSchema,
+        repair: 0,
+        rules: [
+          "bad 는 다음 경우뿐이다:",
+          "- 요약이 비어 있거나 '정보 없음' 뿐이다",
+          "- 내용을 이해할 수 없다 (깨진 글자, 무의미한 나열)",
+          "- 원문을 읽지 못했다고 적혀 있다",
+          "그 외에는 전부 good 이다. 공고가 아닌 것 같다는 이유로 bad 를 주지 않는다.",
+          "reason 은 한 문장.",
+        ],
+        prompt: clip(summary.markdown, 12_000),
+        normalize: (raw): Verdict => ({
+          verdict: raw.verdict ?? "good",
+          reason: raw.reason?.trim() || "읽을 수 있는 요약이다.",
+        }),
+      },
+    );
+    return value;
   } catch (error) {
+    if (isAbort(error)) throw error;
     // 판정이 실패했다고 멈추지 않는다. 읽을 수 있는 요약이 있으면 good 이다.
     return {
       verdict: "good",
