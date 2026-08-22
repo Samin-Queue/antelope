@@ -10,6 +10,7 @@ import { engine } from "@/content/engine";
 
 import { Dag, StepTally } from "./_lib/dag";
 import {
+  CallbackLoop,
   DualVector,
   Duo,
   GatewayLoop,
@@ -136,6 +137,54 @@ export default function EnginePage() {
           <p className="mt-8 rounded-xl border border-brand/25 bg-brand/5 px-4 py-3 text-sm leading-relaxed">
             <T>{engine.journey.close}</T>
           </p>
+
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.journey.loop.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.journey.loop.sub}</T>
+            </p>
+            <div className="mt-5">
+              <CallbackLoop />
+            </div>
+            <div className="mt-3">
+              <Card>
+                <Sub>
+                  <T>{engine.journey.loop.switchOver.headline}</T>
+                </Sub>
+                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                  <T>{engine.journey.loop.switchOver.body}</T>
+                </p>
+              </Card>
+            </div>
+            <Source path={engine.journey.loop.file} />
+          </div>
+
+          <div className="mt-12">
+            <Sub>
+              <T>{engine.journey.detours.headline}</T>
+            </Sub>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <T>{engine.journey.detours.sub}</T>
+            </p>
+            <div className="mt-5">
+              <Table
+                head={["무엇이", "언제", "어떻게 되돌아가나", "어디에"]}
+                rows={engine.journey.detours.rows.map((row) => [
+                  row.what,
+                  row.when,
+                  <T key="how">{row.how}</T>,
+                  <span key="w" className="font-mono text-[11px] break-all">
+                    {row.where}
+                  </span>,
+                ])}
+              />
+            </div>
+            <p className="mt-3 max-w-3xl text-xs leading-relaxed text-muted-foreground">
+              <T>{engine.journey.detours.note}</T>
+            </p>
+          </div>
 
           <div className="mt-6">
             <Card>

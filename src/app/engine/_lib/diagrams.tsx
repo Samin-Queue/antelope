@@ -378,3 +378,56 @@ export function Duo() {
     </div>
   );
 }
+
+// ── 브라우저 되부름 ────────────────────────────────────────────────────
+/**
+ * 앞으로만 가지 않는다는 사실을 그림으로.
+ *
+ * 표로만 적으면 「도구가 열한 개 있다」와 「그중 셋은 지나온 단계를 다시
+ * 부른다」가 같은 무게로 읽힌다. 화살표가 양쪽인 것이 요점이라 그것만 그린다.
+ */
+export function CallbackLoop() {
+  const { center, calls } = engine.journey.loop;
+  return (
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,15rem)_1fr] lg:items-center">
+      <div className="rounded-2xl border border-brand/35 bg-brand/5 p-4 text-center">
+        <p className="font-mono text-xs text-brand">{center.name}</p>
+        <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
+          {center.note}
+        </p>
+        <p className="mt-3 border-t border-brand/20 pt-3 text-[11px] leading-relaxed text-muted-foreground">
+          다음에 무엇을 할지 여기서는 코드가 아니라 모델이 정한다
+        </p>
+      </div>
+
+      <ul className="grid gap-2">
+        {calls.map((call) => (
+          <li
+            key={call.tool}
+            className="flex items-start gap-3 rounded-xl border border-border bg-card/40 p-3.5"
+          >
+            <span
+              className="mt-0.5 shrink-0 font-mono text-sm text-brand"
+              aria-label="양방향"
+            >
+              ⇄
+            </span>
+            <div className="min-w-0">
+              <p className="flex flex-wrap items-baseline gap-x-2">
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-brand">
+                  {call.tool}
+                </code>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  → {call.to} 카드가 다시 켜진다
+                </span>
+              </p>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                <T>{call.body}</T>
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
