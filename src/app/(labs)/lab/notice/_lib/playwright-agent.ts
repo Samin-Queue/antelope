@@ -225,7 +225,7 @@ export async function runPlaywrightAgent(opts: {
     const tools = {
       read: tool({
         description:
-          "페이지를 읽는다. 조작 가능한 요소 목록(e1, e2 …)과 화면 글을 돌려준다. 조작 전에 반드시 먼저 호출한다.",
+          "페이지를 읽는다. 조작 가능한 요소 목록(e1, e2 …)과 화면 글을 돌려준다. 맨 처음 한 번만 부르면 된다 — click 은 결과 화면을 함께 돌려준다.",
         inputSchema: z.object({}),
         execute: async () => {
           const text = await read();
@@ -291,10 +291,18 @@ export async function runPlaywrightAgent(opts: {
             return message;
           }
 
-          await frame();
-          const moved = page.url() !== before;
-          const message = `"${el.label}" 를 눌렀다.${moved ? ` 페이지가 ${page.url()} 로 바뀌었다.` : " read 로 결과를 확인하라."}`;
-          await record("click", { ref, label: el.label }, message);
+          // 누른 뒤 화면을 **그 자리에서** 돌려준다.
+          //
+          // 「read 로 확인하라」고 안내하면 모델이 click → read 를 왕복한다.
+          // 실측: 도구 71회에 245초, 병목은 도구 실행이 아니라 모델 왕복이었고
+          // read 가 16회였다. 화면이 바뀌는 조작은 결과를 함께 주면 그 절반이 준다.
+          const changed = await read();
+          const message = [
+            `"${el.label}" 를 눌렀다.${page.url() !== before ? ` 페이지가 바뀌었다.` : ""}`,
+            "",
+            changed,
+          ].join("\n");
+          await record("click", { ref, label: el.label }, `"${el.label}" 클릭`);
           return message;
         },
       }),
@@ -440,7 +448,8 @@ function systemPrompt(allowSubmit: boolean, hasArtifacts: boolean): string {
     "사용자는 진행 화면을 실시간으로 보고 있다. 없는 사실을 지어내지 않고 주어진 값만 옮긴다.",
     "",
     "규칙:",
-    "- 조작 전에 반드시 read 를 먼저 호출한다. ref 는 직전 read 에 있던 것만 쓴다.",
+    "- 맨 처음 한 번 read 한다. **click 은 바뀐 화면을 함께 돌려주므로 그 뒤에 read 를 또 부르지 않는다.** ref 는 가장 최근에 받은 목록의 것만 쓴다.",
+    "- **여러 칸은 fill 을 한 번에 여러 개 호출해 채운다.** 한 칸씩 왕복하면 그만큼 느려진다.",
     "- 날짜는 `2024-03-15` 형태로 fill 한다. 화면 표기(mm/dd/yyyy 등)로 바꾸지 않는다.",
     "- `[선택됨]` 인 체크박스·라디오는 다시 누르지 않는다. 같은 그룹에서 하나만 고른다.",
     hasArtifacts
