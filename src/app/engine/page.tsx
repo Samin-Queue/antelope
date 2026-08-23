@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { socialMetadata } from "@/lib/og";
 import { noticeWorkflow } from "@/lib/studio-workflow";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -7,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { analysisWorkflow } from "@/app/(labs)/lab/analysis/_lib/workflow";
 import { validationWorkflow } from "@/app/(labs)/lab/validation/_lib/workflow";
 import { engine } from "@/content/engine";
+import { site } from "@/content/site";
 
 import { Dag, StepTally } from "./_lib/dag";
 import {
@@ -37,6 +39,12 @@ export const metadata = {
   title: "엔진",
   description: engine.sub,
   alternates: { canonical: "/engine" },
+  ...socialMetadata({
+    title: `${engine.headline} · ${site.name}`,
+    description: engine.sub,
+    path: "/engine",
+    type: "article",
+  }),
 };
 
 /**

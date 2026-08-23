@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { socialMetadata } from "@/lib/og";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { site } from "@/content/site";
@@ -16,14 +17,11 @@ export const metadata: Metadata = {
   description: site.description,
   // 구글 OAuth 심사가 동의 화면의 앱 이름과 홈페이지의 앱 이름을 맞춰 본다.
   applicationName: site.name,
-  openGraph: {
+  // og:* 와 twitter:* 는 한 자리에서 만든다. 공유 카드 이미지는 `public/og.png`.
+  ...socialMetadata({
     title: `${site.name} · ${site.tagline}`,
-    siteName: site.name,
     description: site.description,
-    url: site.url,
-    locale: "ko_KR",
-    type: "website",
-  },
+  }),
   alternates: { canonical: "/" },
   // Search Console 「URL 접두어」 속성 확인용.
   //
