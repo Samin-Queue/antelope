@@ -8,10 +8,10 @@ Upstage Studio 에서 문서 처리 에이전트 하나를 구성하고 **저장
 저장까지 끝나야 API 로 호출할 수 있다.
 
 - Studio: https://studio.upstage.ai
-- 대상 에이전트: `agt_QxDUCbi6bCjGqzfrzeZqwE` (이미 생성됨)
-  - 직접 열기: https://studio.upstage.ai/agents/agt_QxDUCbi6bCjGqzfrzeZqwE
+- 대상 에이전트: `UPSTAGE_AGENT_ID` 가 가리키는 것 (`pnpm studio:provision` 이 만든다)
+  - 직접 열기: `https://studio.upstage.ai/agents/<UPSTAGE_AGENT_ID>`
   - 이 에이전트를 못 찾으면 새로 만들고 **새 Agent ID 를 결과로 보고**한다.
-- 계정: `zeroarea@kakao.com` (로그인은 사람이 미리 해 둔다)
+- 계정: `UPSTAGE_STUDIO_API_KEY` 소유 계정 (로그인은 사람이 미리 해 둔다)
 
 ## 왜 필요한가
 
