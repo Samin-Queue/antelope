@@ -1,10 +1,12 @@
+![Antelope — powered by Upstage](./docs/brand/banner.png)
+
 # Antelope
 
 **Document agent that reads a public notice and completes the application for you.**
 **공고를 읽고 신청까지 대신 수행하는 문서 에이전트.**
 
 JunctionX Korea 2026 (Pohang, Aug 21–23) · Team **Samin Queue**
-Live demo: https://web-production-3f8f1.up.railway.app
+Live demo: https://antelope.up.railway.app
 
 **[English](#english) · [한국어](#한국어) · [Open Source](#open-source)**
 
